@@ -176,16 +176,20 @@ export class EventSelectScene extends Phaser.Scene {
         );
       }
     } else {
+      // Lock icon and unlock text form one block; long texts (4 wrapped lines for the 400 m) lift
+      // the block so the last line stays inside the card's bottom border.
+      const lines = EVENT_LOCK_TEXT[event].flatMap((l) => wrapMini(l, CARD_W - 12));
+      const textH = lines.length * (MINI_LINE_HEIGHT + 1) - 1;
+      const textTop = Math.min(CARD_Y + 86, CARD_Y + CARD_H - 4 - textH);
       keep(
         this.add
-          .image(cx - 8, CARD_Y + 66, iconKey('lock'))
+          .image(cx - 8, textTop - 20, iconKey('lock'))
           .setOrigin(0, 0)
           .setDepth(depth),
       );
-      const lines = EVENT_LOCK_TEXT[event].flatMap((l) => wrapMini(l, CARD_W - 12));
       lines.forEach((line, i) => {
         keepLabel(
-          new Label(this, cx, CARD_Y + 86 + i * (MINI_LINE_HEIGHT + 1), line, {
+          new Label(this, cx, textTop + i * (MINI_LINE_HEIGHT + 1), line, {
             font: FONT_MINI,
             align: 'center',
             color: PAL.midGrey,
