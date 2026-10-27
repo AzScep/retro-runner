@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Audio Preview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #14121f;
+        --fg: #e8e4ff;
+        --btn: #2c2945;
+        --accent: #ff7aa8;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          14px/1.4 ui-monospace,
+          monospace;
+      }
+      h2 {
+        margin: 20px 0 8px;
+        font-size: 14px;
+        color: var(--accent);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      button {
+        background: var(--btn);
+        color: var(--fg);
+        border: 1px solid #4a4570;
+        padding: 6px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      pre {
+        white-space: pre-wrap;
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body>
+    <p>Retro Runner audio preview (dev only). Any click unlocks audio.</p>
+    <h2>Music</h2>
+    <div class="row" id="music"></div>
+    <h2>SFX</h2>
+    <div class="row" id="sfx"></div>
+    <h2>Mix</h2>
+    <div class="row" id="mix"></div>
+    <pre id="state"></pre>
+    <script type="module" src="./preview.ts"></script>
+  </body>
+</html>

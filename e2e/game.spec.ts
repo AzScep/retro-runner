@@ -1,0 +1,430 @@
+import { expect, test } from '@playwright/test';
+import {
+  bootToTitle,
+  expectText,
+  getState,
+  mash,
+  mashToFinish,
+  offPaletteColours,
+  SAVE_KEY,
+  startRace,
+  tap,
+  titleToLadder,
+  waitForPhase,
+  waitForResults,
+  waitForScene,
+  waitForState,
+} from './helpers.ts';
+
+const SEED = 20261026;
+
+// Mashing timing is real time, so tests in this file run one after another per browser
+// (playwright.config.ts sets fullyParallel). Many WebGL pages at once starve the renderer and turn a
+// 12 alt/s mash into a crawl.
+test.describe.configure({ mode: 'default', timeout: 120_000 });
+
+test('boots to the title screen with a fresh save', async ({ page }) => {
+  const s = await bootToTitle(page);
+  expect(s.ready).toBe(true);
+  // PRESS ENTER blinks at 1 Hz.
+  await waitForState(page, (st) => st.texts.includes('PRESS ENTER'), 'PRESS ENTER', 2000);
+  expect(s.records?.unlockedTier).toBe(1);
+  // Audio pre-rendering runs in the background after the Title is up and still completes.
+  await waitForState(page, (st) => st.audioPreloaded, 'audio preloaded', 30_000);
+  const ladder = await titleToLadder(page);
+  expect(ladder.ladderCursor).toBe('pip');
+  // Tiers 2-7 are silhouettes named "???" (design 10, flow and unlocks).
+  expect(ladder.texts.filter((t) => t === '???').length).toBeGreaterThanOrEqual(6);
+  expectText(ladder, 'PIP');
+});
+
+test('beat Pip: win, recorded time, Jess unlocked, PB persists after reload, records show it', async ({
+  page,
+}) => {
+  await bootToTitle(page);
+  await titleToLadder(page);
+  const started = await startRace(page, SEED);
+  expect(started.race?.opponent).toBe('pip');
+  expect(started.race?.seed).toBe(SEED);
+
+  await waitForPhase(page, 'running');
+  const crossed = await mashToFinish(page);
+  const playerMs = crossed.race?.player.finishMs;
+  expect(playerMs).toBeGreaterThan(5000);
+  expect(playerMs).toBeLessThan(18000);
+
+  const res = await waitForResults(page);
+  const outcome = res.race?.outcome;
+  expect(outcome?.result).toBe('win');
+  expect(outcome?.ms).toBe(playerMs);
+  expect(outcome?.oppMs).not.toBeNull();
+  expectText(res, 'YOU WIN!');
+  expectText(res, 'JESS UNLOCKED!');
+  // NEW PB! flashes at 2 Hz, so wait for an "on" frame.
+  await waitForState(page, (s) => s.texts.includes('NEW PB!'), 'NEW PB! flash', 2000);
+  expect(res.records?.best['pip']?.ms).toBe(playerMs);
+  expect(res.records?.beaten).toContain('pip');
+  expect(res.records?.unlockedTier).toBeGreaterThanOrEqual(2);
+  expect(res.records?.history[0]).toMatchObject({ opp: 'pip', result: 'win', ms: playerMs });
+  // localStorage holds the design 4.3 document.
+  const raw = await page.evaluate((k) => localStorage.getItem(k), SAVE_KEY);
+  expect(JSON.parse(raw ?? 'null')).toMatchObject({ version: 1, best: { pip: { ms: playerMs } } });
+
+  // NEXT (default focus after a win) starts the Jess race.
+  await page.keyboard.press('Enter');
+  const jess = await waitForState(page, (s) => s.race?.opponent === 'jess', 'Jess race');
+  expect(jess.scenes).not.toContain('Results');
+
+  // Reload: unlocks and PB survive.
+  await page.reload();
+  const after = await waitForScene(page, 'Title', 30_000);
+  expect(after.records?.best['pip']?.ms).toBe(playerMs);
+  expect(after.records?.beaten).toContain('pip');
+  const ladder = await titleToLadder(page);
+  expect(ladder.ladderCursor).toBe('jess');
+  expectText(ladder, 'JESS');
+
+  // Records screen (RECORDS is right of RACE in the menu row).
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  const records = await waitForScene(page, 'Records');
+  const pbText = (Math.ceil((playerMs as number) / 10) / 100).toFixed(2);
+  expect(records.texts.some((t) => t.endsWith(pbText))).toBe(true);
+  await page.keyboard.press('Escape');
+  await waitForScene(page, 'Ladder');
+});
+
+test('mashing through the finish does not move the results button focus', async ({ page }) => {
+  await bootToTitle(page);
+  await titleToLadder(page);
+  await startRace(page, SEED);
+  await waitForPhase(page, 'running');
+  await mashToFinish(page);
+  // Keep mashing like a player who has not noticed the line, until the card has been up a while.
+  let cardSeenAt: number | null = null;
+  await mash(page, (s) => {
+    if (s.scenes.includes('Results')) cardSeenAt ??= Date.now();
+    return cardSeenAt !== null && Date.now() - cardSeenAt > 600;
+  });
+  // Alternating presses cancel out in pairs, so end on an odd number of them (net one step right).
+  for (const k of ['ArrowRight', 'ArrowLeft', 'ArrowRight']) {
+    await tap(page, k);
+    await page.waitForTimeout(40);
+  }
+  // Stop, then confirm: the default button after a win (NEXT) must still be focused.
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Enter');
+  await waitForState(page, (s) => s.race?.opponent === 'jess', 'Jess race after NEXT');
+});
+
+test('same-key spam gives no speed and shows fumble feedback', async ({ page }) => {
+  await bootToTitle(page);
+  await titleToLadder(page);
+  await startRace(page, SEED);
+  await waitForPhase(page, 'running');
+  const end = Date.now() + 3000;
+  while (Date.now() < end) {
+    await tap(page, 'ArrowRight');
+    await page.waitForTimeout(60);
+  }
+  const s = await getState(page);
+  expect(s.race?.player.kmh).toBe(0);
+  expect(s.race?.player.xM ?? 99).toBeLessThan(1);
+  expect(s.hud?.fumbles ?? 0).toBeGreaterThan(10);
+  expect(s.hud?.kmh).toBe(0);
+});
+
+test('holding a key (auto-repeat) gives no speed', async ({ page }) => {
+  await bootToTitle(page);
+  await titleToLadder(page);
+  await startRace(page, SEED);
+  await waitForPhase(page, 'running');
+  await page.keyboard.down('ArrowRight');
+  const end = Date.now() + 3000;
+  while (Date.now() < end) {
+    // A second down without an up is dispatched with repeat: true.
+    await page.keyboard.down('ArrowRight');
+    await page.waitForTimeout(33);
+  }
+  const s = await getState(page);
+  await page.keyboard.up('ArrowRight');
+  expect(s.race?.player.kmh).toBe(0);
+  expect(s.race?.player.xM ?? 99).toBeLessThan(1);
+});
+
+test('two false starts disqualify, record DQ and no time', async ({ page }) => {
+  await bootToTitle(page);
+  await titleToLadder(page);
+  await startRace(page, SEED);
+
+  await waitForState(page, (s) => s.race?.phase === 'countdown' && s.race.countdown === 2, 'beat 2');
+  await tap(page, 'ArrowLeft');
+  const fs1 = await waitForPhase(page, 'falseStart');
+  expect(fs1.race?.falseStarts).toBe(1);
+  expect(fs1.hud?.banner).toBe('FALSE START!');
+
+  await waitForState(
+    page,
+    (s) => s.race?.phase === 'countdown' && s.race.countdown !== null,
+    'countdown restart',
+  );
+  await tap(page, 'ArrowRight');
+  const res = await waitForResults(page);
+  expect(res.race?.outcome?.result).toBe('dq');
+  expect(res.race?.outcome?.ms).toBeNull();
+  expectText(res, 'DISQUALIFIED');
+  expect(res.records?.history[0]).toMatchObject({ opp: 'pip', result: 'dq', ms: null });
+  expect(res.records?.best['pip']).toBeUndefined();
+  expect(res.records?.unlockedTier).toBe(1);
+
+  // RETRY (default after a loss) restarts the same race from the countdown with a clean count.
+  await page.keyboard.press('Enter');
+  const retry = await waitForState(
+    page,
+    (s) => s.race?.opponent === 'pip' && !s.scenes.includes('Results') && s.race.falseStarts === 0,
+    'retry',
+  );
+  expect(retry.race?.phase).not.toBe('finished');
+});
+
+test('Esc pauses the race clock and resume continues without a jump', async ({ page }) => {
+  await bootToTitle(page);
+  await titleToLadder(page);
+  await startRace(page, SEED);
+  await waitForPhase(page, 'running');
+  for (let i = 0; i < 10; i++) {
+    await tap(page, i % 2 === 0 ? 'ArrowLeft' : 'ArrowRight');
+    await page.waitForTimeout(50);
+  }
+  await page.keyboard.press('Escape');
+  const paused = await waitForScene(page, 'Pause');
+  const t1 = paused.race?.raceMs ?? 0;
+  await page.waitForTimeout(800);
+  const still = await getState(page);
+  expect(still.race?.raceMs).toBe(t1);
+  await page.keyboard.press('Escape');
+  await waitForState(page, (s) => !s.scenes.includes('Pause') && s.race?.paused === false, 'resume');
+  await page.waitForTimeout(200);
+  const resumed = await getState(page);
+  // At most the 0.5 s GET SET beat plus the 200 ms we waited, never the 800 ms paused gap.
+  expect((resumed.race?.raceMs ?? 0) - t1).toBeLessThan(700);
+});
+
+test('M mutes on any screen and the setting survives a reload', async ({ page }) => {
+  const s0 = await bootToTitle(page);
+  expect(s0.records?.settings.muted).toBe(false);
+  await page.keyboard.press('KeyM');
+  await waitForState(page, (s) => s.records?.settings.muted === true, 'muted');
+  await titleToLadder(page);
+  await page.keyboard.press('KeyM');
+  await waitForState(page, (s) => s.records?.settings.muted === false, 'unmuted');
+  await page.keyboard.press('KeyM');
+  await waitForState(page, (s) => s.records?.settings.muted === true, 'muted again');
+  await page.reload();
+  const after = await waitForScene(page, 'Title', 30_000);
+  expect(after.records?.settings.muted).toBe(true);
+});
+
+test('arrow keys, Space and Backspace never scroll or navigate the page', async ({ page }) => {
+  await bootToTitle(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { __prevented: Record<string, boolean> };
+    w.__prevented = {};
+    window.addEventListener('keydown', (e) => {
+      w.__prevented[e.code] = e.defaultPrevented;
+    });
+  });
+  for (const key of ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Space', 'Backspace']) {
+    await page.keyboard.press(key);
+  }
+  const prevented = await page.evaluate(
+    () => (window as unknown as { __prevented: Record<string, boolean> }).__prevented,
+  );
+  for (const code of ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Space', 'Backspace']) {
+    expect(prevented[code], code).toBe(true);
+  }
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test('canvas is integer scaled with letterboxing', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await bootToTitle(page);
+  const box = await page.evaluate(() => {
+    const c = document.querySelector('canvas');
+    if (!c) throw new Error('no canvas');
+    const r = c.getBoundingClientRect();
+    return { w: r.width, h: r.height, x: r.left, y: r.top, cw: c.width, ch: c.height, dpr: devicePixelRatio };
+  });
+  expect(box.cw).toBe(320);
+  expect(box.ch).toBe(180);
+  const factor = (box.w * box.dpr) / 320;
+  expect(Number.isInteger(Math.round(factor * 1000) / 1000)).toBe(true);
+  expect(box.h / box.w).toBeCloseTo(180 / 320, 5);
+  expect(box.w).toBeLessThanOrEqual(1000);
+  expect(box.x).toBeGreaterThanOrEqual(0);
+});
+
+/** A valid save document (design 4.3) with every rival unlocked and a PB against each. */
+function fullLadderSave(champion: boolean): string {
+  const ids = ['pip', 'jess', 'marco', 'kofi', 'valentina', 'unit7', 'zyx'];
+  const at = '2026-10-26T20:15:03.120Z';
+  const best: Record<string, { ms: number; at: string }> = {};
+  ids.forEach((id, i) => {
+    best[id] = { ms: 15000 - i * 100, at };
+  });
+  return JSON.stringify({
+    version: 1,
+    unlockedTier: 7,
+    beaten: champion ? ids : ids.slice(0, 6),
+    champion,
+    best,
+    history: [],
+    settings: { volume: 8, muted: true, reducedFlashing: false, screenShake: true, crt: false },
+  });
+}
+
+test('locked rivals cannot be raced', async ({ page }) => {
+  await bootToTitle(page);
+  await titleToLadder(page);
+  await page.keyboard.press('ArrowUp');
+  const s = await waitForState(page, (st) => st.ladderCursor === 'jess', 'cursor on Jess');
+  expectText(s, 'BEAT PIP TO UNLOCK');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  const after = await getState(page);
+  expect(after.scene).toBe('Ladder');
+  expect(after.race).toBeNull();
+});
+
+test('A and ArrowRight alternate, speed never exceeds 45 km/h, and stopping drops to 0', async ({ page }) => {
+  await bootToTitle(page);
+  await titleToLadder(page);
+  await startRace(page, SEED);
+  await waitForPhase(page, 'running');
+  const t0 = Date.now();
+  const { maxKmh } = await mash(page, () => Date.now() - t0 > 3500, ['KeyA', 'ArrowRight']);
+  const moving = await getState(page);
+  expect(moving.race?.player.kmh).toBeGreaterThan(20);
+  expect(maxKmh).toBeLessThanOrEqual(45);
+  expect(moving.hud?.lit).toBeGreaterThan(4);
+  await page.waitForTimeout(3200);
+  const stopped = await getState(page);
+  expect(stopped.race?.player.kmh).toBe(0);
+  expect(stopped.hud?.lit).toBe(0);
+});
+
+test('window blur auto-pauses the race', async ({ page }) => {
+  await bootToTitle(page);
+  await titleToLadder(page);
+  await startRace(page, SEED);
+  await waitForPhase(page, 'countdown');
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  const s = await waitForScene(page, 'Pause');
+  expect(s.race?.paused).toBe(true);
+  // QUIT TO MAP.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  const map = await waitForScene(page, 'Ladder');
+  expect(map.race).toBeNull();
+  expect(map.scenes).toEqual(['Ladder']);
+});
+
+test('a corrupt save starts fresh and is backed up', async ({ page }) => {
+  await page.addInitScript((key) => {
+    if (!sessionStorage.getItem('rr-seeded')) {
+      sessionStorage.setItem('rr-seeded', '1');
+      localStorage.setItem(key, 'not json');
+    }
+  }, SAVE_KEY);
+  const s = await bootToTitle(page);
+  expect(s.records?.unlockedTier).toBe(1);
+  expect(await page.evaluate(() => localStorage.getItem('retroRunner.save.corrupt'))).toBe('not json');
+});
+
+test('records screen shows the ladder total once all 7 rivals have a PB', async ({ page }) => {
+  await page.addInitScript(
+    ([key, doc]) => {
+      if (!sessionStorage.getItem('rr-seeded')) {
+        sessionStorage.setItem('rr-seeded', '1');
+        localStorage.setItem(key as string, doc as string);
+      }
+    },
+    [SAVE_KEY, fullLadderSave(true)],
+  );
+  await bootToTitle(page);
+  await titleToLadder(page);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  const rec = await waitForScene(page, 'Records');
+  // 15000 + 14900 + ... + 14400 = 102900 ms.
+  expectText(rec, 'LADDER TOTAL 102.90');
+  expectText(rec, 'VALENTINA');
+  expect(rec.texts).not.toContain('???');
+});
+
+test('first win against Zyx shows the Champion screen exactly once', async ({ page }) => {
+  await page.addInitScript(
+    ([key, doc]) => {
+      if (!sessionStorage.getItem('rr-seeded')) {
+        sessionStorage.setItem('rr-seeded', '1');
+        localStorage.setItem(key as string, doc as string);
+      }
+    },
+    [SAVE_KEY, fullLadderSave(false)],
+  );
+  await bootToTitle(page);
+  const ladder = await titleToLadder(page);
+  expect(ladder.ladderCursor).toBe('zyx');
+
+  await startRace(page, SEED);
+  await waitForPhase(page, 'running');
+  await mashToFinish(page, ['ArrowLeft', 'ArrowRight'], 36);
+  const res = await waitForResults(page);
+  test.skip(
+    res.race?.outcome?.result !== 'win',
+    'mashing through Playwright was not fast enough to beat Zyx',
+  );
+  expect(res.records?.champion).toBe(true);
+  expectText(res, 'LADDER CHAMPION!');
+  await page.keyboard.press('Enter'); // NEXT -> Champion
+  await waitForScene(page, 'Champion');
+  // The credits roll for ~20 s; after 1.5 s the screen is still up with credits scrolling.
+  await page.waitForTimeout(1500);
+  const champ = await getState(page);
+  expect(champ.scene).toBe('Champion');
+  expectText(champ, 'CHAMPION!');
+  expectText(champ, 'RETRO RUNNER');
+  await page.keyboard.press('Enter'); // skip
+  await waitForScene(page, 'Ladder');
+
+  // A later win goes back to the map without the Champion screen.
+  await startRace(page, SEED);
+  await waitForPhase(page, 'running');
+  await mashToFinish(page, ['ArrowLeft', 'ArrowRight'], 36);
+  await waitForResults(page);
+  await page.keyboard.press('Escape');
+  await waitForScene(page, 'Ladder');
+  await page.waitForTimeout(300);
+  expect((await getState(page)).scene).toBe('Ladder');
+});
+
+test('every screen uses only palette colours (CRT off)', async ({ page }) => {
+  await bootToTitle(page);
+  expect(await offPaletteColours(page), 'title').toEqual([]);
+  await titleToLadder(page);
+  expect(await offPaletteColours(page), 'ladder').toEqual([]);
+  await startRace(page, SEED);
+  await waitForState(page, (s) => s.race?.countdown === 3, 'countdown 3');
+  expect(await offPaletteColours(page), 'countdown').toEqual([]);
+  await waitForPhase(page, 'running');
+  for (let i = 0; i < 40; i++) {
+    await tap(page, i % 2 === 0 ? 'ArrowLeft' : 'ArrowRight');
+    await page.waitForTimeout(45);
+  }
+  expect(await offPaletteColours(page), 'running').toEqual([]);
+  await mashToFinish(page);
+  await waitForResults(page);
+  await page.waitForTimeout(400);
+  expect(await offPaletteColours(page), 'results').toEqual([]);
+});
