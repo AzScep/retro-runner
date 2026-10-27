@@ -3,15 +3,22 @@
  *
  *   npx vite build && npx vite preview --port 4173      (built with VITE_TEST_HOOKS=1)
  *   node tools/perf/measure.ts boot   [--browser chromium|webkit] [--runs 5] [--throttle 4]
- *   node tools/perf/measure.ts race   [--browser chromium|webkit] [--throttle 4] [--crt]
- *   node tools/perf/measure.ts memory [--cycles 20]                (Chromium only)
- *   --headed runs a visible browser on the real GPU (headless Chromium renders with SwiftShader).
+ *   node tools/perf/measure.ts race   [--browser chromium|webkit] [--throttle 4] [--crt] [--event 100m|110mh|400m]
+ *   node tools/perf/measure.ts memory [--cycles 20] [--gauntlets 3]  (Chromium only)
+ *   Headless Chromium renders with SwiftShader (software); --gpu renders on the real GPU, still
+ *   headless (ANGLE on Metal, macOS). --headed runs a visible browser.
+ *   race also takes --delay <ms> (wait on the Ladder first), --muted (the game's mute setting) and
+ *   --alloc (V8 allocation sampling plus a trace: GC, the longest main-thread events and GPU-thread
+ *   flush times).
+ *   The game is always silent: Chromium runs with --mute-audio, and every AudioContext outputs
+ *   through a zero gain (the same wrapper as e2e/fixtures.ts, needed for WebKit).
  *
  * boot:   cold load (fresh context, empty cache) to the first frame of the Title scene.
- * race:   one full race against Pip, mashed in-page at the speed cap. Per frame it records the
+ * race:   one full 6-runner race against Pip, mashed in-page at the speed cap (hurdles: one clean
+ *         jump per hurdle). Per frame it records the
  *         CPU time of Phaser's step (PRE_STEP to POST_RENDER), the rAF interval, WebGL draw calls
  *         and texture binds; Chromium also reports V8 allocation sampling and GC events.
- * memory: race + RETRY cycles; after each forced GC it records the JS heap, textures, display
+ * memory: race + RETRY cycles, then whole Gauntlet runs; after each forced GC it records the JS heap, textures, display
  *         list sizes, window listeners and Web Audio node creation.
  */
 import { chromium, webkit, type Browser, type BrowserType, type Page } from '@playwright/test';
@@ -27,12 +34,21 @@ const flag = (name: string): boolean => args.includes(`--${name}`);
 const url = opt('url', 'http://localhost:4173/');
 const browserName = opt('browser', 'chromium');
 const throttle = Number(opt('throttle', '1'));
+const event = opt('event', '100m');
+const EVENT_ORDER = ['100m', '110mh', '400m'];
 const types: Record<string, BrowserType> = { chromium, webkit };
 
 /** Installed before any page script: counters for WebGL calls, window listeners and audio nodes. */
 function instrument(): void {
   const w = window as unknown as Record<string, unknown>;
-  const c = { draws: 0, binds: 0, listeners: 0, audioNodes: 0 };
+  const c = {
+    draws: 0,
+    binds: 0,
+    listeners: 0,
+    audioNodes: 0,
+    links: [] as number[],
+    uploads: [] as string[],
+  };
   w['__perf'] = c;
   for (const proto of [WebGLRenderingContext.prototype, WebGL2RenderingContext.prototype]) {
     const p = proto as unknown as Record<string, (...a: unknown[]) => unknown>;
@@ -42,6 +58,26 @@ function instrument(): void {
       p[name] = function (this: unknown, ...a: unknown[]) {
         c.draws++;
         return orig.apply(this, a);
+      };
+    }
+    const link = p['linkProgram'];
+    if (link) {
+      p['linkProgram'] = function (this: unknown, ...a: unknown[]) {
+        c.links.push(Math.round(performance.now()));
+        return link.apply(this, a);
+      };
+    }
+    for (const name of ['texImage2D', 'texSubImage2D', 'readPixels']) {
+      const orig = p[name];
+      if (!orig) continue;
+      p[name] = function (this: unknown, ...a: unknown[]) {
+        const t0 = performance.now();
+        const r = orig.apply(this, a);
+        const src = a.find((x) => typeof x === 'object' && x !== null && 'width' in x) as
+          { width: number; height: number } | undefined;
+        const size = src ? `${src.width}x${src.height}` : `${String(a[3])}x${String(a[4])}`;
+        c.uploads.push(`${name} ${size} ${Math.round(performance.now() - t0)}ms@${Math.round(t0)}`);
+        return r;
       };
     }
     const bind = p['bindTexture'];
@@ -100,15 +136,41 @@ function instrument(): void {
   }
 }
 
+/** Same as e2e/fixtures.ts: every AudioContext's destination is a zero gain in front of the output. */
+function silence(): void {
+  const w = window as unknown as {
+    AudioContext?: typeof AudioContext;
+    webkitAudioContext?: typeof AudioContext;
+  };
+  const Orig = w.AudioContext ?? w.webkitAudioContext;
+  if (!Orig) return;
+  class SilentAudioContext extends Orig {
+    constructor(opts?: AudioContextOptions) {
+      super(opts);
+      const silent = this.createGain();
+      silent.gain.value = 0;
+      silent.connect(super.destination);
+      Object.defineProperty(this, 'destination', { value: silent, configurable: true });
+    }
+  }
+  w.AudioContext = SilentAudioContext;
+  w.webkitAudioContext = SilentAudioContext;
+}
+
 async function launch(): Promise<Browser> {
   const t = types[browserName];
   if (!t) throw new Error(`unknown browser ${browserName}`);
-  return t.launch({ headless: !flag('headed') });
+  const gpu = flag('gpu') ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] : [];
+  return t.launch({
+    headless: !flag('headed'),
+    args: browserName === 'chromium' ? ['--mute-audio', ...gpu] : [],
+  });
 }
 
 async function newPage(browser: Browser): Promise<Page> {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const page = await ctx.newPage();
+  await page.addInitScript(silence);
   await page.addInitScript(instrument);
   if (throttle > 1) {
     if (browserName !== 'chromium') throw new Error('--throttle needs chromium');
@@ -127,7 +189,8 @@ const r1 = (n: number): number => Math.round(n * 10) / 10;
 async function boot(): Promise<void> {
   const runs = Number(opt('runs', '5'));
   const browser = await launch();
-  const out: { titleMs: number; dclMs: number; jsKB: number; longTasks: string[] }[] = [];
+  const out: { titleMs: number; dclMs: number; jsKB: number; longTasks: string[]; programsLinked: number }[] =
+    [];
   for (let i = 0; i < runs; i++) {
     const page = await newPage(browser);
     await page.goto(url);
@@ -136,7 +199,11 @@ async function boot(): Promise<void> {
     });
     out.push(
       await page.evaluate(() => {
-        const w = window as unknown as { __titleAt: number; __longTasks: string[] };
+        const w = window as unknown as {
+          __titleAt: number;
+          __longTasks: string[];
+          __perf: { links: number[] };
+        };
         const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
         const js = performance
           .getEntriesByType('resource')
@@ -147,6 +214,7 @@ async function boot(): Promise<void> {
           dclMs: Math.round(nav.domContentLoadedEventEnd),
           jsKB: Math.round(js / 1024),
           longTasks: [...w.__longTasks],
+          programsLinked: w.__perf.links.length,
         };
       }),
     );
@@ -171,8 +239,15 @@ function startRecording(): void {
   let b0 = 0;
   const race = () =>
     game.scene.getScene('Race') as unknown as {
-      raceState: { phase: string; expectedSide: 'L' | 'R' | null };
+      raceState: {
+        phase: string;
+        expectedSide: 'L' | 'R' | null;
+        nextHurdleS: number | null;
+        nextHurdleIndex: number | null;
+        player: { airM: number };
+      };
     };
+  let jumpedFor = -1;
   game.events.on('prestep', () => {
     t0 = performance.now();
     d0 = c.draws;
@@ -202,6 +277,18 @@ function startRecording(): void {
       return;
     }
     if (st.phase !== 'running') return;
+    if (
+      st.nextHurdleIndex !== null &&
+      st.nextHurdleS !== null &&
+      st.nextHurdleS <= 0.2 &&
+      st.player.airM === 0 &&
+      jumpedFor !== st.nextHurdleIndex
+    ) {
+      jumpedFor = st.nextHurdleIndex;
+      held = 'ArrowUp';
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: held }));
+      return;
+    }
     next = st.expectedSide ?? next;
     held = next === 'L' ? 'ArrowLeft' : 'ArrowRight';
     window.dispatchEvent(new KeyboardEvent('keydown', { code: held }));
@@ -223,16 +310,25 @@ async function toRace(page: Page): Promise<void> {
       w.__retroRunner.getState().records.settings.crt = true;
     });
   }
+  if (flag('muted')) {
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        __retroRunner: { getState(): { records: { settings: { muted: boolean } } } };
+      };
+      w.__retroRunner.getState().records.settings.muted = true;
+    });
+  }
   const active = (key: string) =>
     page.waitForFunction(
       (k) =>
         (window as unknown as { __retroRunner: { game: Phaser.Game } }).__retroRunner.game.scene.isActive(k),
       key,
     );
-  // Title -> Event Select -> the 100 m (first card) -> its Ladder.
+  // Title -> Event Select -> the event's card -> its Ladder.
   await page.keyboard.press('Enter');
   await active('Events');
-  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowLeft');
+  for (let i = 0; i < EVENT_ORDER.length; i++) await page.keyboard.press('ArrowLeft');
+  for (let i = 0; i < EVENT_ORDER.indexOf(event); i++) await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   await active('Ladder');
   await page.evaluate(() =>
@@ -249,9 +345,17 @@ async function race(): Promise<void> {
     await cdp.send('HeapProfiler.enable');
     await cdp.send('HeapProfiler.startSampling', { samplingInterval: 512 });
     await browser.startTracing(page, {
-      categories: ['devtools.timeline', 'disabled-by-default-v8.gc', 'v8'],
+      categories: [
+        'toplevel',
+        'devtools.timeline',
+        'disabled-by-default-devtools.timeline',
+        'disabled-by-default-v8.gc',
+        'v8',
+        'gpu',
+      ],
     });
   }
+  await page.waitForTimeout(Number(opt('delay', '0')));
   await page.evaluate(startRecording);
   await page.keyboard.press('Enter');
   await page.waitForFunction(
@@ -260,11 +364,19 @@ async function race(): Promise<void> {
         'Results',
       ),
     null,
-    { timeout: 60_000 },
+    { timeout: 120_000 },
   );
   await page.waitForTimeout(1000);
   const frames = await page.evaluate(() => (window as unknown as { __frames: unknown[] }).__frames);
   const longTasks = await page.evaluate(() => (window as unknown as { __longTasks: string[] }).__longTasks);
+  const linkedAfterTitle = await page.evaluate(() => {
+    const w = window as unknown as { __titleAt: number; __perf: { links: number[] } };
+    return w.__perf.links.filter((t) => t > w.__titleAt).length;
+  });
+  const uploadsAfterTitle = await page.evaluate(() => {
+    const w = window as unknown as { __titleAt: number; __perf: { uploads: string[] } };
+    return w.__perf.uploads.filter((u) => Number(u.split('@')[1]) > w.__titleAt);
+  });
   type F = { t: number; phase: string; cpu: number; raf: number; draws: number; binds: number };
   const fs = frames as F[];
   const running = fs.filter((f) => f.phase === 'running');
@@ -314,12 +426,16 @@ async function race(): Promise<void> {
     .map(({ f, prev }) => `${f.phase}:${r1(f.raf)}ms@${f.t} (prev step ${r1(prev?.cpu ?? 0)}ms)`);
   const result: Record<string, unknown> = {
     browser: browserName,
+    event,
     throttle,
     crt: flag('crt'),
+    linkedAfterTitle,
+    uploadsAfterTitle,
     running: summary(running),
     wholeRace: summary(all),
     vsyncMs: r1(vsync),
     raceStartAt: all[0]?.t,
+    runningAt: running[0]?.t,
     worst,
     gaps,
     longTasks,
@@ -360,7 +476,8 @@ async function race(): Promise<void> {
         ph: string;
         pid: number;
         tid: number;
-        args?: { name?: string };
+        ts: number;
+        args?: { name?: string; data?: { functionName?: string; url?: string; lineNumber?: number } };
       }[];
     };
     // Only the page's main thread: the audio worker allocates whole songs and has its own GCs.
@@ -374,6 +491,29 @@ async function race(): Promise<void> {
         e.tid === main.tid,
     );
     const by = (n: string) => gcs.filter((e) => e.name === n);
+    const fl = trace.traceEvents
+      .filter((e) => e.name === 'CommandBuffer::Flush' && e.dur)
+      .map((e) => (e.dur ?? 0) / 1000);
+    result['gpuFlush'] = {
+      n: fl.length,
+      p50: r1(pct(fl, 50)),
+      p90: r1(pct(fl, 90)),
+      p99: r1(pct(fl, 99)),
+      max: r1(Math.max(...fl)),
+      over10: fl.filter((x) => x > 10).length,
+    };
+    // The longest main-thread trace events (tasks and the script calls inside them).
+    result['longEvents'] = trace.traceEvents
+      .filter((e) => main !== undefined && e.pid === main.pid && e.tid === main.tid && (e.dur ?? 0) > 20_000)
+      .sort((a, b) => (b.dur ?? 0) - (a.dur ?? 0))
+      .slice(0, 20)
+      .map((e) => {
+        const d = e.args?.data;
+        const where = d?.url
+          ? ` ${d.functionName ?? ''}@${d.url.split('/').pop()}:${d.lineNumber ?? ''}`
+          : '';
+        return `${e.name} ${r1((e.dur ?? 0) / 1000)}ms ts=${Math.round(e.ts / 1000)}${where}`;
+      });
     result['gc'] = {
       minor: by('MinorGC').length,
       major: by('MajorGC').length,
@@ -386,8 +526,15 @@ async function race(): Promise<void> {
   await browser.close();
 }
 
+type Hook = {
+  game: Phaser.Game;
+  getState(): { scene: string | null; texts: string[] };
+  startGauntletRace(tier: number, times: number[]): void;
+};
+
 async function memory(): Promise<void> {
   const cycles = Number(opt('cycles', '20'));
+  const gauntlets = Number(opt('gauntlets', '3'));
   const browser = await launch();
   const page = await newPage(browser);
   await toRace(page);
@@ -395,23 +542,15 @@ async function memory(): Promise<void> {
   await page.evaluate(startRecording);
   await page.keyboard.press('Enter');
   const rows: unknown[] = [];
-  for (let i = 1; i <= cycles; i++) {
-    await page.waitForFunction(
-      () =>
-        (window as unknown as { __retroRunner: { game: Phaser.Game } }).__retroRunner.game.scene.isActive(
-          'Results',
-        ),
-      null,
-      { timeout: 60_000 },
-    );
+  const sample = async (label: string): Promise<void> => {
     await page.waitForTimeout(400);
     await cdp.send('HeapProfiler.collectGarbage');
     await cdp.send('HeapProfiler.collectGarbage');
     const heap = (await cdp.send('Runtime.getHeapUsage')) as { usedSize: number };
     const s = await page.evaluate(() => {
       const w = window as unknown as {
-        __retroRunner: { game: Phaser.Game };
-        __perf: { listeners: number; audioNodes: number };
+        __retroRunner: Hook;
+        __perf: { listeners: number; audioNodes: number; links: number[] };
         __frames: unknown[];
       };
       const g = w.__retroRunner.game;
@@ -429,28 +568,57 @@ async function memory(): Promise<void> {
         tweens: scenes.reduce((n, sc) => n + (sc.tweens?.getTweens().length ?? 0), 0),
         windowListeners: w.__perf.listeners,
         audioNodes: w.__perf.audioNodes,
+        programs: w.__perf.links.length,
         anims: (g.anims as unknown as { anims: { size: number } }).anims.size,
       };
     });
-    rows.push({ cycle: i, heapMB: Math.round(heap.usedSize / 1024 / 10.24) / 100, ...s });
+    rows.push({ at: label, heapMB: Math.round(heap.usedSize / 1024 / 10.24) / 100, ...s });
     console.error(JSON.stringify(rows[rows.length - 1]));
+  };
+  const isActive = (key: string): Promise<boolean> =>
+    page.evaluate(
+      (k) => (window as unknown as { __retroRunner: Hook }).__retroRunner.game.scene.isActive(k),
+      key,
+    );
+  for (let i = 1; i <= cycles; i++) {
+    await page.waitForFunction(
+      () => (window as unknown as { __retroRunner: Hook }).__retroRunner.game.scene.isActive('Results'),
+      null,
+      { timeout: 120_000 },
+    );
+    await sample(`race ${i}`);
     if (i < cycles) {
       await page.evaluate(() => {
-        const w = window as unknown as { __retroRunner: { game: Phaser.Game } };
+        const w = window as unknown as { __retroRunner: Hook };
         (w.__retroRunner.game.scene.getScene('Results') as unknown as { choose(id: string): void }).choose(
           'retry',
         );
       });
-      await page.waitForFunction(
-        () =>
-          (window as unknown as { __retroRunner: { game: Phaser.Game } }).__retroRunner.game.scene.isActive(
-            'Race',
-          ) &&
-          !(window as unknown as { __retroRunner: { game: Phaser.Game } }).__retroRunner.game.scene.isActive(
-            'Results',
-          ),
-      );
+      await page.waitForFunction(() => {
+        const g = (window as unknown as { __retroRunner: Hook }).__retroRunner.game;
+        return g.scene.isActive('Race') && !g.scene.isActive('Results');
+      });
     }
+  }
+  // Whole Gauntlet runs (7 meets back to back until a loss or the clear); the masher races them.
+  for (let i = 1; i <= gauntlets; i++) {
+    await page.evaluate(() =>
+      (window as unknown as { __retroRunner: Hook }).__retroRunner.startGauntletRace(1, []),
+    );
+    const deadline = Date.now() + 15 * 60_000;
+    let end = '';
+    while (!end) {
+      if (Date.now() > deadline) throw new Error(`Gauntlet run ${i} never ended`);
+      await page.waitForTimeout(300);
+      const st = await page.evaluate(() =>
+        (window as unknown as { __retroRunner: Hook }).__retroRunner.getState(),
+      );
+      if (st.texts.includes('GAUNTLET OVER')) end = 'over';
+      else if (st.texts.includes('GAUNTLET CLEAR!')) end = 'clear';
+      // A first Zyx win shows the champion screen and possibly the reveal; Enter skips both.
+      else if ((await isActive('Champion')) || (await isActive('Reveal'))) await page.keyboard.press('Enter');
+    }
+    await sample(`gauntlet ${i} (${end})`);
   }
   console.log(JSON.stringify(rows, null, 1));
   await browser.close();
