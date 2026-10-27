@@ -43,6 +43,11 @@ export default defineConfig({
       manifest: false,
       devOptions: { enabled: false },
       workbox: {
+        // A new deploy's worker takes over as soon as it is installed, so a returning visitor
+        // (including one stuck on an older build that waited for a cold launch) gets it on the
+        // next load; main.ts reloads an open page into it only on a menu screen.
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,png,svg,woff2,webmanifest}'],
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,

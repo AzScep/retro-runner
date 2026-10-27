@@ -8,7 +8,7 @@ import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH, prepareArt } from './art/index.ts';
 import { unlockAudio } from './audio/index.ts';
 import { attachKeyboard, raceInput, type Settings } from './core/index.ts';
-import { getApp, hasApp, settings, toggleMute } from './scenes/app.ts';
+import { getApp, hasApp, SceneKey, settings, toggleMute } from './scenes/app.ts';
 import { BootScene } from './scenes/BootScene.ts';
 import { ChampionScene } from './scenes/ChampionScene.ts';
 import { GauntletScene } from './scenes/GauntletScene.ts';
@@ -30,6 +30,10 @@ import { PREVENT_DEFAULT_CODES } from './ui/keys.ts';
 
 // Art bakes in a worker while Phaser boots and the font loads (BootScene awaits it).
 void prepareArt();
+
+const UPDATE_CHECK_MS = 60 * 60 * 1000;
+/** A new version never reloads the page while one of these runs (Race carries every race overlay). */
+const UPDATE_BUSY_SCENES = [SceneKey.Boot, SceneKey.Race, SceneKey.Reveal, SceneKey.Champion] as const;
 
 const parent = document.getElementById('app');
 if (!parent) throw new Error('#app missing from index.html');
@@ -169,8 +173,36 @@ window.addEventListener(
 
 if (import.meta.env.VITE_TEST_HOOKS === '1') installTestHook(game);
 
-// Offline play from the Home Screen (research-mobile 5). `prompt` mode: a new version waits and
-// takes over on the next cold launch, never mid-race. Never in test builds or dev.
+// Offline play from the Home Screen (research-mobile 5). Never in test builds or dev.
+// A new deploy's service worker activates at once (vite.config.ts skipWaiting); an open page then
+// reloads into it, but only on a menu screen so a race, the reveal or a Gauntlet run is never cut.
 if (import.meta.env.PROD && import.meta.env.VITE_TEST_HOOKS !== '1') {
-  void import('virtual:pwa-register').then(({ registerSW }) => registerSW({ immediate: true }));
+  void import('virtual:pwa-register').then(({ registerSW }) =>
+    registerSW({
+      immediate: true,
+      // Tabs and Home Screen apps can stay open for days: look for a new deploy every hour.
+      onRegisteredSW: (_url, registration) => {
+        if (registration) window.setInterval(() => void registration.update(), UPDATE_CHECK_MS);
+      },
+    }),
+  );
+  // The first install also claims the page; only a replaced worker means a new version.
+  const hadController = navigator.serviceWorker?.controller != null;
+  navigator.serviceWorker?.addEventListener('controllerchange', () => {
+    if (hadController) reloadWhenSafe();
+  });
+}
+
+/** Reloads now if no race-like scene runs, else retries every second until one ends. */
+function reloadWhenSafe(): void {
+  const busy = (): boolean => UPDATE_BUSY_SCENES.some((key) => game.scene.isActive(key));
+  if (!busy()) {
+    window.location.reload();
+    return;
+  }
+  const timer = window.setInterval(() => {
+    if (busy()) return;
+    window.clearInterval(timer);
+    window.location.reload();
+  }, 1000);
 }
