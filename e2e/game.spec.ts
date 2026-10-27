@@ -468,3 +468,32 @@ test('every screen uses only palette colours (CRT off)', async ({ page }) => {
   await page.waitForTimeout(400);
   expect(await offPaletteColours(page), 'results').toEqual([]);
 });
+
+test('with the CRT filter on, every screen renders without errors', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const save = JSON.parse(fullLadderSave(false)) as { settings: { crt: boolean } };
+  save.settings.crt = true;
+  await page.addInitScript(
+    ([key, doc]) => {
+      if (!sessionStorage.getItem('rr-seeded')) {
+        sessionStorage.setItem('rr-seeded', '1');
+        localStorage.setItem(key as string, doc as string);
+      }
+    },
+    [SAVE_KEY, JSON.stringify(save)],
+  );
+  const title = await bootToTitle(page);
+  expect(title.records?.settings.crt).toBe(true);
+  await titleToLadder(page);
+  await startRace(page, SEED);
+  await waitForPhase(page, 'running');
+  await page.keyboard.press('Escape');
+  await waitForState(page, (s) => s.scene === 'Pause', 'pause');
+  await page.keyboard.press('Escape');
+  await waitForState(page, (s) => s.race?.paused === false && s.scene !== 'Pause', 'resume');
+  await waitForPhase(page, 'running');
+  await mashToFinish(page);
+  await waitForResults(page);
+  expect(errors).toEqual([]);
+});
