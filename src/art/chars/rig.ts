@@ -118,24 +118,47 @@ function add(a: Vec, b: Vec, k = 1): Vec {
   return [a[0] + b[0] * k, a[1] + b[1] * k];
 }
 
-/** Working canvas with per-pixel part ids and material names (for interior lines). */
+/** Working canvas with per-pixel material names (for interior lines) and the drawn bounding box. */
 class Canvas {
   readonly w: number;
   readonly h: number;
   readonly idx: Uint8Array;
-  readonly part: Int16Array;
   readonly mat: (string | null)[];
   readonly far: Uint8Array;
+  /** Per-pixel generation marks: a set of pixels without allocating a Set per part. */
+  readonly mark: Uint32Array;
+  #gen = 0;
+  /** Bounding box of every opaque pixel (lines only recolour existing pixels, so parts suffice). */
+  minX: number;
+  minY: number;
+  maxX = -1;
+  maxY = -1;
   constructor(w: number, h: number) {
     this.w = w;
     this.h = h;
     this.idx = new Uint8Array(w * h);
-    this.part = new Int16Array(w * h).fill(-1);
     this.mat = new Array<string | null>(w * h).fill(null);
     this.far = new Uint8Array(w * h);
+    this.mark = new Uint32Array(w * h);
+    this.minX = w;
+    this.minY = h;
   }
   inside(x: number, y: number): boolean {
     return x >= 0 && y >= 0 && x < this.w && y < this.h;
+  }
+  /** A fresh mark value: no pixel carries it until marked. */
+  nextMark(): number {
+    return ++this.#gen;
+  }
+  /** Back to empty for the next frame (marks stay valid: generations keep counting). */
+  clear(): void {
+    this.idx.fill(0);
+    this.mat.fill(null);
+    this.far.fill(0);
+    this.minX = this.w;
+    this.minY = this.h;
+    this.maxX = -1;
+    this.maxY = -1;
   }
 }
 
@@ -147,46 +170,54 @@ interface PartPixel {
   readonly line: number;
 }
 
-let partCounter = 0;
+const NEIGHBOURS: readonly (readonly [number, number])[] = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
 
 /**
  * Composite a part: draws a separation line in the part's darkest tone on underlying body pixels
  * that touch it (only against a different material or a far-side part), then writes the part.
  */
 function composite(cv: Canvas, px: readonly PartPixel[], far: boolean, lineMode: 'auto' | 'none'): void {
-  const id = partCounter++;
-  const set = new Set<number>();
-  for (const p of px) set.add(p.y * cv.w + p.x);
   if (lineMode === 'auto') {
-    const lines: [number, number][] = [];
+    const own = cv.nextMark();
+    for (const p of px) cv.mark[p.y * cv.w + p.x] = own;
+    // Collected first, applied after: a line must not change what later neighbours compare against.
+    const lineAt: number[] = [];
+    const lineV: number[] = [];
     for (const p of px) {
-      for (const [ox, oy] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ] as const) {
+      for (const [ox, oy] of NEIGHBOURS) {
         const x = p.x + ox;
         const y = p.y + oy;
         if (!cv.inside(x, y)) continue;
         const k = y * cv.w + x;
-        if (set.has(k) || cv.idx[k] === 0) continue;
+        if (cv.mark[k] === own || cv.idx[k] === 0) continue;
         const underMat = cv.mat[k];
         const underFar = cv.far[k] === 1;
-        if (underMat !== p.mat || (underFar && !far)) lines.push([k, p.line]);
+        if (underMat !== p.mat || (underFar && !far)) {
+          lineAt.push(k);
+          lineV.push(p.line);
+        }
       }
     }
-    for (const [k, line] of lines) {
-      cv.idx[k] = line;
+    for (let i = 0; i < lineAt.length; i++) {
+      const k = lineAt[i]!;
+      cv.idx[k] = lineV[i]!;
       cv.mat[k] = '__line';
     }
   }
   for (const p of px) {
     const k = p.y * cv.w + p.x;
     cv.idx[k] = p.v;
-    cv.part[k] = id;
     cv.mat[k] = p.mat;
     cv.far[k] = far ? 1 : 0;
+    if (p.x < cv.minX) cv.minX = p.x;
+    if (p.x > cv.maxX) cv.maxX = p.x;
+    if (p.y < cv.minY) cv.minY = p.y;
+    if (p.y > cv.maxY) cv.maxY = p.y;
   }
 }
 
@@ -218,13 +249,13 @@ function rasterCapsule(cv: Canvas, spec: CharacterSpec, o: CapsuleOpts): PartPix
   const nx = -dy / len;
   const ny = dx / len;
   const rMax = Math.max(o.r0, o.r1);
-  const x0 = Math.floor(Math.min(ax, bx) - rMax - 1);
-  const x1 = Math.ceil(Math.max(ax, bx) + rMax + 1);
-  const y0 = Math.floor(Math.min(ay, by) - rMax - 1);
-  const y1 = Math.ceil(Math.max(ay, by) + rMax + 1);
+  // Bounding box of the capsule, clipped to the canvas.
+  const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - rMax - 1));
+  const x1 = Math.min(cv.w - 1, Math.ceil(Math.max(ax, bx) + rMax + 1));
+  const y0 = Math.max(0, Math.floor(Math.min(ay, by) - rMax - 1));
+  const y1 = Math.min(cv.h - 1, Math.ceil(Math.max(ay, by) + rMax + 1));
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) {
-      if (!cv.inside(x, y)) continue;
       const px = x + 0.5;
       const py = y + 0.5;
       let t = ((px - ax) * dx + (py - ay) * dy) / len2;
@@ -268,10 +299,13 @@ export interface RenderedFrame {
 
 const WORK = 96;
 const HIP: Vec = [WORK / 2 + 0.5, WORK / 2 + 0.5];
+/** Reused by every renderPose call (rendering is synchronous, so never shared). */
+const scratch = new Canvas(WORK, WORK);
 
 /** Render one 48x48 frame (outlined) for a pose. */
 export function renderPose(spec: CharacterSpec, pose: Pose, size = 48, groundRow = 46): RenderedFrame {
-  const cv = new Canvas(WORK, WORK);
+  const cv = scratch;
+  cv.clear();
   const bob = pose.bob ?? 0;
   const hip = HIP;
   const up: Vec = [hip[0], hip[1] + bob];
@@ -367,13 +401,13 @@ export function renderPose(spec: CharacterSpec, pose: Pose, size = 48, groundRow
       matAt: (t) => spec.upperArmMat(t),
       far,
     });
-    // Arm as one part so the elbow has no line across it.
-    const seen = new Set<number>();
+    // Arm as one part so the elbow has no line across it (first pixel wins where they overlap).
+    const seen = cv.nextMark();
     const merged: PartPixel[] = [];
     for (const p of upper.concat(fore)) {
       const k = p.y * cv.w + p.x;
-      if (seen.has(k)) continue;
-      seen.add(k);
+      if (cv.mark[k] === seen) continue;
+      cv.mark[k] = seen;
       merged.push(p);
     }
     composite(cv, merged, far, 'auto');
@@ -458,23 +492,16 @@ export function renderPose(spec: CharacterSpec, pose: Pose, size = 48, groundRow
   const jaFront = ja ?? drawArm(pose.armN, false);
 
   // Place into the frame: feet (lowest pixel) on groundRow - lift, hip at centre + dx.
-  let bottom = -1;
-  let top = WORK;
-  for (let y = 0; y < WORK; y++) {
-    for (let x = 0; x < WORK; x++) {
-      if (!cv.idx[y * WORK + x]) continue;
-      bottom = Math.max(bottom, y);
-      top = Math.min(top, y);
-    }
-  }
+  const bottom = cv.maxY;
+  const top = cv.minY;
   // Flight lift is limited by the headroom so tall characters never clip (outline needs row 0 free).
   const headroom = groundRow - (bottom - top) - 2;
   const lift = Math.max(0, Math.min(pose.lift ?? 0, headroom));
   const shiftY = groundRow - lift - bottom;
   const shiftX = Math.round(size / 2 - HIP[0] + 0.5 + (pose.dx ?? 0)) - 1;
   const frame = createMap(size, size);
-  for (let y = 0; y < WORK; y++) {
-    for (let x = 0; x < WORK; x++) {
+  for (let y = top; y <= bottom; y++) {
+    for (let x = cv.minX; x <= cv.maxX; x++) {
       const v = cv.idx[y * WORK + x] as number;
       if (v) setPx(frame, x + shiftX, y + shiftY, v);
     }
