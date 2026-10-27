@@ -11,14 +11,13 @@
  */
 import type Phaser from 'phaser';
 import {
-  bakeField,
+  bakeFieldPart,
   bakeMain,
   BOARD50_M,
   FIELD_PARTS,
-  joinFieldParts,
   KEYS,
-  mergeBaked,
   SPLIT_BOARD_M,
+  stackPages,
   type BakedArt,
 } from '../baked.ts';
 import type { Anchors } from '../chars/rig.ts';
@@ -37,7 +36,7 @@ const NEAREST = 1;
 
 let prepared: Promise<void> | null = null;
 let bakedMain: BakedArt | null = null;
-let bakedField: BakedArt | null = null;
+let bakedField: (BakedArt | null)[] = [];
 
 /** Runs one bake worker; resolves with its result, or null if it failed or is unsupported. */
 function runWorker(create: () => Worker, message?: number): Promise<BakedArt | null> {
@@ -72,9 +71,8 @@ export function prepareBake(): Promise<void> {
         runWorker(() => new Worker(new URL('../field.worker.ts', import.meta.url), { type: 'module' }), i),
       ),
     ]);
-    const field = parts.every((p) => p !== null) ? joinFieldParts(parts as BakedArt[]) : null;
     bakedMain ??= main;
-    bakedField ??= field;
+    if (bakedField.length === 0) bakedField = parts;
   })();
   return prepared;
 }
@@ -113,9 +111,13 @@ function addAtlas(scene: Phaser.Scene, art: BakedArt): void {
 export function registerAll(scene: Phaser.Scene): void {
   // Idempotent per game.
   if (scene.textures.exists(KEYS.atlas)) return;
-  const art = mergeBaked(bakedMain ?? bakeMain(), bakedField ?? bakeField());
+  // One page for all art (see stackPages); a part whose worker failed bakes inline.
+  const art = stackPages(
+    [bakedMain ?? bakeMain(), ...FIELD_PARTS.map((bodies, i) => bakedField[i] ?? bakeFieldPart(bodies))],
+    KEYS.atlas,
+  );
   bakedMain = null;
-  bakedField = null;
+  bakedField = [];
   addAtlas(scene, art);
   for (const [k, a] of art.anchors) anchors.set(k, a);
   for (const a of art.anims) {

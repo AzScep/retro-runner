@@ -1,25 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { toRGBA } from './bake/index.ts';
-import { bakeArt, FIELD_PAGE_MAX, KEYS } from './baked.ts';
+import { ATLAS_MAX, bakeArt, bakeField, bakeMain, FIELD_PAGE_MAX, KEYS } from './baked.ts';
 import { buildIcon } from './sprites/icons.ts';
 import { groundShadow } from './stadium/layers.ts';
 
-describe('bakeArt (two atlas pages: shared art and the field)', () => {
+describe('bakeArt (one atlas page: shared art, then the field below it)', () => {
   const art = bakeArt();
   const main = art.pages[0]!;
 
-  it('bakes exactly 2 pages, within the GL and design budgets (design 26.5, 35.1)', () => {
-    expect(art.pages.map((p) => p.key)).toEqual([KEYS.atlas, KEYS.atlasField]);
-    for (const p of art.pages) {
-      expect(p.data.length).toBe(p.w * p.h * 4);
-      expect(p.w).toBeLessThanOrEqual(2048);
-      expect(p.h).toBeLessThanOrEqual(2048);
-    }
-    const field = art.pages[1]!;
+  it('bakes one page within the GL budget, with room for the largest field page (design 35.1)', () => {
+    expect(art.pages.map((p) => p.key)).toEqual([KEYS.atlas]);
+    expect(main.data.length).toBe(main.w * main.h * 4);
+    expect(main.w).toBeLessThanOrEqual(ATLAS_MAX);
+    expect(main.h).toBeLessThanOrEqual(ATLAS_MAX);
+    const field = bakeField().pages[0]!;
     expect(field.w).toBeLessThanOrEqual(FIELD_PAGE_MAX.w);
     expect(field.h).toBeLessThanOrEqual(FIELD_PAGE_MAX.h);
-    // Only field runner frames live on page 1; their portraits stay on page 0 (35.1).
-    for (const t of art.textures) expect(t.page === 1, t.key).toBe(t.key.startsWith('fchar.'));
+    // Shared art plus a full-size field page still fits one page.
+    expect(bakeMain().pages[0]!.h + 1 + FIELD_PAGE_MAX.h).toBeLessThanOrEqual(ATLAS_MAX);
+    // Field runner frames sit below every other key; their portraits stay with the shared art.
+    const fieldTop = Math.min(...art.textures.filter((t) => t.key.startsWith('fchar.')).map((t) => t.y));
+    for (const t of art.textures) {
+      expect(t.page, t.key).toBe(0);
+      if (!t.key.startsWith('fchar.')) expect(t.y + t.h, t.key).toBeLessThan(fieldTop);
+    }
   });
 
   it('gives every key a unique rect inside its page, with frames inside their rect', () => {

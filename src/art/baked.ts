@@ -107,7 +107,7 @@ export const KEYS = {
   shadow: 'stadium.shadow',
   atlas: 'art.atlas',
   // v3 (design 35)
-  /** The second atlas page: every field runner frame (design 26.5, 35.1). */
+  /** The field runners' page as a worker bakes it; registerArt stacks it under the main page. */
   atlasField: 'art.atlas.field',
   fieldChar: (body: string, variant: string) => `fchar.${body}.${variant}`,
   fieldAnim: (body: string, variant: string, name: string) => `${body}.${variant}.${name}`,
@@ -162,8 +162,8 @@ export interface BakedPage {
 
 export interface BakedArt {
   /**
-   * Page 0 holds everything but the field runners; page 1 holds the field (design 26.5: a race binds
-   * at most these 2 pages).
+   * What the game registers is one page (see stackPages); a worker's partial bake is one page too
+   * (the main art, or part of the field).
    */
   readonly pages: readonly BakedPage[];
   readonly textures: readonly BakedTexture[];
@@ -172,25 +172,46 @@ export interface BakedArt {
   readonly anchors: readonly (readonly [string, Anchors])[];
 }
 
-/** The page is 2048 px wide (every WebGL implementation supports it) and as tall as needed. */
-const ATLAS_WIDTH = 2048;
+/** Pages are at most 2048 px on each side (every WebGL implementation supports it). */
+export const ATLAS_MAX = 2048;
+const ATLAS_WIDTH = ATLAS_MAX;
 /** Design 35.1: the field page is at most 2048 x 1024. */
 export const FIELD_PAGE_MAX = { w: 2048, h: 1024 } as const;
 /** Field frames per grid row: 42 x 48 = 2016 px, so one body (4 variants x 31 frames) is 3 rows. */
 const FIELD_COLS = 42;
 
-/** Everything: both pages (tests, tools and the inline fallback). */
+/** Everything on one page (tests, tools and the inline fallback). */
 export function bakeArt(): BakedArt {
-  return mergeBaked(bakeMain(), bakeField());
+  return stackPages([bakeMain(), ...FIELD_PARTS.map((bodies) => bakeFieldPart(bodies))], KEYS.atlas);
 }
 
-/** Combines the main and field bakes (each from its own worker) into one BakedArt. */
-export function mergeBaked(main: BakedArt, field: BakedArt): BakedArt {
+/**
+ * Stacks the first page of each bake into one page `key` (1 px gap between them), moving each
+ * bake's rects down. The game registers the main bake and the field parts as one page: Phaser 4
+ * links a batch shader per number of textures in a batch, and with the font texture a race frame
+ * then needs 2 textures per batch instead of 3 (one program fewer to link at boot, fewer binds).
+ */
+export function stackPages(parts: readonly BakedArt[], key: string): BakedArt {
+  const w = Math.max(...parts.map((p) => p.pages[0]!.w));
+  const h = parts.reduce((sum, p) => sum + p.pages[0]!.h, parts.length - 1);
+  if (w > ATLAS_MAX || h > ATLAS_MAX) throw new RangeError(`stackPages: ${w}x${h} exceeds ${ATLAS_MAX}`);
+  const data = new Uint8Array(w * h * 4);
+  const textures: BakedTexture[] = [];
+  let y0 = 0;
+  for (const part of parts) {
+    const pg = part.pages[0]!;
+    if (pg.w === w) data.set(pg.data, y0 * w * 4);
+    else
+      for (let y = 0; y < pg.h; y++)
+        data.set(pg.data.subarray(y * pg.w * 4, (y + 1) * pg.w * 4), (y0 + y) * w * 4);
+    for (const t of part.textures) textures.push({ ...t, y: t.y + y0, page: 0 });
+    y0 += pg.h + 1;
+  }
   return {
-    pages: [...main.pages, ...field.pages],
-    textures: [...main.textures, ...field.textures],
-    anims: [...main.anims, ...field.anims],
-    anchors: [...main.anchors, ...field.anchors],
+    pages: [{ key, data, w, h }],
+    textures,
+    anims: parts.flatMap((p) => p.anims),
+    anchors: parts.flatMap((p) => p.anchors),
   };
 }
 
@@ -386,7 +407,10 @@ export function bakeMain(): BakedArt {
  * its body's band and whose frames are its own 31.
  */
 export function bakeField(): BakedArt {
-  return joinFieldParts(FIELD_PARTS.map((bodies) => bakeFieldPart(bodies)));
+  return stackPages(
+    FIELD_PARTS.map((bodies) => bakeFieldPart(bodies)),
+    KEYS.atlasField,
+  );
 }
 
 /**
@@ -423,7 +447,7 @@ export function bakeFieldPart(bodies: readonly FieldBody[]): BakedArt {
       const frames = b.sheet.rects
         .filter((r) => r.name.startsWith(prefix))
         .map((r) => ({ ...r, name: r.name.slice(prefix.length) }));
-      textures.push({ key, x, y, w: b.sheet.map.w, h: b.sheet.map.h, frames, page: 1 });
+      textures.push({ key, x, y, w: b.sheet.map.w, h: b.sheet.map.h, frames, page: 0 });
       for (const a of art.anims) {
         anims.push({
           key: KEYS.fieldAnim(b.body, art.variant, a.name),
@@ -435,26 +459,4 @@ export function bakeFieldPart(bodies: readonly FieldBody[]): BakedArt {
     }
   });
   return { pages: [{ key: KEYS.atlasField, data, w: layout.w, h: layout.h }], textures, anims, anchors: [] };
-}
-
-/** Stacks field parts into one page (1 px gap between parts), shifting each part's rects down. */
-export function joinFieldParts(parts: readonly BakedArt[]): BakedArt {
-  const w = Math.max(...parts.map((p) => p.pages[0]!.w));
-  const h = parts.reduce((sum, p) => sum + p.pages[0]!.h, parts.length - 1);
-  const data = new Uint8Array(w * h * 4);
-  const textures: BakedTexture[] = [];
-  let y0 = 0;
-  for (const part of parts) {
-    const pg = part.pages[0]!;
-    for (let y = 0; y < pg.h; y++)
-      data.set(pg.data.subarray(y * pg.w * 4, (y + 1) * pg.w * 4), (y0 + y) * w * 4);
-    for (const t of part.textures) textures.push({ ...t, y: t.y + y0 });
-    y0 += pg.h + 1;
-  }
-  return {
-    pages: [{ key: KEYS.atlasField, data, w, h }],
-    textures,
-    anims: parts.flatMap((p) => p.anims),
-    anchors: [],
-  };
 }
