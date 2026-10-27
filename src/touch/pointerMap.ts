@@ -28,9 +28,10 @@ export interface DownResult {
   readonly blocked: boolean;
 }
 
+/** Touch input is tagged `source: 't'` (design 33.1: touch presses never trip). */
 function inputFor(control: Control, kind: 'down' | 'up', t: number): RaceInput {
-  if (control === 'jump') return { kind, action: 'jump', t, repeat: false };
-  return { kind, side: control, t, repeat: false };
+  if (control === 'jump') return { kind, action: 'jump', t, repeat: false, source: 't' };
+  return { kind, side: control, t, repeat: false, source: 't' };
 }
 
 export class PointerMap {

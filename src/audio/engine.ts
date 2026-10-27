@@ -16,7 +16,7 @@
 
 import type { MusicId, Pcm, SfxId } from './types.ts';
 import { SFX_IDS } from './types.ts';
-import { renderSfx, SFX } from './sfx.ts';
+import { LATE_SFX, renderSfx, SFX } from './sfx.ts';
 import { renderCrowdLoop } from './crowd.ts';
 import { SAMPLE_RATE } from './synth.ts';
 import { resolveTrack, type TrackRef } from './music/index.ts';
@@ -34,6 +34,8 @@ const DUCK_OUT = 0.3;
 const XFADE_OUT = 0.6;
 const XFADE_IN = 0.4;
 const FIRST_FADE_IN = 0.02;
+/** cutMusic(): fast enough to read as a dead stop, long enough not to click. */
+const MUSIC_CUT = 0.012;
 const VOLUME_RAMP = 0.04;
 const CROWD_RAMP = 0.25;
 const CROWD_STOP = 0.4;
@@ -47,6 +49,9 @@ export const QUARTER_XFADE = 1;
 const MAX_TRACK_BYTES = 96 * 1024 * 1024;
 /** Hard cap on simultaneous SFX voices. */
 const MAX_SFX_VOICES = 24;
+/** Field runner SFX (design 36.1): at most one per this many seconds, across every field lane. */
+export const FIELD_SFX_INTERVAL = 0.1;
+const FIELD_GROUP = '#field';
 
 /** 0-10 slider -> linear gain. Squared curve: 5 is -12 dB, 8 is -3.9 dB, 0 is silence. */
 export function volumeToGain(volume: number): number {
@@ -199,23 +204,32 @@ function watchVisibility(): void {
 // ---------------------------------------------------------------------------------------------
 // Preload
 
+async function loadSfx(name: string, ids: readonly SfxId[], crowd: boolean): Promise<void> {
+  const bank = await renderSfxBank(name, ids, crowd);
+  for (const id of ids) {
+    const pcm = bank.sfx.get(id);
+    if (pcm && !sfxPcm.has(id)) sfxPcm.set(id, pcm);
+    if (graph) sfxBuffer(id);
+  }
+  crowdPcm ??= bank.crowd;
+}
+
 /**
  * Render all SFX plus the title, ladder and tier-1 race songs, off the main thread when a worker
- * is available. Never rejects.
+ * is available, in the order they are first needed: menu SFX and the crowd, the title song, the
+ * race / reveal / Gauntlet SFX (LATE_SFX), then the ladder and race songs. Never rejects.
  */
 export function preloadAudio(): Promise<void> {
   preloading ??= (async () => {
     try {
-      const bank = await renderSfxBank();
-      for (const id of SFX_IDS) {
-        const pcm = bank.sfx.get(id);
-        if (pcm && !sfxPcm.has(id)) sfxPcm.set(id, pcm);
-        if (graph) sfxBuffer(id);
-      }
-      crowdPcm ??= bank.crowd;
-      for (const ref of [resolveTrack('title'), resolveTrack('ladder'), resolveTrack('race', 1)]) {
-        await ensureTrack(ref);
-      }
+      await loadSfx(
+        'boot',
+        SFX_IDS.filter((id) => !LATE_SFX.has(id)),
+        true,
+      );
+      await ensureTrack(resolveTrack('title'));
+      await loadSfx('late', [...LATE_SFX], false);
+      for (const ref of [resolveTrack('ladder'), resolveTrack('race', 1)]) await ensureTrack(ref);
     } catch {
       // Rendering failures leave the game silent rather than broken.
     }
@@ -345,16 +359,27 @@ function applyMusic(): void {
   playing = { key: ref.key, sources, gain, mix };
 }
 
-function fadeOutPlaying(): void {
+function fadeOutPlaying(seconds = XFADE_OUT): void {
   if (!graph || !playing) return;
   const { sources, gain } = playing;
   const t = graph.ctx.currentTime;
   gain.gain.cancelScheduledValues(t);
   gain.gain.setValueAtTime(gain.gain.value, t);
-  gain.gain.linearRampToValueAtTime(0, t + XFADE_OUT);
-  for (const s of sources) s.stop(t + XFADE_OUT + 0.05);
+  gain.gain.linearRampToValueAtTime(0, t + seconds);
+  for (const s of sources) s.stop(t + seconds + 0.05);
   sources[0]!.onended = () => gain.disconnect();
   playing = null;
+}
+
+/** Stop music dead (reveal step 3, design 30.2): a click-free MUSIC_CUT ramp instead of the fade. */
+export function cutMusic(): void {
+  wanted = null;
+  quarterFinal = false;
+  try {
+    fadeOutPlaying(MUSIC_CUT);
+  } catch {
+    // ignore
+  }
 }
 
 /**
@@ -400,6 +425,12 @@ function sfxBuffer(id: SfxId): AudioBuffer | null {
 export interface SfxOptions {
   /** Linear gain 0-1 for this play (default 1); rival takeoffs use 0.5. */
   readonly volume?: number;
+  /**
+   * A field runner's sound (lanes 2-5, design 36.1): all field plays share one limit of one per
+   * FIELD_SFX_INTERVAL, separate from the player's and rival's limits so a field burst never
+   * swallows theirs. `volume` still applies (UI passes 0.25).
+   */
+  readonly field?: boolean;
 }
 
 export function playSfx(id: SfxId, opts?: SfxOptions): void {
@@ -411,12 +442,13 @@ export function playSfx(id: SfxId, opts?: SfxOptions): void {
     if (!def) return;
     const { ctx, sfx } = graph;
     const now = ctx.currentTime;
-    if (def.minInterval) {
+    const limit = opts?.field ? FIELD_SFX_INTERVAL : def.minInterval;
+    if (limit) {
       // Plays at different volumes are rate-limited separately: a half-volume rival jump never
-      // swallows the player's own jump in the same frame.
-      const group = `${def.group ?? id}@${vol < 1 ? 'soft' : 'full'}`;
+      // swallows the player's own jump in the same frame. Field plays share one group of their own.
+      const group = opts?.field ? FIELD_GROUP : `${def.group ?? id}@${vol < 1 ? 'soft' : 'full'}`;
       const last = lastPlayed.get(group);
-      if (last !== undefined && now - last < def.minInterval - 1e-4) return;
+      if (last !== undefined && now - last < limit - 1e-4) return;
       lastPlayed.set(group, now);
     }
     if (sfxVoices >= MAX_SFX_VOICES) return;

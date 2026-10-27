@@ -5,20 +5,19 @@
  */
 
 import type { Pcm, SfxId } from './types.ts';
-import { SFX_IDS } from './types.ts';
-import { getSong, renderSongSteps, SFX_BANK_KEY, type TrackRef } from './music/index.ts';
+import { getSong, renderSongSteps, SFX_BANK_KEY, type SfxBankRequest, type TrackRef } from './music/index.ts';
 import { renderSfx } from './sfx.ts';
 import { renderCrowdLoop } from './crowd.ts';
 
-/** Every SFX plus the crowd loop, mono PCM at SAMPLE_RATE. */
+/** A set of SFX plus (when asked for) the crowd loop, mono PCM at SAMPLE_RATE. */
 export interface SfxBank {
   readonly sfx: ReadonlyMap<SfxId, Float32Array>;
-  readonly crowd: Float32Array;
+  readonly crowd: Float32Array | null;
 }
 
 type Reply =
   | { key: string; sampleRate: number; channels: Float32Array[]; final?: Float32Array[] }
-  | { key: string; sfx: Record<string, Float32Array>; crowd: Float32Array }
+  | { key: string; sfx: Record<string, Float32Array>; crowd: Float32Array | null }
   | { key: string; error: string };
 
 let worker: Worker | null = null;
@@ -70,7 +69,7 @@ export async function renderChunked(ref: TrackRef): Promise<Pcm> {
 }
 
 /** Sends one request to the worker; rejects if there is none or it fails. */
-function ask(req: TrackRef | { key: typeof SFX_BANK_KEY }): Promise<Reply> {
+function ask(req: TrackRef | SfxBankRequest): Promise<Reply> {
   const w = getWorker();
   if (!w) return Promise.reject(new Error('no worker'));
   return new Promise<Reply>((resolve, reject) => {
@@ -93,26 +92,30 @@ export async function renderTrack(ref: TrackRef): Promise<Pcm> {
   return renderChunked(ref);
 }
 
-/** Render every SFX and the crowd loop, off-thread when possible (~110 ms of synthesis). */
-export async function renderSfxBank(): Promise<SfxBank> {
+/**
+ * Render a set of SFX (and the crowd loop when `crowd`), off-thread when possible. `name` makes
+ * the request key unique (one bank per name in flight). Without a worker, one SFX per macrotask.
+ */
+export async function renderSfxBank(name: string, ids: readonly SfxId[], crowd: boolean): Promise<SfxBank> {
   try {
-    const r = await ask({ key: SFX_BANK_KEY });
+    const r = await ask({ key: `${SFX_BANK_KEY}:${name}`, ids, crowd });
     if ('sfx' in r) {
       const sfx = new Map<SfxId, Float32Array>();
-      for (const id of SFX_IDS) {
+      for (const id of ids) {
         const pcm = r.sfx[id];
         if (!pcm) throw new Error(`worker sent no ${id}`);
         sfx.set(id, pcm);
       }
+      if (crowd && !r.crowd) throw new Error('worker sent no crowd loop');
       return { sfx, crowd: r.crowd };
     }
   } catch {
     // fall through to the main-thread renderer
   }
   const sfx = new Map<SfxId, Float32Array>();
-  for (const id of SFX_IDS) {
+  for (const id of ids) {
     sfx.set(id, renderSfx(id));
     await yieldToMain();
   }
-  return { sfx, crowd: renderCrowdLoop() };
+  return { sfx, crowd: crowd ? renderCrowdLoop() : null };
 }

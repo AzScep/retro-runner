@@ -1,43 +1,36 @@
 import Phaser from 'phaser';
-import {
-  formatMargin,
-  formatTime,
-  OPPONENTS,
-  PLAYER,
-  type RaceOutcome,
-  type RecordOutcome,
-} from '../core/index.ts';
-import { GAME_HEIGHT, portraitKey } from '../art/index.ts';
+import { formatTime, OPPONENTS, type RaceOutcome, type RecordOutcome, type Standing } from '../core/index.ts';
+import { fieldPortraitKey, GAME_HEIGHT, medalKey, portraitKey } from '../art/index.ts';
 import { duckMusic, playSfx } from '../audio/index.ts';
 import { FONT_MINI } from '../ui/fonts.ts';
 import { flashHz, flashOn, PAL } from '../ui/hudMath.ts';
-import { EVENT_TITLE, hurdlesRow, resultTimeText, resultTitle, splitsRow } from '../ui/screenText.ts';
+import { EVENT_TITLE, hurdlesRow, marginText, medalRow, ordinal, resultTitle } from '../ui/screenText.ts';
 import { Label } from '../ui/text.ts';
-import { addPanel, ButtonRow, UI_DEPTH } from '../ui/widgets.ts';
+import { addPanel, ButtonRow, fillRect, UI_DEPTH } from '../ui/widgets.ts';
 import { applyCrt, getApp, goTo, nextOpponent, onMenuKeys, SceneKey, settings } from './app.ts';
+import type { RevealData } from './RevealScene.ts';
 
 export interface ResultsData {
   readonly outcome: RaceOutcome;
   readonly record: RecordOutcome;
 }
 
-type ButtonId = 'next' | 'retry' | 'map';
+type ButtonId = 'next' | 'retry' | 'map' | 'continue';
 
-// Design 18.6: (52, 22, 216 x 136) in every event, rows at fixed offsets.
-const CARD = { x: 52, y: 22, w: 216, h: 136 } as const;
+/** Design 28.1: (8, 12, 304 x 156); table on the left (panel x 8-176), facts on the right (184-300). */
+const CARD = { x: 8, y: 12, w: 304, h: 156 } as const;
+const TABLE = { x: 8, right: 176, rowY: 28, rowH: 16 } as const;
+const FACTS = { x: 184, right: 300 } as const;
 const ROW = {
-  title: 8,
-  player: 30,
-  rival: 44,
-  margin: 58,
-  event: 72,
-  pb: 86,
-  unlock: 100,
+  title: 6,
+  margin: 28,
+  facts: 40,
+  pb: 68,
+  old: 86,
+  medal: 98,
   eventUnlock: 110,
-  buttons: 120,
+  buttons: 134,
 } as const;
-/** Widest title drawn at 2x, leaving at least 8 px inside the card on each side. */
-const TITLE_2X_MAX_W = CARD.w - 24;
 const SLIDE_MS = 250;
 /** The card starts fully below the 180 px screen. */
 const SLIDE_FROM = GAME_HEIGHT - CARD.y;
@@ -47,8 +40,9 @@ const JINGLE_MS = 2500;
  * still mashing (runners finish at ~10 alt/s, about 100 ms apart), so it must not move the focus.
  */
 const MASH_GAP_MS = 250;
+const D = UI_DEPTH + 1;
 
-/** S5 Results card (design 6.6), drawn over the still-running RaceScene. */
+/** S5 Results card v3 (design 28), drawn over the still-running RaceScene. */
 export class ResultsScene extends Phaser.Scene {
   private card!: Phaser.GameObjects.Container;
   private newPb: Label | null = null;
@@ -64,6 +58,7 @@ export class ResultsScene extends Phaser.Scene {
     this.newPb = null;
     applyCrt(this);
     const { outcome, record } = data;
+    const app = getApp();
     const rival = OPPONENTS[outcome.opponent];
     const win = outcome.result === 'win';
     const x0 = CARD.x;
@@ -73,119 +68,83 @@ export class ResultsScene extends Phaser.Scene {
       objs.push(...l.objects());
       return l;
     };
+    const text = (x: number, y: number, s: string, opts: ConstructorParameters<typeof Label>[4] = {}) =>
+      add(new Label(this, x0 + x, y0 + y, s, { depth: D, ...opts }));
 
     objs.push(addPanel(this, x0, y0, CARD.w, CARD.h));
 
-    // Title (2x where it fits the card; "DID NOT FINISH" is 224 px at 2x, so it drops to 1x).
+    // Title, 2x, centred across the panel.
     const title = resultTitle(outcome);
-    const fits2x = title.text.length * 16 <= TITLE_2X_MAX_W;
-    add(
-      new Label(this, 160, y0 + ROW.title + (fits2x ? 0 : 4), title.text, {
-        scale: fits2x ? 2 : 1,
-        color: title.color,
-        align: 'center',
-        depth: UI_DEPTH + 1,
-      }),
-    );
+    text(CARD.w / 2, ROW.title, title.text, { scale: 2, color: title.color, align: 'center' });
 
-    // Player and rival rows (times per 14.4).
-    const rowX = x0 + 8;
-    const valueX = x0 + CARD.w - 8;
-    const row = (y: number, portrait: Phaser.GameObjects.Image, name: string, time: string): void => {
-      objs.push(portrait.setOrigin(0, 0).setDepth(UI_DEPTH + 1));
-      add(new Label(this, rowX + 20, y, name, { depth: UI_DEPTH + 1 }));
-      add(new Label(this, valueX, y, time, { align: 'right', depth: UI_DEPTH + 1 }));
-    };
-    // The rival portrait goes first so the player's (one row above) is not clipped by it.
-    row(
-      y0 + ROW.rival,
-      this.add.image(rowX, y0 + ROW.rival - 4, portraitKey(outcome.opponent, 16)),
-      rival.name,
-      formatTime(outcome.oppMs),
-    );
-    row(
-      y0 + ROW.player,
-      this.add.image(rowX, y0 + ROW.player - 4, portraitKey('rio', 16)),
-      PLAYER.name,
-      resultTimeText(outcome),
-    );
+    // Placings table: 6 rows of 16 px, the player's DQ/DNF row last (24.1, 28.2).
+    const table = this.add.graphics().setDepth(D);
+    objs.push(table);
+    outcome.standings.forEach((s, i) => this.tableRow(s, i, table, objs, text));
 
-    const left = (y: number, text: string, color: number = PAL.white): Label =>
-      add(new Label(this, rowX, y0 + y, text, { color, depth: UI_DEPTH + 1 }));
-    const right = (y: number, text: string): Label =>
-      add(new Label(this, valueX, y0 + y, text, { align: 'right', depth: UI_DEPTH + 1 }));
-    if (outcome.marginMs !== null) {
-      left(ROW.margin, 'MARGIN');
-      right(ROW.margin, formatMargin(outcome.marginMs));
-    }
+    // Right column: margin, event facts, PB, medal / unlock, event unlock.
+    const margin = marginText(outcome);
+    if (margin !== null) text(FACTS.x, ROW.margin, margin);
+    this.eventFacts(outcome, text);
 
-    // Event row (18.6): hurdles hit count, 400 m cumulative splits; empty in the 100 m and for DQ.
-    if (outcome.event === '110mh' && outcome.hit !== null && outcome.result !== 'dq') {
-      const h = hurdlesRow(outcome.hit);
-      add(
-        new Label(this, 160, y0 + ROW.event, h.text, {
-          color: h.color,
-          align: 'center',
-          depth: UI_DEPTH + 1,
-        }),
-      );
-    } else if (outcome.event === '400m' && outcome.result !== 'dq') {
-      add(
-        new Label(this, 160, y0 + ROW.event, splitsRow(outcome.splits), {
-          font: FONT_MINI,
-          align: 'center',
-          depth: UI_DEPTH + 1,
-        }),
-      );
-    }
-
-    const best = getApp().records.bestMs(outcome.event, outcome.opponent);
+    const best = app.records.bestMs(outcome.event, outcome.opponent);
     if (record.newPb) {
-      this.newPb = left(ROW.pb, 'NEW PB!', PAL.gold);
-      if (record.previousPbMs !== null) right(ROW.pb, `OLD ${formatTime(record.previousPbMs)}`);
+      this.newPb = text(FACTS.x, ROW.pb, 'NEW PB!', { scale: 2, color: PAL.gold });
+      if (record.previousPbMs !== null) text(FACTS.x, ROW.old, `OLD ${formatTime(record.previousPbMs)}`);
     } else {
-      left(ROW.pb, 'PB');
-      right(ROW.pb, formatTime(best));
-    }
-    const unlockText = record.unlocked
-      ? `${OPPONENTS[record.unlocked].name} UNLOCKED!`
-      : record.becameChampion
-        ? 'LADDER CHAMPION!'
-        : null;
-    if (unlockText !== null) {
-      add(
-        new Label(this, 160, y0 + ROW.unlock, unlockText, {
-          color: PAL.gold,
-          align: 'center',
-          depth: UI_DEPTH + 1,
-        }),
-      );
-    }
-    if (record.unlockedEvent !== null) {
-      add(
-        new Label(this, 160, y0 + ROW.eventUnlock, `NEW EVENT: ${EVENT_TITLE[record.unlockedEvent]}`, {
-          font: FONT_MINI,
-          color: PAL.gold,
-          align: 'center',
-          depth: UI_DEPTH + 1,
-        }),
-      );
+      text(FACTS.x, ROW.pb, `PB ${formatTime(best)}`);
     }
 
-    // Buttons: NEXT only if the next tier is unlocked (or the champion screen awaits).
+    const medal = medalRow({
+      outcome,
+      unlockedName: record.unlocked ? OPPONENTS[record.unlocked].name : null,
+      becameChampion: record.becameChampion,
+      revealPending: record.revealPending,
+      newBestPlace: record.newBestPlace,
+      rivalName: rival.name,
+      bestPlace: app.records.bestPlace(outcome.event, outcome.opponent),
+    });
+    let medalX = FACTS.x;
+    if (medal.medal !== null) {
+      objs.push(
+        this.add
+          .image(x0 + FACTS.x, y0 + ROW.medal, medalKey(medal.medal))
+          .setOrigin(0, 0)
+          .setDepth(D),
+      );
+      medalX += 12;
+    }
+    // Long lines (`VALENTINA UNLOCKED!`, `CHAMPIONSHIP WON!`) drop to the mini font to fit the column.
+    const fits8 = medal.text.length * 8 <= FACTS.right - medalX;
+    text(medalX, ROW.medal + (fits8 ? 0 : 1), medal.text, {
+      color: medal.color,
+      ...(fits8 ? {} : { font: FONT_MINI }),
+    });
+    if (record.unlockedEvent !== null) {
+      // Two mini lines: the full line is wider than the 116 px column.
+      text(FACTS.x, ROW.eventUnlock, 'NEW EVENT:', { font: FONT_MINI, color: PAL.gold });
+      text(FACTS.x, ROW.eventUnlock + 9, EVENT_TITLE[record.unlockedEvent], {
+        font: FONT_MINI,
+        color: PAL.gold,
+      });
+    }
+
+    // Buttons: a pending reveal replaces them with CONTINUE (30.1.2); NEXT only if the next tier
+    // is unlocked (or the champion screen awaits).
     const next = nextOpponent(outcome.event, outcome.opponent);
-    const hasNext =
-      record.becameChampion || (next !== null && getApp().records.isUnlocked(outcome.event, next));
-    const items = [
-      ...(hasNext ? [{ id: 'next' as const, label: 'NEXT' }] : []),
-      { id: 'retry' as const, label: 'RETRY' },
-      { id: 'map' as const, label: 'MAP' },
-    ];
+    const hasNext = record.becameChampion || (next !== null && app.records.isUnlocked(outcome.event, next));
+    const items: { id: ButtonId; label: string }[] = record.revealPending
+      ? [{ id: 'continue', label: 'CONTINUE' }]
+      : [
+          ...(hasNext ? [{ id: 'next' as const, label: 'NEXT' }] : []),
+          { id: 'retry', label: 'RETRY' },
+          { id: 'map', label: 'MAP' },
+        ];
     const buttons = new ButtonRow<ButtonId>(this, items, {
       centerX: 160,
       y: y0 + ROW.buttons,
       gap: 4,
-      initial: win && hasNext ? 'next' : 'retry',
+      initial: record.revealPending ? 'continue' : win && hasNext ? 'next' : 'retry',
     });
     for (const l of buttons.labels()) objs.push(...l.objects());
     // Touch (17.5.4): one tap confirms. Targets sit at the card's final position.
@@ -207,6 +166,7 @@ export class ResultsScene extends Phaser.Scene {
     // Counts the card's appearance as a press, so mashing straight through it never navigates.
     let lastArrowMs = this.t0;
     onMenuKeys(this, (action) => {
+      const pending = record.revealPending;
       switch (action) {
         case 'left':
         case 'right': {
@@ -218,13 +178,15 @@ export class ResultsScene extends Phaser.Scene {
         }
         case 'confirm':
           playSfx('menu_select');
-          this.choose(buttons.focusedId ?? 'retry');
+          this.choose(buttons.focusedId ?? (pending ? 'continue' : 'retry'));
           return;
         case 'retry':
+          if (pending) return;
           playSfx('menu_select');
           this.choose('retry');
           return;
         case 'back':
+          if (pending) return;
           playSfx('menu_back');
           this.choose('map');
           return;
@@ -234,9 +196,74 @@ export class ResultsScene extends Phaser.Scene {
     });
   }
 
+  /** One placings row (28.1, 28.2): place, portrait, name, time; the player row highlighted. */
+  private tableRow(
+    s: Standing,
+    i: number,
+    g: Phaser.GameObjects.Graphics,
+    objs: Phaser.GameObjects.GameObject[],
+    text: (x: number, y: number, s: string, opts?: ConstructorParameters<typeof Label>[4]) => Label,
+  ): void {
+    const y = TABLE.rowY + i * TABLE.rowH;
+    const top = CARD.y + y - 4;
+    if (s.lane === 0) {
+      // Fill index 3 across the column, 1 px index 22 border, 5x5 index 22 pointer at the left edge.
+      fillRect(g, CARD.x + TABLE.x, top, TABLE.right - TABLE.x, TABLE.rowH, PAL.gold);
+      fillRect(g, CARD.x + TABLE.x + 1, top + 1, TABLE.right - TABLE.x - 2, TABLE.rowH - 2, PAL.shadowDark);
+      fillRect(g, CARD.x + TABLE.x - 3, top + 5, 5, 5, PAL.gold);
+    }
+    const placeText = s.place === null ? '' : ordinal(s.place);
+    text(TABLE.x + 4, y + 1, placeText, { font: FONT_MINI, color: s.lane === 0 ? PAL.gold : PAL.white });
+    const key = s.who.kind === 'field' ? fieldPortraitKey(s.who.field) : portraitKey(s.who.id, 16);
+    objs.push(
+      this.add
+        .image(CARD.x + TABLE.x + 24, top, key)
+        .setOrigin(0, 0)
+        .setDepth(D),
+    );
+    const nameColor = s.lane === 0 ? PAL.white : s.lane === 1 ? PAL.gold : PAL.lightGrey;
+    text(TABLE.x + 44, y, s.name, { color: nameColor });
+    const time =
+      s.ms !== null
+        ? formatTime(s.ms)
+        : s.lane === 0
+          ? this.results.outcome.result === 'dnf'
+            ? 'DNF'
+            : 'DQ'
+          : formatTime(null);
+    text(TABLE.right - 4, y, time, { align: 'right' });
+  }
+
+  /** Hurdles `CLEAN RACE!` / `HIT 2/10`; 400 m splits on 3 lines; 100 m empty (28.1). */
+  private eventFacts(
+    outcome: RaceOutcome,
+    text: (x: number, y: number, s: string, opts?: ConstructorParameters<typeof Label>[4]) => Label,
+  ): void {
+    if (outcome.result === 'dq') return;
+    if (outcome.event === '110mh' && outcome.hit !== null) {
+      const h = hurdlesRow(outcome.hit);
+      text(FACTS.x, ROW.facts, h.text, { color: h.color });
+    } else if (outcome.event === '400m') {
+      [100, 200, 300].forEach((m, i) => {
+        const ms = outcome.splits[i];
+        text(FACTS.x, ROW.facts + i * 9, `${m} ${ms === undefined ? '--' : formatTime(ms)}`, {
+          font: FONT_MINI,
+        });
+      });
+    }
+  }
+
   private choose(id: ButtonId): void {
     const { outcome, record } = this.results;
     const app = getApp();
+    if (id === 'continue') {
+      const data: RevealData = {
+        event: outcome.event,
+        version: app.records.revealSeen() ? 'short' : 'full',
+      };
+      goTo(this, SceneKey.Reveal, data);
+      return;
+    }
     if (id === 'next') {
       if (record.becameChampion) {
         goTo(this, SceneKey.Champion, { event: outcome.event });

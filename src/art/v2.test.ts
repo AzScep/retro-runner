@@ -28,14 +28,13 @@ import {
   airShadowIndex,
   bellOfficial,
   board50,
-  FAR_LANE_HURDLE_OFFSET_PX,
   HURDLE_BAR_TOP_ROW,
   HURDLE_FRAME,
   hurdleKnockFrames,
   hurdleStanding,
   splitBoard,
 } from './stadium/props.ts';
-import { farLayer, LANE_FEET_Y, nearLayer } from './stadium/layers.ts';
+import { farLayer, LANE_FEET_Y, laneOffsetPx, nearLayer } from './stadium/layers.ts';
 import { airRaisePx, hurdleFrameIndex, pickRunnerView } from './view/runner.ts';
 
 function bounds(m: IndexMap) {
@@ -253,34 +252,28 @@ describe('props (design 13.1, 19.2)', () => {
     expect(airShadowIndex(5)).toBe(1);
   });
 
-  it('draws far-lane hurdles 16 px right so they never touch the near-lane hurdle (perspective)', () => {
-    expect(FAR_LANE_HURDLE_OFFSET_PX).toBe(16);
+  it('v3: each lane draws its hurdles with its own oblique, so neighbouring gates never merge', () => {
     const m = hurdleStanding();
-    const px = (feetY: number, dx: number) => {
+    const px = (lane: number) => {
       const out = new Set<string>();
+      const feetY = LANE_FEET_Y[lane]!;
       for (let y = 0; y < m.h; y++)
         for (let x = 0; x < m.w; x++)
           if (getPx(m, x, y))
-            out.add(`${x - HURDLE_FRAME.pivotX + dx},${y - HURDLE_FRAME.pivotY + feetY + 1}`);
+            out.add(`${x - HURDLE_FRAME.pivotX + laneOffsetPx(lane)},${y - HURDLE_FRAME.pivotY + feetY + 1}`);
       return out;
     };
-    const near = px(LANE_FEET_Y.player, 0);
-    const far = px(LANE_FEET_Y.rival, FAR_LANE_HURDLE_OFFSET_PX);
-    // No shared pixel and no 4-neighbour contact: two separate gates.
-    for (const k of far) {
-      const [x, y] = k.split(',').map(Number) as [number, number];
-      for (const [dx, dy] of [
-        [0, 0],
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ] as const)
-        expect(near.has(`${x + dx},${y + dy}`), k).toBe(false);
+    // Adjacent lanes may overlap (the nearer one is drawn on top) but the bars never share a pixel:
+    // the bar of lane k+1 sits above and right of lane k's bar.
+    for (let lane = 0; lane < 5; lane++) {
+      const near = px(lane);
+      const far = px(lane + 1);
+      const barTop = (l: number) => LANE_FEET_Y[l]! - 24;
+      expect(barTop(lane + 1)).toBeLessThan(barTop(lane));
+      expect([...far].filter((k) => near.has(k)).length, `lanes ${lane}/${lane + 1}`).toBeLessThan(
+        near.size / 4,
+      );
     }
-    // Without the offset they would overlap (the stacked "ladder").
-    const stacked = px(LANE_FEET_Y.rival, 0);
-    expect([...stacked].some((k) => near.has(k))).toBe(true);
   });
 
   it('signage names the event: 400M, HURDLES / 110M, default 100M', () => {

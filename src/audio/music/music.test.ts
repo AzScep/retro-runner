@@ -5,7 +5,7 @@ import { MUSIC_IDS, type MusicId } from '../types.ts';
 import { buildSong, hasFinalLayer, parseLine, specBars } from './compose.ts';
 import { expectedSeconds, getSong, renderSong, resolveTrack, SONG_SPECS } from './index.ts';
 
-/** Design 7.1 / 20.2 tempo and loop length (seconds, min-max; race themes may be shorter if clean). */
+/** Design 7.1 / 20.2 / 36.2 tempo and loop length (seconds, min-max; race themes may be shorter if clean). */
 const DESIGN: Record<MusicId, { bpm: number; min: number; max: number; minBars: number }> = {
   title: { bpm: 140, min: 45, max: 60, minBars: 16 },
   ladder: { bpm: 110, min: 30, max: 45, minBars: 8 },
@@ -14,6 +14,8 @@ const DESIGN: Record<MusicId, { bpm: number; min: number; max: number; minBars: 
   champion: { bpm: 120, min: 55, max: 65, minBars: 16 },
   hurdles: { bpm: 170, min: 27, max: 33, minBars: 16 },
   quarter: { bpm: 150, min: 64, max: 64, minBars: 40 },
+  // 30 bars at 160 BPM: 45 s less ZzFXM's whole-sample row rounding (44.996 s).
+  gauntlet: { bpm: 160, min: 44.99, max: 45, minBars: 30 },
 };
 
 describe('music specs', () => {
@@ -44,6 +46,25 @@ describe('music specs', () => {
     expect(resolveTrack('quarter', 6).key).toBe('quarter');
     expect(resolveTrack('quarter', 7).key).toBe('boss');
     expect(resolveTrack('quarter', Number.NaN).key).toBe('quarter');
+  });
+
+  it('resolves gauntlet to one untransposed track for tiers 1-6 and boss at tier 7', () => {
+    for (const tier of [undefined, 1, 3, 6, Number.NaN]) {
+      expect(resolveTrack('gauntlet', tier)).toEqual({ key: 'gauntlet', id: 'gauntlet', transpose: 0 });
+    }
+    expect(resolveTrack('gauntlet', 7).key).toBe('boss');
+  });
+
+  it('gauntlet lifts from G minor to G major every loop and turns back through V', () => {
+    const chords = SONG_SPECS.gauntlet.sections.flatMap((s) => s.chords);
+    expect(chords[0]).toBe('Gm');
+    expect(chords.at(-1)).toBe('D'); // V falls into the loop's Gm
+    const firstMajor = chords.indexOf('G');
+    expect(firstMajor).toBeGreaterThan(chords.indexOf('Gm'));
+    expect(chords.slice(0, firstMajor)).not.toContain('G');
+    expect(chords.slice(firstMajor)).not.toContain('Gm');
+    // Driving: the four-on-the-floor kit everywhere after the intro.
+    expect(SONG_SPECS.gauntlet.sections.slice(1).every((s) => s.drums === 'drive')).toBe(true);
   });
 
   it('only the quarter track has a final-100 layer, appended after identical base channels', () => {
@@ -95,6 +116,7 @@ describe('music rendering', () => {
     ['hurdles tier 1', 'hurdles', 1],
     ['hurdles tier 6', 'hurdles', 6],
     ['quarter', 'quarter'],
+    ['gauntlet', 'gauntlet', 4],
   ];
   it.each(cases)('%s renders a full-length, normalised, seamless loop', (_name, id, tier) => {
     const ref = resolveTrack(id, tier);

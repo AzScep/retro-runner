@@ -367,6 +367,108 @@ describe('audio engine with a (fake) AudioContext', () => {
     expect(final.stopped).toBeGreaterThan(70);
   }, 20000);
 
+  it('rate-limits field SFX to one per 100 ms across all field lanes, at the caller volume', async () => {
+    const { api } = await fresh();
+    api.unlockAudio();
+    const ctx = FakeContext.instances[0]!;
+    const gainsBefore = ctx.gains.length;
+    api.playSfx('hurdle_clip', { volume: 0.25, field: true }); // lane 2
+    api.playSfx('hurdle_hit', { volume: 0.25, field: true }); // lane 4, same frame: dropped
+    ctx.currentTime = 0.05;
+    api.playSfx('hurdle_clip', { volume: 0.25, field: true }); // lane 5: dropped
+    expect(sfxSources(ctx)).toHaveLength(1);
+    expect(ctx.gains.length).toBe(gainsBefore + 1);
+    expect(ctx.gains.at(-1)!.gain.value).toBe(0.25);
+    // The player and the rival keep their own limits: a field burst never swallows them.
+    api.playSfx('hurdle_clip');
+    api.playSfx('hurdle_clip', { volume: 0.5 });
+    expect(sfxSources(ctx)).toHaveLength(3);
+    ctx.currentTime = 0.1;
+    api.playSfx('hurdle_hit', { volume: 0.25, field: true });
+    expect(sfxSources(ctx)).toHaveLength(4);
+    ctx.currentTime = 0.15;
+    api.playSfx('hurdle_hit', { volume: 0.25, field: true });
+    api.playSfx('hurdle_hit', { volume: 0, field: true }); // silent: never scheduled
+    expect(sfxSources(ctx)).toHaveLength(4);
+    ctx.currentTime = 0.2;
+    api.playSfx('hurdle_hit', { volume: 0.25, field: true });
+    expect(sfxSources(ctx)).toHaveLength(5);
+  });
+
+  it('plays every v3 SFX', async () => {
+    const { api } = await fresh();
+    api.unlockAudio();
+    const ctx = FakeContext.instances[0]!;
+    const ids = [
+      'pistol',
+      'trip_thud',
+      'reveal_sting_1',
+      'reveal_sting_2',
+      'photo_click',
+      'bubble',
+      'gauntlet_clear',
+    ] as const;
+    for (const id of ids) api.playSfx(id);
+    api.playSfx('beep_go'); // the pistol layers over GO
+    expect(sfxSources(ctx)).toHaveLength(ids.length + 1);
+    expect(sfxSources(ctx).every((s) => s.started === 0 && s.buffer)).toBe(true);
+  });
+
+  it('keeps gauntlet playing without a restart across races 1-6 and the cards between them', async () => {
+    const { api, engine } = await fresh();
+    api.unlockAudio();
+    const ctx = FakeContext.instances[0]!;
+    await api.prepareMusic('gauntlet');
+    api.playMusic('gauntlet'); // intro card
+    const loops = () => loopSources(ctx);
+    expect(loops()).toHaveLength(1);
+    const track = loops()[0]!;
+    for (let tier = 1; tier <= 6; tier++) {
+      ctx.currentTime = tier * 20;
+      api.playMusic('gauntlet', tier); // race n
+      api.duckMusic(true); // countdown
+      api.setCrowd(0.3);
+      api.playSfx('beep_go');
+      api.playSfx('pistol');
+      api.duckMusic(false);
+      api.setCrowd(0);
+      api.playMusic('gauntlet'); // between-race card
+      api.duckMusic(true); // win_jingle on the card
+      api.playSfx('win_jingle');
+      api.duckMusic(false);
+    }
+    expect(loops().filter((s) => s.buffer!.duration > 40)).toEqual([track]);
+    expect(track.started).toBe(0);
+    expect(track.stopped).toBeNull();
+    expect(engine.audioState().playing).toBe('gauntlet');
+    // Tier 7 crossfades to the boss track once it is rendered; gauntlet plays on until then.
+    ctx.currentTime = 200;
+    api.playMusic('gauntlet', 7);
+    expect(engine.audioState().music).toBe('boss');
+    expect(track.stopped).toBeNull();
+    await api.prepareMusic('boss');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(engine.audioState().playing).toBe('boss');
+    expect(track.stopped).toBeGreaterThan(200);
+  }, 20000);
+
+  it('cutMusic stops the track dead (reveal step 3) and forgets it', async () => {
+    const { api, engine } = await fresh();
+    api.unlockAudio();
+    const ctx = FakeContext.instances[0]!;
+    await api.prepareMusic('champion');
+    api.playMusic('champion');
+    const track = loopSources(ctx)[0]!;
+    ctx.currentTime = 4;
+    api.cutMusic();
+    expect(track.stopped).toBeGreaterThan(4);
+    expect(track.stopped).toBeLessThan(4.1);
+    expect(engine.audioState()).toMatchObject({ music: null, playing: null });
+    api.cutMusic(); // nothing playing: harmless
+    api.playMusic('champion'); // wanted again after a cut: starts afresh
+    expect(loopSources(ctx)).toHaveLength(2);
+  }, 20000);
+
   it('setQuarterFinal on a non-quarter track is a harmless no-op', async () => {
     const { api } = await fresh();
     api.unlockAudio();

@@ -3,12 +3,13 @@
  * Rendering is split per channel so the engine can yield to the main thread between chunks.
  */
 
-import type { MusicId, Pcm } from '../types.ts';
+import type { MusicId, Pcm, SfxId } from '../types.ts';
 import { levels, SAMPLE_RATE } from '../synth.ts';
 import { zzfxM, zzfxmSongLength } from '../vendor/zzfxm.ts';
 import { buildSong, hasFinalLayer, specBars, type Song, type SongSpec } from './compose.ts';
 import { BOSS } from './boss.ts';
 import { CHAMPION } from './champion.ts';
+import { GAUNTLET } from './gauntlet.ts';
 import { HURDLES } from './hurdles.ts';
 import { LADDER } from './ladder.ts';
 import { QUARTER } from './quarter.ts';
@@ -25,6 +26,7 @@ export const SONG_SPECS: Record<MusicId, SongSpec> = {
   champion: CHAMPION,
   hurdles: HURDLES,
   quarter: QUARTER,
+  gauntlet: GAUNTLET,
 };
 
 export const RACE_TIERS = 6;
@@ -38,17 +40,25 @@ export interface TrackRef {
   readonly transpose: number;
 }
 
-/** Worker request key for the SFX bank (every SFX plus the crowd loop); never a track key. */
+/** Prefix of worker request keys for SFX banks; never a track key. */
 export const SFX_BANK_KEY = '#sfx';
 
-/** Race themes: tier 7 (Zyx) plays `boss` in every event. */
-const RACE_THEMES: ReadonlySet<MusicId> = new Set(['race', 'hurdles', 'quarter']);
+/** Worker request for a set of SFX (and optionally the crowd loop). `key` starts with SFX_BANK_KEY. */
+export interface SfxBankRequest {
+  readonly key: string;
+  readonly ids: readonly SfxId[];
+  readonly crowd: boolean;
+}
+
+/** Race themes: tier 7 (Zyx) plays `boss` in every event, and in the Gauntlet (design 32.4). */
+const RACE_THEMES: ReadonlySet<MusicId> = new Set(['race', 'hurdles', 'quarter', 'gauntlet']);
 /** Race themes transposed a semitone per tier (1-6). */
 const TRANSPOSED: ReadonlySet<MusicId> = new Set(['race', 'hurdles']);
 
 /**
- * Resolve playMusic(id, tier) to a track. race / hurdles / quarter + tier 7 => boss; race and
- * hurdles tiers clamp to 1-6 and transpose; quarter is the same track on tiers 1-6.
+ * Resolve playMusic(id, tier) to a track. race / hurdles / quarter / gauntlet + tier 7 => boss;
+ * race and hurdles tiers clamp to 1-6 and transpose; quarter and gauntlet are one track each on
+ * tiers 1-6 (so asking for them again with another tier is the same key: no restart).
  */
 export function resolveTrack(id: MusicId, tier?: number): TrackRef {
   if (RACE_THEMES.has(id)) {

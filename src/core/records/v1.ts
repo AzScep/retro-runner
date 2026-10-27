@@ -1,6 +1,14 @@
-import type { BestTime, HistoryEntry, OpponentId, Settings } from '../index.ts';
+import type { BestTime, OpponentId, Settings } from '../index.ts';
 import { LADDERS, TUNING } from '../roster.ts';
-import { bestTime, historyEntry, isInt, isObj, ladderIds, settings } from './fields.ts';
+import {
+  bestTime,
+  historyEntryV2,
+  isInt,
+  isObj,
+  ladderIds,
+  settings,
+  type HistoryEntryV2,
+} from './fields.ts';
 
 // The v1 save (design 4.3), kept only as the migration source (design 16.4).
 
@@ -10,7 +18,7 @@ export interface SaveDataV1 {
   readonly beaten: readonly OpponentId[];
   readonly champion: boolean;
   readonly best: Readonly<Partial<Record<OpponentId, BestTime>>>;
-  readonly history: readonly HistoryEntry[];
+  readonly history: readonly HistoryEntryV2[];
   readonly settings: Settings;
 }
 
@@ -45,10 +53,10 @@ export function parseSaveV1(raw: string): ParseV1Result {
     }
   }
 
-  const history: HistoryEntry[] = [];
+  const history: HistoryEntryV2[] = [];
   if (Array.isArray(doc.history)) {
     for (const h of doc.history) {
-      const e = historyEntry('100m', h);
+      const e = historyEntryV2('100m', h);
       if (e !== null) history.push(e);
       if (history.length >= TUNING.HISTORY_MAX) break;
     }

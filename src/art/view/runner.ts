@@ -91,3 +91,34 @@ export function pickRunnerView(
       return { kind: 'anim', anim: s.anim };
   }
 }
+
+/**
+ * v3: animation selection for a field runner (design 35.1). Field runners have walk, ready, run,
+ * lean, hurdle, stumble (hurdle HIT), celebrate and lose; no idle, no tired cycle, no overlays.
+ * Anim names are local (`run`); RaceView prefixes the body and variant.
+ */
+export function pickFieldView(s: RunnerState, dtMs: number, vs: RunnerViewState): RunnerPick {
+  switch (s.anim) {
+    case 'ready1':
+      return { kind: 'frame', frame: 'ready0' };
+    case 'ready2':
+      return { kind: 'frame', frame: 'ready1' };
+    case 'idle':
+      return { kind: 'frame', frame: 'walk1' };
+    case 'tired':
+    case 'run': {
+      if (s.vMps < RUN_MIN_SPEED) return { kind: 'frame', frame: 'ready1' };
+      vs.phase = (vs.phase + (dtMs / 1000) * Math.max(0, s.runFps)) % RUN_FRAMES;
+      return { kind: 'frame', frame: `run${Math.floor(vs.phase) % RUN_FRAMES}` };
+    }
+    case 'hurdle':
+      if (s.airPhase === null) return { kind: 'frame', frame: 'run3' };
+      return { kind: 'frame', frame: `hurdle${hurdleFrameIndex(s.airPhase)}` };
+    case 'fall':
+    case 'lie':
+    case 'getup':
+      return { kind: 'anim', anim: 'stumble' };
+    default:
+      return { kind: 'anim', anim: s.anim };
+  }
+}

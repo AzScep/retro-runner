@@ -461,3 +461,151 @@ export const ANIM_FRAME_COUNTS: Readonly<Record<AnimName, number>> = {
   lose: 4,
   stumble: 3,
 };
+
+// ---------------------------------------------------------------------------
+// v3 (design 33.2, 35.1): Rio's trip. fall 3 frames, lie 1, getup 3, all at 12 fps, played once.
+// ---------------------------------------------------------------------------
+
+/** Pitch forward over a caught foot, hands out, then the chest meets the track. */
+export const FALL_POSES: readonly Pose[] = [
+  // Caught: the near foot snags behind, the body pitches, arms fly forward.
+  {
+    lean: 46,
+    legN: [-38, 70],
+    legF: [24, 30],
+    footN: 30,
+    footF: 96,
+    armN: [112, 24],
+    armF: [92, 34],
+    lift: 1,
+    head: 'sad',
+    dx: -2,
+  },
+  // Diving: almost horizontal, hands reaching for the track, legs trailing.
+  {
+    lean: 72,
+    legN: [-62, 30],
+    legF: [-40, 54],
+    footN: 10,
+    footF: 30,
+    armN: [64, 6],
+    armF: [52, 10],
+    lift: 1,
+    head: 'sad',
+    dx: -4,
+  },
+  // Impact: chest down, elbows bent under the shoulders, legs flat behind.
+  {
+    lean: 86,
+    legN: [-84, 10],
+    legF: [-78, 24],
+    footN: -2,
+    footF: 6,
+    armN: [70, 96],
+    armF: [60, 104],
+    head: 'sad',
+    headDy: 1,
+    dx: -3,
+  },
+];
+
+/** Flat on the track, face down, arms forward. */
+export const LIE_POSES: readonly Pose[] = [
+  {
+    lean: 90,
+    legN: [-88, 4],
+    legF: [-86, 10],
+    footN: -4,
+    footF: 0,
+    armN: [84, 70],
+    armF: [92, 62],
+    head: 'sad',
+    headDy: 1,
+    dx: -3,
+  },
+];
+
+/** Push up, knee under, rise into the run. */
+export const GETUP_POSES: readonly Pose[] = [
+  {
+    lean: 70,
+    legN: [-50, 64],
+    legF: [-70, 30],
+    footN: 20,
+    footF: 6,
+    armN: [8, 6],
+    armF: [2, 6],
+    head: 'effort',
+    dx: -4,
+  },
+  {
+    lean: 44,
+    legN: [64, 112],
+    legF: [-14, 104],
+    footN: 96,
+    footF: 0,
+    armN: [24, 40],
+    armF: [-30, 30],
+    head: 'effort',
+    dx: -2,
+  },
+  {
+    lean: 28,
+    legN: [30, 40],
+    legF: [-30, 50],
+    footN: 94,
+    footF: 30,
+    armN: [-56, 60],
+    armF: [44, 92],
+    head: 'effort',
+    dx: -1,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// v3 field set (design 35.1): 31 frames per variant, no idle and no quirk overlays.
+// ---------------------------------------------------------------------------
+
+export type FieldAnimName = 'walk' | 'ready' | 'run' | 'lean' | 'hurdle' | 'stumble' | 'celebrate' | 'lose';
+
+export interface FieldAnimDef {
+  readonly name: FieldAnimName;
+  readonly fps: number;
+  readonly repeat: number;
+  readonly poses: readonly Pose[];
+}
+
+const pick = (poses: readonly Pose[], idx: readonly number[]): Pose[] => idx.map((i) => poses[i] as Pose);
+
+/** Field anims; `kid` uses the star jump of the small bodies for celebrate. */
+export function fieldAnims(kid: boolean): readonly FieldAnimDef[] {
+  return [
+    { name: 'walk', fps: 10, repeat: -1, poses: WALK_POSES },
+    { name: 'ready', fps: 1, repeat: 0, poses: READY_POSES },
+    { name: 'run', fps: 12, repeat: -1, poses: RUN_POSES },
+    { name: 'lean', fps: 12, repeat: 0, poses: LEAN_POSES },
+    { name: 'hurdle', fps: 10, repeat: 0, poses: HURDLE_POSES },
+    { name: 'stumble', fps: 12, repeat: 0, poses: STUMBLE_POSES },
+    // Crouch, peak, coming down, land: the 6-frame jump cut to 4.
+    {
+      name: 'celebrate',
+      fps: 8,
+      repeat: -1,
+      poses: kid ? pick(PIP_CELEBRATE_POSES, [0, 1, 2, 4]) : pick(CELEBRATE_POSES, [0, 2, 4, 5]),
+    },
+    // Hands on knees: the 4-frame breathing slump cut to its two distinct frames.
+    { name: 'lose', fps: 3, repeat: -1, poses: pick(LOSE_POSES, [0, 1]) },
+  ];
+}
+
+/** Design 35.1: walk 6, ready 2, run 8, lean 2, hurdle 4, stumble 3, celebrate 4, lose 2 = 31. */
+export const FIELD_FRAME_COUNTS: Readonly<Record<FieldAnimName, number>> = {
+  walk: 6,
+  ready: 2,
+  run: 8,
+  lean: 2,
+  hurdle: 4,
+  stumble: 3,
+  celebrate: 4,
+  lose: 2,
+};

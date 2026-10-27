@@ -1,8 +1,8 @@
 /**
- * Web Worker that runs bakeArt() off the main thread at page load (~110 ms of pixel work on a
- * laptop) and transfers the result: { page, w, h, textures, anims, anchors } (BakedArt).
+ * Web Worker that runs bakeMain() off the main thread at page load and transfers the result
+ * (BakedArt with page 0). The field page bakes in parallel in field.worker.ts.
  */
-import { bakeArt } from './baked.ts';
+import { bakeMain } from './baked.ts';
 
-const art = bakeArt();
-globalThis.postMessage(art, { transfer: [art.page.buffer] });
+const art = bakeMain();
+globalThis.postMessage(art, { transfer: art.pages.map((p) => p.data.buffer) });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { OpponentId, RaceEvent, RunnerEffect } from '../index.ts';
 import { DT_MS } from '../clock/clock.ts';
 import { mulberry32 } from '../rng/mulberry32.ts';
+import { rivalSpec } from './specs.ts';
 import { planRival, RivalSim, type RivalPlan } from './ai.ts';
 
 interface Sample {
@@ -56,8 +57,9 @@ describe('RivalSim (design 3.1)', () => {
   it('per-race variance stays inside +/-1% V_TOP and +/-3 m triggers, and is seed-deterministic', () => {
     for (let seed = 1; seed < 200; seed++) {
       const plan = planRival('100m', 'unit7', mulberry32(seed));
-      expect(plan.vTop / 11.604).toBeGreaterThanOrEqual(0.99);
-      expect(plan.vTop / 11.604).toBeLessThanOrEqual(1.01);
+      const base = rivalSpec('100m', 'unit7').vTop;
+      expect(plan.vTop / base).toBeGreaterThanOrEqual(0.99);
+      expect(plan.vTop / base).toBeLessThanOrEqual(1.01);
       expect(Math.abs((plan.at[0] ?? 0) - 50)).toBeLessThanOrEqual(3);
       expect(Math.abs((plan.at[1] ?? 0) - 85)).toBeLessThanOrEqual(3);
     }

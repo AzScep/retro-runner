@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures.ts';
 import { getState, waitForScene, waitForState, type GameState } from './helpers.ts';
 import {
   controlCenter,
@@ -309,6 +310,18 @@ test.describe('touch', () => {
     expect(records?.events['100m']?.history.at(-1)?.ms).toBe(ms);
     // Pads hide once the player has crossed, and the result buttons take taps.
     await expect(page.locator('[data-pad="L"]')).toBeHidden();
+    // The v3 card (28.1): RETRY by tap (buttons in reading order, RETRY before MAP).
+    const buttons = (await tapTargets(page))
+      .filter((t) => t.scene === 'Results')
+      .sort((a, b) => a.rect.x - b.rect.x);
+    const retry = buttons[buttons.length - 2];
+    if (!retry) throw new Error('no RETRY target');
+    await tapGame(page, touch, retry.rect.x + retry.rect.w / 2, retry.rect.y + retry.rect.h / 2);
+    await waitForState(
+      page,
+      (x) => !x.scenes.includes('Results') && race(x)?.phase !== 'finished' && race(x) !== null,
+      'retry by tap',
+    );
   });
 
   test('a second finger on a held side gives no step, no fumble and flashes held-blocked', async ({
@@ -481,6 +494,92 @@ test.describe('touch', () => {
   });
 });
 
+/** A v2 save with the 100 m won up to UNIT-7: migration reveals Zyx and opens the Gauntlet (34.4). */
+function v2Revealed(): string {
+  const doc = JSON.parse(v2Save()) as { events: Record<string, Record<string, unknown>> };
+  doc.events['100m'] = {
+    unlockedTier: 7,
+    beaten: ['pip', 'jess', 'marco', 'kofi', 'valentina', 'unit7'],
+    champion: false,
+    best: {},
+    history: [],
+  };
+  return JSON.stringify(doc);
+}
+
+test.describe('touch v3', () => {
+  test.beforeEach(async ({ page, hasTouch }) => {
+    test.skip(!hasTouch, 'touch projects only');
+    await seedSave(page, v2Revealed());
+    await boot(page);
+  });
+
+  test('Gauntlet cards take taps, and touch fumbles never trip even with the trip on', async ({
+    page,
+    browserName,
+  }) => {
+    test.setTimeout(120_000);
+    await page.evaluate(() => window.__retroRunner?.setTrip(true));
+    const touch = await touchDriver(page, browserName);
+    await tapUntilScene(page, () => tapTarget(page, touch, 'Title', (r) => r.w >= 200), 'Events');
+    await tapUntilScene(
+      page,
+      () => tapTarget(page, touch, 'Events', (r) => r.x <= 56 && r.x + r.w >= 56 && r.y < 100),
+      'Ladder',
+    );
+    // Touch ladder menu (29.1.5): BACK RACE GAUNTLET / RECORDS OPTIONS.
+    await waitForState(
+      page,
+      (s) => ((s as unknown as { taps?: TapTargetSnap[] }).taps ?? []).some((t) => t.scene === 'Ladder'),
+      'ladder targets',
+    );
+    await tapTarget(page, touch, 'Ladder', (r) => r.y >= 128 && r.y < 140 && r.x <= 268 && r.x + r.w > 268);
+    await waitForScene(page, 'Gauntlet');
+    await page.evaluate((n) => window.__retroRunner?.seed(n), 31);
+    // START is the left button.
+    const start = (await tapTargets(page))
+      .filter((t) => t.scene === 'Gauntlet')
+      .sort((a, b) => a.rect.x - b.rect.x)[0];
+    if (!start) throw new Error('no START');
+    await tapGame(page, touch, start.rect.x + start.rect.w / 2, start.rect.y + start.rect.h / 2);
+    await waitRunning(page);
+    // A step, then two same-side taps: fumbles only (33.1: touch presses never trip).
+    const L = await controlCenter(page, 'L');
+    for (let i = 0; i < 3; i++) await touch.tap(L);
+    await waitForState(page, (s) => (s.hud?.fumbles ?? 0) >= 2, 'fumbles', 3000);
+    await page.waitForTimeout(300);
+    expect((race(await getState(page)) as unknown as { trip?: string })?.trip).toBe('none');
+    await touchMashToFinish(page, touch);
+    const between = await waitForState(page, (s) => s.texts.includes('MEET 1 WON!'), 'between card', 10_000);
+    test.skip(between.gauntlet === null, 'touch mashing lost meet 1');
+    // A tap advances at once.
+    await page.waitForTimeout(300);
+    await touch.tap(await gamePoint(page, 160, 90));
+    await waitForState(
+      page,
+      (s) => race(s) !== null && s.gauntlet?.tier === 2 && !s.scenes.includes('Gauntlet'),
+      'meet 2',
+    );
+    await waitRunning(page);
+    await touch.tap(await controlCenter(page, 'pause'));
+    await waitForScene(page, 'Pause');
+    const abandon = (await tapTargets(page))
+      .filter((t) => t.scene === 'Pause')
+      .sort((a, b) => b.rect.y - a.rect.y)[0];
+    if (!abandon) throw new Error('no ABANDON RUN');
+    await tapGame(page, touch, abandon.rect.x + abandon.rect.w / 2, abandon.rect.y + abandon.rect.h / 2);
+    const over = await waitForState(page, (s) => s.texts.includes('GAUNTLET OVER'), 'over card');
+    expect(over.records?.events['100m'].gauntlet.runs).toBe(1);
+    const map = (await tapTargets(page))
+      .filter((t) => t.scene === 'Gauntlet')
+      .sort((a, b) => b.rect.x - a.rect.x)[0];
+    if (!map) throw new Error('no MAP');
+    await tapGame(page, touch, map.rect.x + map.rect.w / 2, map.rect.y + map.rect.h / 2);
+    await waitForScene(page, 'Ladder');
+    await page.evaluate(() => window.__retroRunner?.setTrip(null));
+  });
+});
+
 test.describe('iPhone Add to Home Screen hint', () => {
   test('appears once after the first tap and never again after OK', async ({
     page,
@@ -500,7 +599,7 @@ test.describe('iPhone Add to Home Screen hint', () => {
     expect(box && box.width >= 44 && box.height >= 44).toBe(true);
     await touch.tap(await centre(page, '[data-touch="hint-ok"]'));
     await expect(ok).toBeHidden();
-    const saved = await page.evaluate(() => localStorage.getItem('retroRunner.save.v2'));
+    const saved = await page.evaluate(() => localStorage.getItem('retroRunner.save.v3'));
     expect(JSON.parse(saved ?? '{}').hints?.addToHomeScreen).toBe(true);
     await page.reload();
     await waitForScene(page, 'Title', 30_000);

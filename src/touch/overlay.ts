@@ -38,6 +38,8 @@ export class Overlay {
   readonly zones: Readonly<Record<Control, HTMLElement>>;
   readonly pause: HTMLButtonElement;
   private readonly pads: Readonly<Record<Control, HTMLImageElement>>;
+  /** 1 px border drawn instead of the art frame when the pads are over the canvas (27.6.4). */
+  private readonly frames: Readonly<Record<Control, HTMLElement>>;
   private readonly pauseImg: HTMLImageElement;
   private readonly rotate: HTMLElement;
   private readonly rotateImg: HTMLImageElement;
@@ -76,6 +78,15 @@ export class Overlay {
       return img;
     };
     this.pads = { L: pad('L'), R: pad('R'), jump: pad('jump') };
+    const frame = (c: Control): HTMLElement => {
+      const el = doc.createElement('div');
+      el.className = 'touch-pad-frame';
+      el.dataset['padFrame'] = c;
+      el.setAttribute('aria-hidden', 'true');
+      root.append(el);
+      return el;
+    };
+    this.frames = { L: frame('L'), R: frame('R'), jump: frame('jump') };
 
     this.pause = doc.createElement('button');
     this.pause.type = 'button';
@@ -121,6 +132,7 @@ export class Overlay {
       const r = c === 'jump' ? l.pads.jump : l.pads[c];
       if (!r) continue;
       place(this.pads[c], r);
+      place(this.frames[c], r);
       this.padScale[c] = artScale(r.w, PAD_ART_W);
       this.shown[c] = '';
     }
@@ -146,10 +158,12 @@ export class Overlay {
       if (this.shown[c] !== key) {
         img.src = art(PAD_ART[c], state, this.padScale[c]);
         img.dataset['state'] = state;
+        this.frames[c].dataset['state'] = state;
         this.shown[c] = key;
       }
       const dx = frame.shake[c] * this.gamePx;
       img.style.transform = dx === 0 ? '' : `translateX(${dx}px)`;
+      this.frames[c].style.transform = img.style.transform;
     }
   }
 

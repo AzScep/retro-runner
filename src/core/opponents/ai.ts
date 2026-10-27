@@ -93,14 +93,23 @@ export class RivalSim {
   private readonly distanceM: number;
   private readonly maxX: number;
   readonly event: EventId;
-  readonly id: OpponentId;
+  /** Named rival id, null for a field runner. */
+  readonly id: OpponentId | null;
   readonly plan: RivalPlan;
+  /** [v3] Lane carried by its events: 1 = named rival, 2-5 = field. */
+  readonly lane: number;
 
-  constructor(event: EventId, id: OpponentId, plan: RivalPlan) {
+  /**
+   * A named rival (`id`, spec from RIVAL_SPECS) or, with `id` null, a field runner driven by the
+   * synthetic `spec` of field/field.ts (design 25.1).
+   */
+  constructor(event: EventId, id: OpponentId | null, plan: RivalPlan, spec?: RivalSpec, lane = 1) {
     this.event = event;
     this.id = id;
     this.plan = plan;
-    this.spec = rivalSpec(event, id);
+    this.lane = lane;
+    if (spec === undefined && id === null) throw new Error('a field runner needs a spec');
+    this.spec = spec ?? rivalSpec(event, id as OpponentId);
     this.hurdleX = hurdlePositions(event);
     this.knocked = this.hurdleX.map(() => false);
     this.distanceM = EVENTS[event].distanceM;
@@ -109,7 +118,7 @@ export class RivalSim {
   }
 
   clone(): RivalSim {
-    const c = new RivalSim(this.event, this.id, this.plan);
+    const c = new RivalSim(this.event, this.id, this.plan, this.spec, this.lane);
     c.x = this.x;
     c.xPrev = this.xPrev;
     c.v = this.v;
@@ -231,13 +240,14 @@ export class RivalSim {
         this.landedThisTick = true;
         this.v *= this.spec.hurdles?.landKeep ?? TUNING.LAND_KEEP;
         this.lockTicks = LOCK_TICKS;
-        out?.push({ type: 'land', lane: 'rival' });
+        out?.push({ type: 'land', lane: this.lane });
       }
     }
 
     if (!finished && this.x >= this.distanceM) {
       this.finishMs = crossingMs(t0Ms, this.xPrev, this.x, this.distanceM);
-      out?.push({ type: 'rivalFinish', ms: this.finishMs });
+      out?.push({ type: 'runnerFinish', lane: this.lane, ms: this.finishMs });
+      if (this.id !== null) out?.push({ type: 'rivalFinish', ms: this.finishMs });
     }
     if (!finished) this.checkTriggers(out);
   }
@@ -251,7 +261,7 @@ export class RivalSim {
     const takeoffS = action === 'clip' ? TUNING.AI_TAKEOFF_CLIP : TUNING.AI_TAKEOFF_CLEAN;
     if ((h - this.x) / this.v > takeoffS * JUMP_AIR_S) return;
     this.airTicks = 0;
-    out?.push({ type: 'jump', lane: 'rival' });
+    out?.push({ type: 'jump', lane: this.lane });
   }
 
   private checkHurdle(out: RaceEvent[] | null): void {
@@ -261,17 +271,17 @@ export class RivalSim {
     this.nextHurdle += 1;
     const result = hurdleOutcome(this.airTicks, this.xPrev, this.x, h);
     if (result === 'clean') {
-      out?.push({ type: 'hurdleClear', lane: 'rival', index: i });
+      out?.push({ type: 'hurdleClear', lane: this.lane, index: i });
       return;
     }
     this.knocked[i] = true;
     if (result === 'clip') {
       this.v *= TUNING.CLIP_KEEP;
-      out?.push({ type: 'hurdleClip', lane: 'rival', index: i });
+      out?.push({ type: 'hurdleClip', lane: this.lane, index: i });
     } else {
       this.v *= TUNING.HIT_KEEP;
       this.active.push({ ...HIT_STUMBLE });
-      out?.push({ type: 'hurdleHit', lane: 'rival', index: i });
+      out?.push({ type: 'hurdleHit', lane: this.lane, index: i });
     }
   }
 

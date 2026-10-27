@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Trip prototype</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0b0b14;
+        color: #c9c7d9;
+        font: 13px monospace;
+      }
+      main {
+        padding: 12px;
+      }
+      canvas {
+        image-rendering: pixelated;
+        width: 960px;
+        height: 540px;
+        display: block;
+      }
+      .controls {
+        display: grid;
+        grid-template-columns: 220px 220px 80px;
+        gap: 6px 12px;
+        align-items: center;
+        margin: 12px 0;
+      }
+      button {
+        font: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <canvas id="view" width="320" height="180"></canvas>
+      <p>Left/Right or A/D to run. Space or Enter restarts. The dim ghost runs your presses under rule A.</p>
+      <div class="controls">
+        <label for="rule">Rule</label>
+        <select id="rule">
+          <option value="A">A: today's fumble only</option>
+          <option value="B" selected>B: 2 fumbles within W trip</option>
+          <option value="C">C: 2 fumbles in a row within W trip</option>
+          <option value="B1">B1: any double tap within W trips</option>
+        </select>
+        <span></span>
+        <label for="w">Window W</label><input id="w" type="range" min="0.1" max="1" step="0.05" /><output
+          id="wv"
+        ></output>
+        <label for="l">Lie L</label><input id="l" type="range" min="0" max="1" step="0.05" /><output
+          id="lv"
+        ></output>
+        <label for="b">Bleed to 0</label><input id="b" type="range" min="0.05" max="0.6" step="0.05" /><output
+          id="bv"
+        ></output>
+        <label for="loss">Speed loss on get-up</label
+        ><input id="loss" type="range" min="0" max="1" step="0.05" /><output id="lossv"></output>
+      </div>
+      <button id="restart">Restart (applies the settings)</button>
+      <ol id="log"></ol>
+    </main>
+    <script type="module" src="./trip.ts"></script>
+  </body>
+</html>

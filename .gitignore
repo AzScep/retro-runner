@@ -31,3 +31,4 @@ test-results
 tools/art/out
 tools/audio/out
 .vercel
+tools/prototype/out

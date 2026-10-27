@@ -11,12 +11,14 @@ import { attachKeyboard, raceInput, type Settings } from './core/index.ts';
 import { getApp, hasApp, settings, toggleMute } from './scenes/app.ts';
 import { BootScene } from './scenes/BootScene.ts';
 import { ChampionScene } from './scenes/ChampionScene.ts';
+import { GauntletScene } from './scenes/GauntletScene.ts';
 import { HudScene } from './scenes/HudScene.ts';
 import { LadderScene } from './scenes/LadderScene.ts';
 import { OptionsScene } from './scenes/OptionsScene.ts';
 import { PauseScene } from './scenes/PauseScene.ts';
 import { RaceScene } from './scenes/RaceScene.ts';
 import { RecordsScene } from './scenes/RecordsScene.ts';
+import { RevealScene } from './scenes/RevealScene.ts';
 import { ResultsScene } from './scenes/ResultsScene.ts';
 import { installTestHook } from './scenes/testHook.ts';
 import { EventSelectScene } from './scenes/EventSelectScene.ts';
@@ -66,9 +68,11 @@ const game = new Phaser.Game({
     RecordsScene,
     OptionsScene,
     ChampionScene,
+    RevealScene,
     RaceScene,
     HudScene,
     ResultsScene,
+    GauntletScene,
     PauseScene,
   ],
 });

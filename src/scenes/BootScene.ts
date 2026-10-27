@@ -1,6 +1,14 @@
 import Phaser from 'phaser';
-import { browserStorage, RecordsStore } from '../core/index.ts';
-import { GAME_HEIGHT, GAME_WIDTH, iconKey, paletteColor, prepareArt, registerArt } from '../art/index.ts';
+import { browserStorage, fieldRunners, RecordsStore } from '../core/index.ts';
+import {
+  createFieldSprite,
+  GAME_HEIGHT,
+  GAME_WIDTH,
+  iconKey,
+  paletteColor,
+  prepareArt,
+  registerArt,
+} from '../art/index.ts';
 import { preloadAudio } from '../audio/index.ts';
 import { FONT_PS, loadPressStart, registerFonts } from '../ui/fonts.ts';
 import { PAL } from '../ui/hudMath.ts';
@@ -51,8 +59,9 @@ export class BootScene extends Phaser.Scene {
 
   /**
    * Phaser 4 links a shader program the first time a batch needs it, and the textured batch
-   * shaders are specialised per number of textures in the batch. All art shares one atlas texture
-   * and both fonts share another, so the game only ever needs 1 or 2 textures per batch. This
+   * shaders are specialised per number of textures in the batch. Art uses the main atlas page and
+   * (v3) the field runners' page, and both fonts share another texture, so a batch needs 1 to 3
+   * textures (a race frame: atlas, field page, fonts). This
    * draws one batch of each kind (tile sprite, 1 texture, 2 textures, untextured fill) under an
    * opaque cover on the loading frame, so no program is linked mid-game (each link stalled the
    * main thread for 50-450 ms in a race).
@@ -64,12 +73,18 @@ export class BootScene extends Phaser.Scene {
       fillRect(g, 0, 0, 1, 1, PAL.ink);
       return g;
     };
+    const field = fieldRunners(1)[0];
     const objs: Phaser.GameObjects.GameObject[] = [
       this.add.tileSprite(0, 0, 16, 16, icon).setOrigin(0, 0),
       sep(),
       this.add.image(0, 0, icon).setOrigin(0, 0),
       sep(),
       this.add.image(0, 0, icon).setOrigin(0, 0),
+      this.add.bitmapText(0, 0, FONT_PS, 'A', 8),
+      sep(),
+      // 3 textures: atlas page 0, the field page and the font texture.
+      this.add.image(0, 0, icon).setOrigin(0, 0),
+      ...(field ? [createFieldSprite(this, field, 24, 47).setDepth(0)] : []),
       this.add.bitmapText(0, 0, FONT_PS, 'A', 8),
     ];
     const cover = this.add.graphics();

@@ -318,19 +318,35 @@ describe('Race: finish, run-out and results (design 1.4)', () => {
     expect(race.state.player.finishMs).toBeNull();
   });
 
-  it('a photo finish (equal ms) counts as a win', () => {
-    // Found by scanning press periods against Kofi seed 77: both cross at 12606 ms.
-    const { race } = runRace('kofi', 77, (go) => alternate(go, 106.18, 400));
+  it('a photo finish (equal ms with the winner) counts as a win and shares 1st (design 24.1)', () => {
+    // Found by scanning press periods: the player and Kofi both cross at 12642 ms (seed 77).
+    const { race } = runRace('kofi', 77, (go) => alternate(go, 106.54, 400));
     expect(race.state.outcome).toMatchObject({
       result: 'win',
-      ms: 12606,
-      oppMs: 12606,
+      ms: 12642,
+      oppMs: 12642,
+      winMs: 12642,
       marginMs: 0,
       photoFinish: true,
+      place: 1,
     });
-    // One step slower is a loss.
-    const slower = runRace('kofi', 77, (go) => alternate(go, 106.5, 400)).race.state.outcome;
+    expect(race.state.outcome?.standings.slice(0, 3).map((s) => [s.lane, s.place])).toEqual([
+      [0, 1],
+      [1, 1],
+      [5, 3],
+    ]);
+    // A dead heat with a field runner (seed 79): the player is listed first, both 1st, next is 3rd.
+    const field = runRace('kofi', 79, (go) => alternate(go, 105.24, 400)).race.state.outcome;
+    expect(field).toMatchObject({ result: 'win', ms: 12512, winMs: 12512, oppMs: 12754, photoFinish: true });
+    expect(field?.standings.slice(0, 3).map((s) => [s.lane, s.ms, s.place])).toEqual([
+      [0, 12512, 1],
+      [4, 12512, 1],
+      [1, 12754, 3],
+    ]);
+    // Slower presses: a loss without a photo finish.
+    const slower = runRace('kofi', 77, (go) => alternate(go, 107, 400)).race.state.outcome;
     expect(slower?.result).toBe('lose');
+    expect(slower?.place).toBeGreaterThanOrEqual(2);
     expect(slower?.photoFinish).toBe(false);
   });
 });

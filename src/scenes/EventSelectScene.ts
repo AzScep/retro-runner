@@ -140,7 +140,9 @@ export class EventSelectScene extends Phaser.Scene {
           .setOrigin(0, 0)
           .setDepth(depth),
       );
-      keepLabel(new Label(this, x + 38, CARD_Y + 72, `${er.beaten.length}/7`, { depth }));
+      // 1st places out of the rivals the player can know about (29.3.1).
+      const tiers = rec.isRevealed(event) ? 7 : 6;
+      keepLabel(new Label(this, x + 38, CARD_Y + 72, `${er.beaten.length}/${tiers}`, { depth }));
       if (er.champion) {
         keep(
           this.add

@@ -74,6 +74,11 @@ export interface CharacterSpec {
   readonly raisedReachScale?: number;
   /** Optional selective outline (design 5.3.3). */
   readonly selout?: boolean;
+  /**
+   * v3: a flat stamp on the chest (field bibs and painted model numbers, design 24.2), centred on the
+   * torso point (u, v) and drawn over the torso, under the near leg, head and near arm.
+   */
+  readonly decal?: { readonly map: IndexMap; readonly u: number; readonly v: number };
 }
 
 export interface Pose {
@@ -457,6 +462,22 @@ export function renderPose(spec: CharacterSpec, pose: Pose, size = 48, groundRow
     shT: -0.25,
   });
   composite(cv, torsoPx, false, 'none');
+  if (spec.decal) {
+    const d = spec.decal;
+    const c = torsoPoint(d.u, d.v);
+    const dx0 = Math.round(c[0] - d.map.w / 2);
+    const dy0 = Math.round(c[1] - d.map.h / 2);
+    const decalPx: PartPixel[] = [];
+    for (let y = 0; y < d.map.h; y++) {
+      for (let x = 0; x < d.map.w; x++) {
+        const v = getPx(d.map, x, y);
+        if (v && cv.inside(dx0 + x, dy0 + y) && cv.idx[(dy0 + y) * cv.w + dx0 + x] !== 0) {
+          decalPx.push({ x: dx0 + x, y: dy0 + y, v, mat: '__decal', line: v });
+        }
+      }
+    }
+    composite(cv, decalPx, false, 'none');
+  }
 
   const jn = drawLeg(pose.legN, pose.footN, false);
 

@@ -2,7 +2,8 @@
  * Pure layout and display maths for the race HUD and screens (design 6.2-6.5).
  * No Phaser imports so it runs under Vitest in Node.
  */
-import { EVENTS, hurdlePositions, WORLD, type EventId } from '../core/index.ts';
+import { EVENTS, hurdlePositions, WORLD, type EventId, type OpponentId } from '../core/index.ts';
+import { MINI_HEIGHT, miniTextWidth } from './miniFont.ts';
 
 // ---------------------------------------------------------------------------
 // Palette indices used by the UI (design 5.2). Colours come from art's paletteColor(index).
@@ -20,10 +21,32 @@ export const PAL = {
   redShadow: 16,
   red: 17,
   redLight: 18,
+  orangeDark: 20,
+  orange: 21,
   gold: 22,
   green: 26,
   navy: 28,
+  blue: 29,
+  purple: 33,
+  teal: 36,
+  tealGlow: 37,
 } as const;
+
+/**
+ * Named rival's kit base colour (design 3.3, 15.5, 27.1-27.4): the rival badge frame, the progress
+ * bar head and the off-screen markers. Chrome UNIT-7 uses metal base, which still reads apart from
+ * the field's index 7.
+ */
+export const RIVAL_KIT: Readonly<Record<OpponentId, number>> = {
+  pip: 26,
+  jess: 29,
+  marco: 33,
+  kofi: 26,
+  valentina: 29,
+  unit7: 5,
+  zyx: 33,
+  sol: 21,
+};
 
 // ---------------------------------------------------------------------------
 // Speed meter (design 6.2)
@@ -189,6 +212,103 @@ export function flashOn(elapsedMs: number, hz: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Live position (design 27.2): a new raw place shows only after holding POSITION_HOLD.
+// ---------------------------------------------------------------------------
+
+/**
+ * Holds the raw live place for `holdMs` before showing it, so the label changes at most about 3
+ * times a second and never flickers between level runners. Hidden (null) before GO and after a DQ;
+ * once the player has crossed, the final place shows at once and stays.
+ */
+export class PlaceHold {
+  #shown: number | null = null;
+  #pending: number | null = null;
+  #since = 0;
+  #frozen = false;
+  readonly holdMs: number;
+
+  constructor(holdMs: number) {
+    this.holdMs = holdMs;
+  }
+
+  get shown(): number | null {
+    return this.#shown;
+  }
+
+  /** Feed the raw place every frame; `crossed` freezes it to the player's final place. */
+  update(raw: number | null, nowMs: number, crossed: boolean): number | null {
+    if (this.#frozen) return this.#shown;
+    if (raw === null) {
+      this.#shown = null;
+      this.#pending = null;
+      return null;
+    }
+    if (crossed) {
+      this.#frozen = true;
+      this.#shown = raw;
+      return raw;
+    }
+    // The first place after GO shows at once (the label appears at GO, 27.2.3).
+    if (this.#shown === null) {
+      this.#shown = raw;
+      this.#pending = null;
+      return raw;
+    }
+    if (raw === this.#shown) {
+      this.#pending = null;
+      return raw;
+    }
+    if (raw !== this.#pending) {
+      this.#pending = raw;
+      this.#since = nowMs;
+    }
+    if (nowMs - this.#since >= this.holdMs) {
+      this.#shown = raw;
+      this.#pending = null;
+    }
+    return this.#shown;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Off-screen indicators (design 27.4)
+// ---------------------------------------------------------------------------
+
+export interface OffscreenRunner {
+  readonly lane: number;
+  /** Drawn screen x of the runner (oblique included). */
+  readonly screenX: number;
+  readonly xM: number;
+  readonly visible: boolean;
+}
+
+export interface OffscreenIndicators {
+  /** The race leader is off-screen ahead: its lane and the true gap in metres. */
+  readonly leader: { readonly lane: number; readonly gapM: number } | null;
+  /** Runners off-screen behind, and whether the named rival (lane 1) is among them. */
+  readonly behind: { readonly count: number; readonly rival: boolean } | null;
+}
+
+/** Leader ahead and pack behind (27.4) from each runner's drawn x; the player is lane 0. */
+export function offscreenIndicators(
+  runners: readonly OffscreenRunner[],
+  leaderLane: number,
+  screenWidth: number,
+): OffscreenIndicators {
+  const player = runners.find((r) => r.lane === 0);
+  const lead = runners.find((r) => r.lane === leaderLane);
+  const leader =
+    player && lead && leaderLane !== 0 && lead.visible && Math.round(lead.screenX) >= screenWidth
+      ? { lane: leaderLane, gapM: lead.xM - player.xM }
+      : null;
+  const out = runners.filter((r) => r.lane !== 0 && r.visible && Math.round(r.screenX) < 0);
+  return {
+    leader,
+    behind: out.length > 0 ? { count: out.length, rival: out.some((r) => r.lane === 1) } : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Off-screen rival arrow (design 6.2)
 // ---------------------------------------------------------------------------
 
@@ -287,4 +407,59 @@ export function crowdIntensity(leadXM: number, event: EventId = '100m'): number 
   const rise = event === '400m' ? 100 : 20;
   const t = Math.min(1, Math.max(0, (leadXM - (distance - rise)) / rise));
   return base + (1 - base) * t;
+}
+
+// ---------------------------------------------------------------------------
+// Speech bubble placement (design 31.2)
+// ---------------------------------------------------------------------------
+
+/** Text inset from the bubble edge, and the screen margin the bubble keeps. */
+export const BUBBLE_PAD = 4;
+const PAD = BUBBLE_PAD;
+const MARGIN = 2;
+const TAIL = 3;
+
+export interface BubbleBox {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly tailX: number;
+  readonly tailY: number;
+}
+
+export interface AvoidRect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+/**
+ * Pure placement: bubble box and tail for `text` above the anchor (ax, ay), clamped on screen.
+ * A bubble that would overlap `avoid` (the big countdown digit or a banner) slides sideways past
+ * it, toward the anchor's side; the tail stays under the bubble as close to the anchor as it can.
+ */
+export function bubbleBox(
+  text: string,
+  ax: number,
+  ay: number,
+  screenW = 320,
+  avoid: AvoidRect | null = null,
+): BubbleBox {
+  const w = miniTextWidth(text) + PAD * 2;
+  const h = MINI_HEIGHT + PAD * 2;
+  let x = Math.round(Math.min(Math.max(ax - w / 2, MARGIN), screenW - MARGIN - w));
+  const y0 = Math.round(Math.max(MARGIN, ay - TAIL - h));
+  if (avoid) {
+    const hit = x < avoid.x + avoid.w && avoid.x < x + w && y0 < avoid.y + avoid.h && avoid.y < y0 + h;
+    if (hit) {
+      const right = ax >= avoid.x + avoid.w / 2;
+      x = right ? avoid.x + avoid.w + 2 : avoid.x - 2 - w;
+      x = Math.round(Math.min(Math.max(x, MARGIN), screenW - MARGIN - w));
+    }
+  }
+  const y = y0;
+  const tailX = Math.round(Math.min(Math.max(ax - 1, x + PAD), x + w - PAD - TAIL));
+  return { x, y, w, h, tailX, tailY: y + h - 1 };
 }

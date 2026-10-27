@@ -16,16 +16,21 @@ export const DEPTH = {
   near: 4,
   track: 5,
   markings: 6,
-  shadow: 10,
-  /** Rival-lane hurdles: behind the rival and everything in the player lane (design 19.2). */
-  rivalHurdle: 15,
-  rival: 20,
-  rivalFx: 21,
-  /** Player-lane hurdles: in front of the rival lane, behind the player. */
-  playerHurdle: 25,
-  player: 30,
-  playerFx: 31,
-  dust: 40,
+  /** v3: starter, judges, photo camera and bell official on the far side (design 26.4). */
+  officials: 7,
+  officialsFx: 8,
+  // v3 lanes (design 26.3, view/lanes.ts laneDepth): lane k uses 10 + (5 - k) * 6 .. + 3, far first.
+  /** Named rival's lane (1): hurdles, shadow, runner, effects. */
+  rivalHurdle: 34,
+  rivalShadow: 35,
+  rival: 36,
+  rivalFx: 37,
+  /** Player's lane (0), drawn last of all lanes. */
+  playerHurdle: 40,
+  shadow: 41,
+  player: 42,
+  playerFx: 43,
+  dust: 44,
   fg: 50,
 } as const;
 

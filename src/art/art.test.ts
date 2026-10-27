@@ -13,10 +13,18 @@ import {
   fgLayer,
   finishLine,
   groundShadow,
+  LANE_FEET_Y,
+  LANE_LINE_Y,
+  LANE_OBLIQUE_PX,
   LAYERS,
+  MARKING_LEFT,
+  MARKING_TOP,
   nearLayer,
+  rowOffsetPx,
   skyLayer,
   standsLayer,
+  startLine,
+  theme,
   TIERS,
   trackLayer,
 } from './stadium/layers.ts';
@@ -237,13 +245,17 @@ describe('stadium (design 5.7, 5.8)', () => {
     for (const tier of TIERS) {
       const tr = trackLayer(tier);
       const counts = new Map<number, number>();
-      // Lane interiors only (between the lane lines; tier 7 deck seams at x 0 and row 30 excluded).
+      // Lane interiors only (between the lane lines; tier 7 deck seams at x 0 and row 141 excluded).
       for (const [y0, y1] of [
-        [6, 26],
-        [31, 50],
+        [114, 119],
+        [129, 136],
+        [149, 161],
       ] as const)
         for (let y = y0; y < y1; y++)
-          for (let x = 1; x < tr.w; x++) counts.set(getPx(tr, x, y), (counts.get(getPx(tr, x, y)) ?? 0) + 1);
+          for (let x = 1; x < tr.w; x++) {
+            const v = getPx(tr, x, y - LAYERS.track.y);
+            counts.set(v, (counts.get(v) ?? 0) + 1);
+          }
       const sorted = [...counts.values()].sort((a, b) => b - a);
       const total = sorted.reduce((a, b) => a + b, 0);
       expect(counts.size, `tier ${tier} tones`).toBeLessThanOrEqual(tier === 7 ? 3 : 2);
@@ -261,21 +273,57 @@ describe('stadium (design 5.7, 5.8)', () => {
     expect(Array.from(standsLayer(3, 0).data)).not.toEqual(Array.from(standsLayer(3, 1).data));
   });
 
-  it('track has 1 px lane lines at y = 108, 132, 156 and tiles seamlessly', () => {
+  it('v3 track band: rows 101-164 with 7 lane lines at the layout R rows (design 26.1)', () => {
+    expect([LAYERS.track.y, LAYERS.track.y + LAYERS.track.h]).toEqual([101, 165]);
+    expect(LANE_LINE_Y).toEqual([161, 147, 136, 127, 119, 112, 105]);
     const t = trackLayer(4);
-    for (const y of [108, 132, 156]) for (let x = 0; x < 64; x++) expect(getPx(t, x, y - 104)).toBe(8);
-    expect(getPx(trackLayer(7), 5, 4)).toBe(37);
+    for (const y of LANE_LINE_Y) for (let x = 0; x < 64; x++) expect(getPx(t, x, y - LAYERS.track.y)).toBe(8);
+    for (const y of LANE_LINE_Y) expect(getPx(trackLayer(7), 5, y - LAYERS.track.y)).toBe(37);
+    // Tiles seamlessly: the first and last columns match the grain pattern of a 64 px repeat.
+    for (let y = 0; y < t.h; y++) expect(getPx(t, 0, y)).toBe(getPx(t, 64 - 64, y));
   });
 
-  it('foreground props stay below the runner feet and are at most 1 per 160 px', () => {
-    expect(LAYERS.fg.y).toBeGreaterThan(152);
+  it('the ad wall loses its bottom 3 rows and the L5 band is the 15 rows below the track', () => {
+    expect(LAYERS.near.y + LAYERS.near.h).toBe(101);
+    expect(LAYERS.near.h).toBe(13);
+    expect([LAYERS.fg.y, LAYERS.fg.h]).toEqual([165, 15]);
     expect(LAYERS.fg.w % 160).toBe(0);
+  });
+
+  it('foreground props are at most 15 px tall, at most one per 160 px (design 26.1)', () => {
+    for (const tier of TIERS) {
+      const m = fgLayer(tier);
+      // Every column with prop pixels (not grass tones) belongs to one of three 160 px slots.
+      const grass = new Set(theme(tier).grass);
+      const slots = new Set<number>();
+      for (let x = 0; x < m.w; x++)
+        for (let y = 0; y < m.h; y++) if (!grass.has(getPx(m, x, y))) slots.add(Math.floor(x / 160));
+      expect(slots.size, `tier ${tier}`).toBeLessThanOrEqual(3);
+      expect(m.h).toBeLessThanOrEqual(15);
+    }
+  });
+
+  it('start and finish lines follow the lane oblique through every feet row (design 26.2, 26.4)', () => {
+    const start = startLine(4);
+    const finish = finishLine();
+    expect(start.h).toBe(LANE_LINE_Y[0]! - LANE_LINE_Y[6]! + 1);
+    LANE_FEET_Y.forEach((feet, lane) => {
+      expect(rowOffsetPx(feet)).toBe(lane * LANE_OBLIQUE_PX);
+      const row = feet - MARKING_TOP;
+      const x0 = MARKING_LEFT + lane * LANE_OBLIQUE_PX;
+      expect([getPx(start, x0, row), getPx(start, x0 + 1, row)]).toEqual([8, 8]);
+      expect(getPx(start, x0 - 1, row)).toBe(0);
+      for (let x = 0; x < 4; x++) expect([1, 8]).toContain(getPx(finish, x0 + x, row));
+    });
+    // Monotonic: the line never steps back toward the near lanes as it climbs.
+    for (let y = MARKING_TOP; y < LANE_LINE_Y[0]!; y++)
+      expect(rowOffsetPx(y)).toBeGreaterThanOrEqual(rowOffsetPx(y + 1));
   });
 
   it('markings and shadow sizes', () => {
     expect([groundShadow().w, groundShadow().h]).toEqual([20, 3]);
     for (const v of groundShadow().data) expect([0, 38]).toContain(v);
-    expect(finishLine().h).toBe(49);
+    expect(validIndices(finishLine())).toBe(true);
     expect(validIndices(distanceBoard(90))).toBe(true);
   });
 });

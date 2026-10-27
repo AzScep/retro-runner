@@ -18,6 +18,7 @@ import {
 } from '../core/index.ts';
 import { setCrt } from '../art/index.ts';
 import { setMuted, setVolume, type MusicId } from '../audio/index.ts';
+import type { GauntletRun } from '../ui/gauntlet.ts';
 import { menuAction, type MenuAction } from '../ui/keys.ts';
 
 export const SceneKey = {
@@ -32,11 +33,18 @@ export const SceneKey = {
   Hud: 'Hud',
   Results: 'Results',
   Pause: 'Pause',
+  Gauntlet: 'Gauntlet',
+  Reveal: 'Reveal',
 } as const;
 export type SceneKey = (typeof SceneKey)[keyof typeof SceneKey];
 
 /** Scenes that run in parallel on top of Race. */
-export const RACE_OVERLAYS: readonly SceneKey[] = [SceneKey.Hud, SceneKey.Results, SceneKey.Pause];
+export const RACE_OVERLAYS: readonly SceneKey[] = [
+  SceneKey.Hud,
+  SceneKey.Results,
+  SceneKey.Gauntlet,
+  SceneKey.Pause,
+];
 
 export interface App {
   readonly records: RecordsStore;
@@ -52,6 +60,14 @@ export interface App {
   pendingSeed: number | null;
   /** The live race (for the test hook), null outside S3/S4. */
   race: Race | null;
+  /** The Gauntlet run in progress (design 32), null on the ladder. */
+  gauntlet: GauntletRun | null;
+  /** `event:tier` meets already shown this session: retries get the short meet card (31.1). */
+  readonly meetsSeen: Set<string>;
+  /** Event whose reveal just finished: its ladder grows the tier 7 node once (30.2 step 10). */
+  revealDone: EventId | null;
+  /** Test hook override of TUNING.TRIP_ENABLED for the next races; null uses the tunable. */
+  tripOverride: boolean | null;
 }
 
 let app: App | null = null;
@@ -76,6 +92,10 @@ export function initApp(records: RecordsStore): App {
     saveWarningShown: false,
     pendingSeed: null,
     race: null,
+    gauntlet: null,
+    meetsSeen: new Set(),
+    revealDone: null,
+    tripOverride: null,
   };
   applyAudioSettings();
   return app;
@@ -97,6 +117,8 @@ export function resetRecords(game: Phaser.Game): void {
   a.event = '100m';
   a.ladderCursor = initialCursors(a.records);
   a.championPending = null;
+  a.gauntlet = null;
+  a.revealDone = null;
   applyAudioSettings();
   game.events.emit(SETTINGS_CHANGED);
 }
@@ -208,6 +230,17 @@ export function hapticsSupported(): boolean {
 /** Rival ids of an event's ladder in tier order. */
 export function ladderIds(event: EventId): readonly OpponentId[] {
   return LADDERS[event].map((e) => e.id);
+}
+
+/** Ladder ids the player may see: tier 7 stays hidden until that event's reveal (design 29.1.3). */
+export function visibleLadderIds(records: RecordsStore, event: EventId): readonly OpponentId[] {
+  const ids = ladderIds(event);
+  return records.isRevealed(event) ? ids : ids.slice(0, ids.length - 1);
+}
+
+/** Rival of a tier (1-7) in an event. */
+export function rivalOfTier(event: EventId, tier: number): OpponentId {
+  return ladderIds(event)[tier - 1] ?? 'pip';
 }
 
 export function tierOf(event: EventId, id: OpponentId): number {

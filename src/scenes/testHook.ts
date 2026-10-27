@@ -7,12 +7,13 @@ import { PALETTE } from '../art/index.ts';
 import {
   modality,
   toKmh,
+  TUNING,
   type ModalityState,
   type RaceState,
   type RunnerState,
   type SaveData,
 } from '../core/index.ts';
-import { getApp, hasApp, resetRecords, SceneKey } from './app.ts';
+import { getApp, goTo, hasApp, resetRecords, rivalOfTier, SceneKey } from './app.ts';
 import { activeTapTargets, dispatchTap, type TapRect } from '../ui/tapTargets.ts';
 import { audioPreloaded, bootError } from './BootScene.ts';
 import type { HudScene, HudSnapshot } from './HudScene.ts';
@@ -57,6 +58,18 @@ export interface TestState {
     readonly player: RunnerSnapshot;
     readonly rival: RunnerSnapshot;
     readonly outcome: RaceState['outcome'];
+    // v3 (design 24, 27, 33)
+    readonly mode: RaceState['mode'];
+    readonly livePlace: number | null;
+    readonly leaderLane: number;
+    readonly trip: RaceState['trip'];
+    readonly runners: readonly {
+      readonly lane: number;
+      readonly name: string;
+      readonly kind: string;
+      readonly xM: number;
+      readonly finishMs: number | null;
+    }[];
   } | null;
   readonly hud: HudSnapshot | null;
   /** Text of every visible bitmap text in running scenes. */
@@ -70,6 +83,14 @@ export interface TestState {
   readonly modality: ModalityState;
   /** Tap targets of running scenes (design 17.5). */
   readonly taps: readonly { readonly scene: string; readonly rect: TapRect }[];
+  /** The Gauntlet run in progress (design 32), null on the ladder. */
+  readonly gauntlet: {
+    readonly event: string;
+    readonly tier: number;
+    readonly times: readonly number[];
+  } | null;
+  /** The trip flag the next race uses (test override or TUNING.TRIP_ENABLED). */
+  readonly tripEnabled: boolean;
 }
 
 export interface TestHook {
@@ -82,6 +103,13 @@ export interface TestHook {
   clearRecords(): void;
   /** A menu tap at game px (what the touch layer does after pointerup). True if a target took it. */
   tap(x: number, y: number): boolean;
+  /** Override TUNING.TRIP_ENABLED for the next races (design 33); null restores the tunable. */
+  setTrip(on: boolean | null): void;
+  /**
+   * Starts a Gauntlet race of the current event at `tier` with `times` already won (design 32),
+   * from whatever screen is up, so a test can reach the tier 7 clear without racing tiers 1-6.
+   */
+  startGauntletRace(tier: number, times: readonly number[]): void;
   /** Force the input modality (copy, BACK items, HUD layout) without touch hardware. */
   setModality(patch: Partial<ModalityState>): void;
   /**
@@ -150,6 +178,17 @@ export function installTestHook(game: Phaser.Game): void {
               player: runner(st.player),
               rival: runner(st.rival),
               outcome: st.outcome,
+              mode: st.mode,
+              livePlace: st.livePlace,
+              leaderLane: st.leaderLane,
+              trip: st.trip,
+              runners: st.runners.map((r) => ({
+                lane: r.lane,
+                name: r.name,
+                kind: r.who.kind,
+                xM: r.state.xM,
+                finishMs: r.state.finishMs,
+              })),
             },
       hud: hudLive ? hudScene.snapshot() : null,
     };
@@ -176,6 +215,8 @@ export function installTestHook(game: Phaser.Game): void {
         event: app?.event ?? null,
         modality: modality.get(),
         taps: activeTapTargets(),
+        gauntlet: app?.gauntlet ?? null,
+        tripEnabled: app?.tripOverride ?? TUNING.TRIP_ENABLED,
       };
     },
     seed(n: number): void {
@@ -186,6 +227,16 @@ export function installTestHook(game: Phaser.Game): void {
     },
     tap(x: number, y: number): boolean {
       return dispatchTap(x, y);
+    },
+    setTrip(on: boolean | null): void {
+      getApp().tripOverride = on;
+    },
+    startGauntletRace(tier: number, times: readonly number[]): void {
+      const app = getApp();
+      const from = game.scene.getScenes(true).at(-1);
+      if (!from) throw new Error('no running scene');
+      app.gauntlet = { event: app.event, tier, times: [...times] };
+      goTo(from, SceneKey.Race, { event: app.event, opponent: rivalOfTier(app.event, tier), mode: 'g' });
     },
     setModality(patch: Partial<ModalityState>): void {
       modality.set(patch);

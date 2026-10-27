@@ -15,7 +15,7 @@ export function hapticPattern(events: readonly RaceEvent[]): readonly number[] |
   let out: readonly number[] | null = null;
   for (const e of events) {
     if (e.type === 'falseStart') return PULSE.falseStart;
-    if (e.type === 'hurdleHit' && e.lane === 'player') out = PULSE.hurdleHit;
+    if (e.type === 'hurdleHit' && e.lane === 0) out = PULSE.hurdleHit;
     else if (e.type === 'fumble' && out === null) out = PULSE.fumble;
   }
   return out;

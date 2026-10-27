@@ -1,12 +1,20 @@
 import Phaser from 'phaser';
 import { formatTime, ladderEntry, OPPONENTS, type OpponentId } from '../core/index.ts';
-import { createStadium, iconKey, paletteColor, portraitKey, type Stadium } from '../art/index.ts';
+import {
+  createStadium,
+  iconKey,
+  medalPipKey,
+  paletteColor,
+  portraitKey,
+  type MedalTier,
+  type Stadium,
+} from '../art/index.ts';
 import { playMusic, playSfx, prepareMusic } from '../audio/index.ts';
 import { FONT_MINI } from '../ui/fonts.ts';
 import { LADDER, ladderNodeY, PAL } from '../ui/hudMath.ts';
 import type { MenuAction } from '../ui/keys.ts';
 import { MINI_LINE_HEIGHT, wrapMini } from '../ui/miniFont.ts';
-import { EVENT_TITLE } from '../ui/screenText.ts';
+import { EVENT_TITLE, ordinal } from '../ui/screenText.ts';
 import { registerTapTarget } from '../ui/tapTargets.ts';
 import { Label } from '../ui/text.ts';
 import { ButtonRow, drawPanel, fillRect, UI_DEPTH } from '../ui/widgets.ts';
@@ -22,27 +30,25 @@ import {
   restartOnModalityChange,
   SceneKey,
   tierOf,
+  visibleLadderIds,
 } from './app.ts';
+import type { GauntletData } from './GauntletScene.ts';
+import type { RevealData } from './RevealScene.ts';
 
-type MenuId = 'back' | 'race' | 'records' | 'options';
+type MenuId = 'back' | 'race' | 'gauntlet' | 'records' | 'options';
 
 // Left ladder panel (4-120, fits VALENTINA); the event name (18.3.2), the rival card and the menu bar
-// share the right column (124-316). On touch the menu gains BACK (17.5.6) and wraps into two lines of
-// 20 px tap targets, so the card gives up its third flavour line.
+// share the right column (124-316). The v3 menu (RACE, GAUNTLET, RECORDS, OPTIONS; touch adds BACK,
+// 17.5.6) needs two lines of 20 px targets in both modalities, so the card keeps 2 flavour lines.
 const LADDER_PANEL = { x: 4, y: 8, w: 116, h: 164 } as const;
 const EVENT_NAME = { x: 136, y: 4 } as const;
-const LAYOUT = {
-  keyboard: {
-    card: { x: 124, y: 14, w: 192, h: 130 },
-    bar: { x: 124, y: 148, w: 192, h: 24 },
-    flavourLines: 3,
-  },
-  touch: {
-    card: { x: 124, y: 14, w: 192, h: 114 },
-    bar: { x: 124, y: 130, w: 192, h: 44 },
-    flavourLines: 2,
-  },
-} as const;
+const CARD = { x: 124, y: 14, w: 192, h: 114 } as const;
+const BAR = { x: 124, y: 130, w: 192, h: 44 } as const;
+const FLAVOUR_LINES = 2;
+/** The rope grows to tier 7 over 0.5 s after the reveal (30.2 step 10). */
+const GROW_MS = 500;
+/** `WIN THE NEON CUP FIRST` shows this long after selecting a locked GAUNTLET (32.1.2). */
+const LOCK_NOTE_MS = 2000;
 
 /** S2 Ladder Map for one event (design 6.7, 18.3). */
 export class LadderScene extends Phaser.Scene {
@@ -58,10 +64,15 @@ export class LadderScene extends Phaser.Scene {
   private cardWho: Label[] = [];
   private cardTarget!: Label;
   private cardPb!: Label;
+  private cardBest!: Label;
   private cardFlavour: Label[] = [];
   private menu!: ButtonRow<MenuId>;
-  private card: { readonly x: number; readonly y: number; readonly w: number; readonly h: number } =
-    LAYOUT.keyboard.card;
+  private pips: Phaser.GameObjects.Image[] = [];
+  private flag!: Phaser.GameObjects.Image;
+  /** Tier 7 grows in (30.2 step 10): 0 hidden, 1 fully shown. */
+  private grow = 1;
+  private growT0 = 0;
+  private lockNoteUntil = 0;
 
   constructor() {
     super(SceneKey.Ladder);
@@ -75,9 +86,22 @@ export class LadderScene extends Phaser.Scene {
     }
     const event = app.event;
     const rec = app.records;
+    // An interrupted reveal plays before the ladder (30.1.5).
+    if (rec.revealPending(event)) {
+      const data: RevealData = { event, version: rec.revealSeen() ? 'short' : 'full' };
+      goTo(this, SceneKey.Reveal, data);
+      return;
+    }
     // Opening an event's ladder marks it seen and makes it the last event (design 18.3.4).
     rec.markEventSeen(event);
+    const justRevealed = app.revealDone === event;
+    app.revealDone = null;
+    if (justRevealed) app.ladderCursor[event] = ladderIds(event)[6] ?? 'zyx';
     if (!rec.isUnlocked(event, app.ladderCursor[event])) app.ladderCursor[event] = 'pip';
+    this.grow = justRevealed ? 0 : 1;
+    this.growT0 = this.game.loop.time;
+    this.lockNoteUntil = 0;
+    this.pips = [];
     this.cameras.main.setBackgroundColor(paletteColor(PAL.ink));
     applyCrt(this);
     this.nodePortraits = [];
@@ -86,10 +110,8 @@ export class LadderScene extends Phaser.Scene {
     this.cardFlavour = [];
     this.stadiumTier = 0;
     const touch = isTouch();
-    const layout = touch ? LAYOUT.touch : LAYOUT.keyboard;
-    const card = layout.card;
-    const bar = layout.bar;
-    this.card = card;
+    const card = CARD;
+    const bar = BAR;
 
     const panels = this.add.graphics().setDepth(UI_DEPTH);
     drawPanel(panels, LADDER_PANEL.x, LADDER_PANEL.y, LADDER_PANEL.w, LADDER_PANEL.h);
@@ -112,6 +134,14 @@ export class LadderScene extends Phaser.Scene {
           .setDepth(UI_DEPTH + 2),
       );
       this.nodeNames.push(new Label(this, 42, cy - 4, '', { depth: UI_DEPTH + 2 }));
+      // Best placing pip (29.1.1) on the frame's top-right corner.
+      this.pips.push(
+        this.add
+          .image(LADDER.ropeX + LADDER.nodeSize / 2 - 3, cy - LADDER.nodeSize / 2 - 2, medalPipKey(1))
+          .setOrigin(0, 0)
+          .setDepth(UI_DEPTH + 3)
+          .setVisible(false),
+      );
       // Ladder node as a list item (17.5.3): first tap selects, a tap on the selected rival races.
       registerTapTarget(
         this,
@@ -119,13 +149,18 @@ export class LadderScene extends Phaser.Scene {
         () => this.tapNode(id),
       );
     });
+    // Before the reveal the rope ends at tier 6 under a finish flag (29.1.3).
+    this.flag = this.add
+      .image(LADDER.ropeX - 4, ladderNodeY(6) - LADDER.nodeSize / 2 - 12, iconKey('finishFlagSmall'))
+      .setOrigin(0, 0)
+      .setDepth(UI_DEPTH + 2);
 
     this.cardPortrait = this.add
       .image(card.x + 8, card.y + 8, portraitKey('pip', 48))
       .setOrigin(0, 0)
       .setDepth(UI_DEPTH + 2);
     this.cardTrophy = this.add
-      .image(card.x + card.w - 22, card.y + 62, iconKey('trophy'))
+      .image(card.x + card.w - 22, card.y + 58, iconKey('trophy'))
       .setOrigin(0, 0)
       .setDepth(UI_DEPTH + 2);
     const tx = card.x + 62;
@@ -139,11 +174,12 @@ export class LadderScene extends Phaser.Scene {
         }),
       );
     }
-    this.cardTarget = new Label(this, card.x + 8, card.y + 64, '');
-    this.cardPb = new Label(this, card.x + 8, card.y + 76, '');
-    for (let i = 0; i < layout.flavourLines; i++) {
+    this.cardTarget = new Label(this, card.x + 8, card.y + 60, '');
+    this.cardPb = new Label(this, card.x + 8, card.y + 71, '');
+    this.cardBest = new Label(this, card.x + 8, card.y + 82, '');
+    for (let i = 0; i < FLAVOUR_LINES; i++) {
       this.cardFlavour.push(
-        new Label(this, card.x + 8, card.y + 94 + i * (MINI_LINE_HEIGHT + 2), '', {
+        new Label(this, card.x + 8, card.y + 94 + i * (MINI_LINE_HEIGHT + 1), '', {
           font: FONT_MINI,
           color: PAL.lightGrey,
         }),
@@ -155,12 +191,18 @@ export class LadderScene extends Phaser.Scene {
       [
         ...(touch ? [{ id: 'back' as const, label: 'BACK' }] : []),
         { id: 'race', label: 'RACE' },
+        { id: 'gauntlet', label: 'GAUNTLET' },
         { id: 'records', label: 'RECORDS' },
         { id: 'options', label: 'OPTIONS' },
       ],
-      touch
-        ? { centerX: bar.x + bar.w / 2, y: bar.y + 8, gap: 0, initial: 'race', perLine: 2, lineStep: 20 }
-        : { centerX: bar.x + bar.w / 2, y: bar.y + 8, gap: -4, initial: 'race' },
+      {
+        centerX: bar.x + bar.w / 2,
+        y: bar.y + 8,
+        gap: 0,
+        initial: 'race',
+        perLine: touch ? 3 : 2,
+        lineStep: 20,
+      },
     );
     this.menu.enableTaps(this, (id) => this.confirm(id));
 
@@ -171,12 +213,15 @@ export class LadderScene extends Phaser.Scene {
 
     this.refresh();
     playMusic('ladder');
+    if (rec.isGauntletUnlocked(event)) void prepareMusic('gauntlet', 1);
+    if (justRevealed) playSfx('unlock');
     restartOnModalityChange(this);
     onMenuKeys(this, (action) => this.onAction(action));
   }
 
   private tapNode(id: OpponentId): void {
     const app = getApp();
+    if (!visibleLadderIds(app.records, app.event).includes(id)) return;
     if (app.ladderCursor[app.event] === id) {
       this.confirm('race');
       return;
@@ -191,7 +236,7 @@ export class LadderScene extends Phaser.Scene {
     switch (action) {
       case 'up':
       case 'down': {
-        const ids = ladderIds(app.event);
+        const ids = visibleLadderIds(app.records, app.event);
         const i = ids.indexOf(app.ladderCursor[app.event]) + (action === 'up' ? 1 : -1);
         const next = ids[i];
         if (next) {
@@ -233,6 +278,26 @@ export class LadderScene extends Phaser.Scene {
         playSfx('menu_select');
         goTo(this, SceneKey.Race, { event, opponent: app.ladderCursor[event] });
         return;
+      case 'gauntlet': {
+        // Locked until the reveal; no spoiler in the note (32.1.2).
+        if (!app.records.isGauntletUnlocked(event)) {
+          playSfx('menu_back');
+          this.lockNoteUntil = this.game.loop.time + LOCK_NOTE_MS;
+          this.refresh();
+          return;
+        }
+        playSfx('menu_select');
+        const data: GauntletData = {
+          kind: 'intro',
+          event,
+          run: { event, tier: 1, times: [] },
+          outcome: null,
+          end: null,
+          overRace: false,
+        };
+        goTo(this, SceneKey.Gauntlet, data);
+        return;
+      }
       case 'records':
         playSfx('menu_select');
         goTo(this, SceneKey.Records, { event, from: SceneKey.Ladder });
@@ -253,7 +318,7 @@ export class LadderScene extends Phaser.Scene {
     const entry = ladderEntry(event, sel);
     const tier = tierOf(event, sel);
     const unlocked = rec.isUnlocked(event, sel);
-    const card = this.card;
+    const card = CARD;
 
     // Render the race track for the highlighted rival in the background (audio's optional API).
     if (unlocked) {
@@ -268,14 +333,27 @@ export class LadderScene extends Phaser.Scene {
       this.stadiumTier = tier;
     }
 
-    // Ladder: rope, node frames, trophy pips, names.
+    // Ladder: rope, node frames, best placing pips, names. Tier 7 is not drawn before the reveal
+    // (29.1.3) and grows in right after it (30.2 step 10).
     const ids = ladderIds(event);
+    const revealed = rec.isRevealed(event);
+    const shownTiers = revealed && this.grow >= 1 ? ids.length : ids.length - 1;
     const g = this.nodes;
     g.clear();
-    const top = ladderNodeY(ids.length);
     const bottom = ladderNodeY(1);
-    fillRect(g, LADDER.ropeX - 1, top, 2, bottom - top, PAL.lightGrey);
+    const top6 = ladderNodeY(ids.length - 1);
+    const ropeTop = revealed ? Math.round(top6 - Math.min(1, this.grow) * LADDER.spacing) : top6;
+    fillRect(g, LADDER.ropeX - 1, ropeTop, 2, bottom - ropeTop, PAL.lightGrey);
+    this.flag.setVisible(!revealed);
     ids.forEach((id, i) => {
+      const shown = i < shownTiers;
+      this.nodePortraits[i]?.setVisible(shown);
+      this.nodeNames[i]?.setVisible(shown);
+      const pip = this.pips[i];
+      if (!shown) {
+        pip?.setVisible(false);
+        return;
+      }
       const cy = ladderNodeY(i + 1);
       const fx = LADDER.ropeX - LADDER.nodeSize / 2;
       const fy = cy - LADDER.nodeSize / 2;
@@ -289,10 +367,11 @@ export class LadderScene extends Phaser.Scene {
         LADDER.nodeSize,
         isSel ? PAL.gold : isUnlocked ? PAL.white : PAL.grey,
       );
-      if (rec.isBeaten(event, id)) {
-        // Trophy pip: 4x4 gold square with ink outline on the frame's top-right corner.
-        fillRect(g, fx + LADDER.nodeSize - 4, fy - 2, 6, 6, PAL.ink);
-        fillRect(g, fx + LADDER.nodeSize - 3, fy - 1, 4, 4, PAL.gold);
+      // Medal pip of the best placing: gold 1, silver 2, bronze 3; none for 4th-6th (29.1.1).
+      const place = rec.bestPlace(event, id);
+      if (pip) {
+        if (place !== null && place <= 3) pip.setTexture(medalPipKey(place as MedalTier)).setVisible(true);
+        else pip.setVisible(false);
       }
       this.nodePortraits[i]?.setTexture(portraitKey(id, 16, !isUnlocked));
       this.nodeNames[i]
@@ -309,13 +388,33 @@ export class LadderScene extends Phaser.Scene {
     // Press Start 2P is monospaced, so padding lines the two values up in one column.
     this.cardTarget.setText(`TARGET ${formatTime(entry?.targetMs ?? null)}`);
     this.cardPb.setText(`PB     ${formatTime(rec.bestMs(event, sel))}`);
+    const best = rec.bestPlace(event, sel);
+    this.cardBest.setText(`BEST   ${best === null ? '--' : ordinal(best)}`);
     this.cardTrophy.setVisible(rec.isBeaten(event, sel));
     const prev = previousOpponent(event, sel);
-    const flavour = unlocked ? (entry?.flavour ?? '') : `Beat ${prev ? OPPONENTS[prev].name : ''} to unlock`;
+    const note = this.game.loop.time < this.lockNoteUntil;
+    const flavour = note
+      ? 'WIN THE NEON CUP FIRST'
+      : unlocked
+        ? (entry?.flavour ?? '')
+        : `Beat ${prev ? OPPONENTS[prev].name : ''} to unlock`;
     const lines = wrapMini(flavour, card.w - 16);
-    this.cardFlavour.forEach((l, i) => l.setText(lines[i] ?? ''));
+    this.cardFlavour.forEach((l, i) => l.setText(lines[i] ?? '').setColor(note ? PAL.gold : PAL.lightGrey));
 
-    // RACE stays focusable but is drawn grey (and does nothing) for a locked rival.
+    // RACE stays focusable but is drawn grey (and does nothing) for a locked rival; GAUNTLET is
+    // dimmed until the reveal (29.1.5).
     this.menu.setDimmed('race', !unlocked);
+    this.menu.setDimmed('gauntlet', !rec.isGauntletUnlocked(event));
+  }
+
+  update(time: number): void {
+    if (this.grow < 1) {
+      this.grow = Math.min(1, (time - this.growT0) / GROW_MS);
+      this.refresh();
+    }
+    if (this.lockNoteUntil > 0 && time >= this.lockNoteUntil) {
+      this.lockNoteUntil = 0;
+      this.refresh();
+    }
   }
 }

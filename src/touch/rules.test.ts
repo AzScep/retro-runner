@@ -112,12 +112,12 @@ describe('haptics', () => {
     expect(hapticPattern([{ type: 'step', side: 'L' }])).toBeNull();
     expect(hapticPattern([{ type: 'fumble', side: 'L' }])).toEqual(PULSE.fumble);
     expect(hapticPattern([{ type: 'falseStart', count: 1 }])).toEqual(PULSE.falseStart);
-    expect(hapticPattern([{ type: 'hurdleHit', lane: 'player', index: 2 }])).toEqual(PULSE.hurdleHit);
-    expect(hapticPattern([{ type: 'hurdleHit', lane: 'rival', index: 2 }])).toBeNull();
+    expect(hapticPattern([{ type: 'hurdleHit', lane: 0, index: 2 }])).toEqual(PULSE.hurdleHit);
+    expect(hapticPattern([{ type: 'hurdleHit', lane: 1, index: 2 }])).toBeNull();
     expect(
       hapticPattern([
         { type: 'fumble', side: 'L' },
-        { type: 'hurdleHit', lane: 'player', index: 0 },
+        { type: 'hurdleHit', lane: 0, index: 0 },
       ]),
     ).toEqual(PULSE.hurdleHit);
   });

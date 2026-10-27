@@ -30,8 +30,37 @@ html[data-input='touch'] .touch-root.live .touch-pad {
   display: block;
 }
 .touch-root:not(.hurdles) [data-touch='jump'],
-.touch-root:not(.hurdles) [data-pad='jump'] {
+.touch-root:not(.hurdles) [data-pad='jump'],
+.touch-root:not(.hurdles) [data-pad-frame='jump'] {
   display: none !important;
+}
+
+/*
+ * Pads over the canvas (tablets, 27.6.4): the art frame (ink, 2 px border, ink, and the pressed ring) is clipped
+ * away and a 1 game px border in the state colour is drawn instead, so the glyph and a thin outline
+ * are all that cover a runner behind the pad. Colours: idle/fumble index 6, expected/ready/pressed
+ * index 22, held-blocked index 5.
+ */
+.touch-pad-frame {
+  position: absolute;
+  display: none;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: calc(var(--gp, 1px) * 1) solid #9b98b3;
+}
+html[data-input='touch'] .touch-root.live[data-pads='canvas'] .touch-pad-frame {
+  display: block;
+}
+.touch-root[data-pads='canvas'] .touch-pad {
+  clip-path: inset(calc(var(--gp, 1px) * 6));
+}
+.touch-pad-frame[data-state='expected'],
+.touch-pad-frame[data-state='ready'],
+.touch-pad-frame[data-state='pressed'] {
+  border-color: #ffd23f;
+}
+.touch-pad-frame[data-state='blocked'] {
+  border-color: #6e6b8c;
 }
 
 .touch-pad {

@@ -33,11 +33,11 @@ describe('attachKeyboard', () => {
     target.dispatchEvent(key('keydown', 'KeyA', 40));
     target.dispatchEvent(key('keydown', 'ArrowRight', 50));
     expect(got).toEqual([
-      { kind: 'down', side: 'L', t: 10, repeat: false },
-      { kind: 'up', side: 'L', t: 20, repeat: false },
-      { kind: 'down', side: 'R', t: 30, repeat: true },
-      { kind: 'down', side: 'L', t: 40, repeat: false },
-      { kind: 'down', side: 'R', t: 50, repeat: false },
+      { kind: 'down', side: 'L', t: 10, repeat: false, source: 'k' },
+      { kind: 'up', side: 'L', t: 20, repeat: false, source: 'k' },
+      { kind: 'down', side: 'R', t: 30, repeat: true, source: 'k' },
+      { kind: 'down', side: 'L', t: 40, repeat: false, source: 'k' },
+      { kind: 'down', side: 'R', t: 50, repeat: false, source: 'k' },
     ]);
   });
 
@@ -58,7 +58,9 @@ describe('attachKeyboard', () => {
     target.dispatchEvent(key('keyup', 'ArrowLeft', 3));
     expect(got.filter((e) => e.kind === 'up')).toEqual([]);
     target.dispatchEvent(key('keyup', 'KeyA', 4));
-    expect(got.filter((e) => e.kind === 'up')).toEqual([{ kind: 'up', side: 'L', t: 4, repeat: false }]);
+    expect(got.filter((e) => e.kind === 'up')).toEqual([
+      { kind: 'up', side: 'L', t: 4, repeat: false, source: 'k' },
+    ]);
   });
 
   it('synthesises keyups for held sides on window blur', () => {
@@ -66,7 +68,7 @@ describe('attachKeyboard', () => {
     target.dispatchEvent(key('keydown', 'KeyD', 1));
     target.dispatchEvent(blur(5));
     target.dispatchEvent(blur(6));
-    expect(got.slice(1)).toEqual([{ kind: 'up', side: 'R', t: 5, repeat: false }]);
+    expect(got.slice(1)).toEqual([{ kind: 'up', side: 'R', t: 5, repeat: false, source: 'k' }]);
   });
 
   it('maps ArrowUp/KeyW to jump with the same held rule as sides', () => {
@@ -77,9 +79,9 @@ describe('attachKeyboard', () => {
     target.dispatchEvent(key('keyup', 'ArrowUp', 4));
     target.dispatchEvent(key('keyup', 'KeyW', 5));
     expect(got).toEqual([
-      { kind: 'down', action: 'jump', t: 1, repeat: false },
-      { kind: 'down', action: 'jump', t: 3, repeat: true },
-      { kind: 'up', action: 'jump', t: 5, repeat: false },
+      { kind: 'down', action: 'jump', t: 1, repeat: false, source: 'k' },
+      { kind: 'down', action: 'jump', t: 3, repeat: true, source: 'k' },
+      { kind: 'up', action: 'jump', t: 5, repeat: false, source: 'k' },
     ]);
     const up = key('keydown', 'KeyW', 6);
     target.dispatchEvent(up);
@@ -92,8 +94,8 @@ describe('attachKeyboard', () => {
     target.dispatchEvent(key('keydown', 'KeyA', 2));
     target.dispatchEvent(key('keyup', 'KeyA', 3));
     expect(got).toEqual([
-      { kind: 'down', side: 'L', t: 1, repeat: false },
-      { kind: 'up', side: 'L', t: 3, repeat: false },
+      { kind: 'down', side: 'L', t: 1, repeat: false, source: 'k' },
+      { kind: 'up', side: 'L', t: 3, repeat: false, source: 'k' },
     ]);
   });
 
@@ -101,7 +103,7 @@ describe('attachKeyboard', () => {
     const { target, got } = setup();
     target.dispatchEvent(key('keydown', 'KeyW', 1));
     target.dispatchEvent(blur(5));
-    expect(got.slice(1)).toEqual([{ kind: 'up', action: 'jump', t: 5, repeat: false }]);
+    expect(got.slice(1)).toEqual([{ kind: 'up', action: 'jump', t: 5, repeat: false, source: 'k' }]);
   });
 
   it('detach removes every listener', () => {

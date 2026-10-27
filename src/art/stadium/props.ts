@@ -1,9 +1,9 @@
 /**
  * v2 track props (design 19.2): hurdle (standing, 4 knock frames, the last one lying), 400 m distance
- * boards, large split boards, the lap-bell official, and the airborne ground shadows (19.1). Pure.
+ * boards, large split boards, and the airborne ground shadows (19.1). Pure.
  */
 import { createMap, outline, setPx, type IndexMap } from '../bake/index.ts';
-import { ellipse, line, poly, rect, text, textWidth } from '../paint.ts';
+import { line, rect, text, textWidth } from '../paint.ts';
 
 // ---------------------------------------------------------------------------
 // Hurdle
@@ -18,14 +18,6 @@ import { ellipse, line, poly, rect, text, textWidth } from '../paint.ts';
 export const HURDLE_FRAME = { w: 40, h: 28, pivotX: 8, pivotY: 27, groundRow: 26 } as const;
 /** Top edge of the bar (outline included) is exactly 24 px above the feet row (design 13.1, 19.2). */
 export const HURDLE_BAR_TOP_ROW = HURDLE_FRAME.groundRow - 24;
-/**
- * Perspective offset (px, to the right) for hurdles in the far (rival) lane: purely visual, the far
- * lane recedes along the hurdles' own oblique (8 px per upright spacing). Two spacings (16 px) is the
- * smallest even step at which the far hurdle's base clears the near hurdle's bar (8 overlaps it by
- * 10 px, 14 is the first without overlap), so the two lanes read as separate gates. Gameplay and the
- * rival's jump timing stay on the true positions.
- */
-export const FAR_LANE_HURDLE_OFFSET_PX = 16;
 
 /** Knock frames: tilt in degrees, the last one lying flat (design 19.2: 4 frames at 16 fps). */
 export const HURDLE_KNOCK_DEG = [24, 50, 74, 90] as const;
@@ -122,127 +114,8 @@ export function splitBoard(meters: number): IndexMap {
   return outline(m);
 }
 
-// ---------------------------------------------------------------------------
-// Lap-bell official (design 14.3, 19.2): L5 foreground at 300 m. 32x32, frame 0 holding the bell,
-// frame 1 ringing (bell raised and tilted). Drawn as a close foreground figure cut off at the bottom
-// of the screen, so it never reaches the runners' feet.
-// ---------------------------------------------------------------------------
-
-export function bellOfficial(frame: 0 | 1): IndexMap {
-  const m = createMap(32, 32);
-  // Blazer (navy) body, broad, cut off by the frame bottom.
-  poly(
-    m,
-    [
-      [7, 32],
-      [8, 20],
-      [12, 16],
-      [21, 16],
-      [25, 20],
-      [26, 32],
-    ],
-    29,
-  );
-  poly(
-    m,
-    [
-      [20, 17],
-      [24, 20],
-      [26, 32],
-      [21, 32],
-    ],
-    28,
-  );
-  line(m, 9, 21, 12, 17, 30);
-  // Shirt and red tie.
-  poly(
-    m,
-    [
-      [14, 16],
-      [19, 16],
-      [17, 22],
-      [16, 22],
-    ],
-    8,
-  );
-  rect(m, 16, 18, 2, 6, 17);
-  setPx(m, 16, 18, 18);
-  // Head: skin, white cap with a red band.
-  ellipse(m, 16.5, 11, 4.2, 4.6, [10, 11, 12, 13], 0.4, -0.2);
-  rect(m, 12, 5, 9, 3, 8);
-  rect(m, 13, 4, 7, 1, 8);
-  rect(m, 12, 7, 9, 1, 17);
-  rect(m, 20, 7, 3, 1, 7);
-  setPx(m, 18, 10, 1);
-  setPx(m, 17, 9, 10);
-  setPx(m, 18, 9, 10);
-  setPx(m, 18, 13, 10);
-  setPx(m, 17, 13, 10);
-  // Ear on the back of the head.
-  setPx(m, 14, 11, 11);
-  setPx(m, 14, 12, 10);
-  // Far arm hangs at the side.
-  rect(m, 8, 21, 3, 9, 28);
-  // Near arm: holds the bell low (0) or raised high and swung (1).
-  if (frame === 0) {
-    poly(
-      m,
-      [
-        [21, 18],
-        [24, 18],
-        [27, 25],
-        [24, 26],
-      ],
-      30,
-    );
-    ellipse(m, 26.5, 26, 1.5, 1.5, [10, 11, 12, 12]);
-    // Bell hanging, mouth down.
-    poly(
-      m,
-      [
-        [26, 27],
-        [28, 27],
-        [30, 31],
-        [24, 31],
-      ],
-      22,
-    );
-    line(m, 26, 28, 25, 30, 23);
-  } else {
-    poly(
-      m,
-      [
-        [21, 18],
-        [24, 17],
-        [27, 8],
-        [25, 7],
-      ],
-      30,
-    );
-    ellipse(m, 26.5, 6.5, 1.5, 1.5, [10, 11, 12, 12]);
-    // Bell above the hand, tilted, with a clapper and two ring marks.
-    poly(
-      m,
-      [
-        [27, 4],
-        [29, 3],
-        [31, 6],
-        [28, 8],
-      ],
-      22,
-    );
-    setPx(m, 28, 5, 23);
-    setPx(m, 30, 8, 21);
-  }
-  const o = outline(m);
-  if (frame === 1) {
-    // Ring marks outside the outline (no outline on sound marks).
-    setPx(o, 22, 2, 23);
-    setPx(o, 21, 1, 23);
-    setPx(o, 23, 0, 23);
-  }
-  return o;
-}
+/** v3: the lap-bell official stands on the far side now (design 26.4); drawn with the officials. */
+export { bellOfficial } from './officials.ts';
 
 // ---------------------------------------------------------------------------
 // Airborne ground shadows (design 19.1): the shadow stays on the ground row and shrinks from 20x3

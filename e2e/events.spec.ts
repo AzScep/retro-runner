@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.ts';
 import {
   bootToTitle,
   eventsToLadder,
@@ -9,6 +9,7 @@ import {
   runBot,
   SAVE_KEY,
   SAVE_KEY_V1,
+  SAVE_KEY_V2,
   seedStorage,
   startRace,
   tap,
@@ -46,7 +47,8 @@ test('a fresh profile shows 100 m unlocked and both other events locked', async 
   expectWrappedText(s, 'BEAT MARCO IN 100M');
   expectWrappedText(s, 'BEAT KOFI IN 100M');
   expectWrappedText(s, 'OR MARCO IN HURDLES');
-  expectText(s, '0/7');
+  // Before the reveal the event card counts 6 rivals (29.3.1).
+  expectText(s, '0/6');
   // A locked card does not open.
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
@@ -70,7 +72,8 @@ test('beating Marco in the 100 m unlocks hurdles with NEW EVENT and a NEW! badge
   const res = await waitForResults(page);
   expect(res.race?.outcome?.result).toBe('win');
   expectText(res, 'KOFI UNLOCKED!');
-  expectText(res, 'NEW EVENT: 110M HURDLES');
+  expectText(res, 'NEW EVENT:');
+  expectText(res, '110M HURDLES');
   expect(res.records?.seenEvents).not.toContain('110mh');
 
   // MAP -> ladder -> Esc -> event select: hurdles unlocked, not yet seen (NEW! badge).
@@ -112,7 +115,7 @@ test('hurdles: clean jumps beat no jumps, record hit, and show CLEAN RACE / HURD
   // Design 13.3: 10 alt/s, all clean, ~14.5 s (a clip costs ~0.4 s).
   expect(co?.ms ?? 0).toBeGreaterThan(13_000);
   expect(co?.ms ?? 99_999).toBeLessThan(17_500);
-  expectText(cleanRes, co?.hit === 0 ? 'CLEAN RACE!' : `HURDLES HIT ${co?.hit}/10`);
+  expectText(cleanRes, co?.hit === 0 ? 'CLEAN RACE!' : `HIT ${co?.hit}/10`);
   expect(cleanRes.records?.events['110mh'].history[0]?.hit).toBe(co?.hit);
 
   // RETRY, never jump: every hurdle knocked, much slower, still under the 40 s cap.
@@ -133,7 +136,7 @@ test('hurdles: clean jumps beat no jumps, record hit, and show CLEAN RACE / HURD
   expect(no?.hit).toBe(10);
   expect(no?.ms ?? 0).toBeGreaterThan((co?.ms ?? 0) + 5000);
   expect(no?.ms ?? 99_999).toBeLessThan(40_000);
-  expectText(noneRes, 'HURDLES HIT 10/10');
+  expectText(noneRes, 'HIT 10/10');
   expect(noneRes.hud?.knockedTicks).toBe(10);
 });
 
@@ -212,9 +215,8 @@ test('400 m: paced running beats flat out, splits are recorded, times show M:SS.
   expect(splits[0] ?? 0).toBeLessThan(splits[1] ?? 0);
   expect(splits[1] ?? 0).toBeLessThan(splits[2] ?? 0);
   expect(pacedRes.records?.events['400m'].history[0]?.splits).toEqual(splits);
-  expect(
-    pacedRes.texts.some((t) => t.startsWith('100 ') && t.includes('  200 ') && t.includes('  300 ')),
-  ).toBe(true);
+  // Splits on 3 lines in the results card's right column (28.1).
+  for (const m of ['100 ', '200 ', '300 ']) expect(pacedRes.texts.some((t) => t.startsWith(m))).toBe(true);
   // A time of 60 s or more shows as M:SS.hh (14.4): the flat-out run on the HUD and the results card.
   if ((fo?.ms ?? 0) >= 60_000) expect(flat.longTimer ?? '').toMatch(/^1:0\d\.\d\d$/);
   expect(hudTimes(pacedRes).length + hudTimes(flatRes).length).toBeGreaterThan(0);
@@ -222,6 +224,7 @@ test('400 m: paced running beats flat out, splits are recorded, times show M:SS.
   // Records 400M tab: Enter on Pip's row shows the PB race splits.
   await page.keyboard.press('Escape');
   await waitForScene(page, 'Ladder');
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   const rec = await waitForScene(page, 'Records');
@@ -243,6 +246,7 @@ test('records has a tab per event, a HIT column for hurdles and lock text for a 
   await bootToTitle(page);
   await titleToLadder(page, '100m');
   await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   const r100 = await waitForScene(page, 'Records');
   for (const t of ['100M', 'HURDLES', '400M', 'PB', 'TARGET', 'LAST 3']) expectText(r100, t);
@@ -258,14 +262,14 @@ test('records has a tab per event, a HIT column for hurdles and lock text for a 
   await waitForScene(page, 'Ladder');
 });
 
-test('a v1 save migrates end to end: PBs, history, settings kept, events unlocked, v1 untouched', async ({
+test('a v1 save migrates through v2 to v3: PBs, history, settings kept, v1 untouched, no v2 written', async ({
   page,
 }) => {
   const v1 = kofiSave();
   await seedStorage(page, SAVE_KEY_V1, v1);
   const s = await bootToTitle(page);
   const r = s.records;
-  expect(r?.version).toBe(2);
+  expect(r?.version).toBe(3);
   expect(r?.events['100m'].best['kofi']?.ms).toBe(PBS.kofi);
   expect(r?.events['100m'].best['pip']?.ms).toBe(PBS.pip);
   expect(r?.events['100m'].beaten).toEqual(KOFI_BEATEN);
@@ -273,19 +277,28 @@ test('a v1 save migrates end to end: PBs, history, settings kept, events unlocke
   expect(r?.events['110mh'].beaten).toEqual([]);
   expect(r?.seenEvents).toEqual(['100m']);
   expect(r?.settings).toMatchObject({ volume: 5, muted: true, haptics: true });
+  // Migrated wins are 1st places; no reveal is pending below tier 6 (34.4).
+  expect(r?.events['100m'].place).toEqual({ pip: 1, jess: 1, marco: 1, kofi: 1 });
+  expect(r?.events['100m'].revealed).toBe(false);
+  expect(r?.events['100m'].history[0]).toMatchObject({ place: 1, fieldSize: 2, mode: 'l' });
   const stored = await page.evaluate(
-    ([k2, k1]) => ({ v2: localStorage.getItem(k2 as string), v1: localStorage.getItem(k1 as string) }),
-    [SAVE_KEY, SAVE_KEY_V1],
+    ([k3, k2, k1]) => ({
+      v3: localStorage.getItem(k3 as string),
+      v2: localStorage.getItem(k2 as string),
+      v1: localStorage.getItem(k1 as string),
+    }),
+    [SAVE_KEY, SAVE_KEY_V2, SAVE_KEY_V1],
   );
   expect(stored.v1).toBe(v1);
-  expect(JSON.parse(stored.v2 ?? 'null')).toMatchObject({ version: 2, lastEvent: '100m' });
+  expect(stored.v2).toBeNull();
+  expect(JSON.parse(stored.v3 ?? 'null')).toMatchObject({ version: 3, lastEvent: '100m' });
 
   const events = await titleToEvents(page);
   expect(events.texts.join(' ')).not.toContain('BEAT MARCO IN');
   expect(events.texts.join(' ')).not.toContain('BEAT KOFI IN');
-  expectText(events, '4/7');
+  expectText(events, '4/6');
 
-  // Corrupting v2 backs it up and re-migrates from v1 on reload (22, records v2).
+  // Corrupting v3 backs it up and re-migrates from v1 on reload (38, records v3).
   await page.evaluate((k) => localStorage.setItem(k, 'not json'), SAVE_KEY);
   await page.reload();
   const again = await waitForScene(page, 'Title', 30_000);
@@ -331,9 +344,14 @@ test('touch modality: every menu is reachable by tap, with BACK items and touch 
     'hurdles ladder',
   );
   expectButton(ladder, 'BACK');
-  // RACE button (top line, right) starts the race; the HUD uses the touch layout.
+  // RACE button (top line, BACK RACE GAUNTLET) starts the race; the HUD uses the touch layout.
   const race = ladder.taps.find(
-    (t) => t.scene === 'Ladder' && t.rect.y >= 128 && t.rect.y < 140 && t.rect.x > 200,
+    (t) =>
+      t.scene === 'Ladder' &&
+      t.rect.y >= 128 &&
+      t.rect.y < 140 &&
+      t.rect.x <= 204 &&
+      t.rect.x + t.rect.w > 204,
   );
   expect(race).toBeDefined();
   if (race) await tapAt(race.rect.x + race.rect.w / 2, race.rect.y + 10);

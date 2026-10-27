@@ -8,12 +8,14 @@ import {
   OPPONENTS,
   type EventId,
 } from '../core/index.ts';
-import { iconKey, paletteColor, portraitKey } from '../art/index.ts';
+import { iconKey, medalPipKey, paletteColor, portraitKey, type MedalTier } from '../art/index.ts';
 import { playMusic, playSfx } from '../audio/index.ts';
 import { FONT_MINI } from '../ui/fonts.ts';
 import { PAL } from '../ui/hudMath.ts';
 import type { MenuAction } from '../ui/keys.ts';
-import { EVENT_TAB, hitCell, historyCell, splitsRow } from '../ui/screenText.ts';
+import { furthestText } from '../ui/gauntlet.ts';
+import { lastCell, RECORDS_COLUMNS } from '../ui/recordsLayout.ts';
+import { EVENT_TAB, hitCell, historyCell, historyPlace, ordinal, splitsRow } from '../ui/screenText.ts';
 import { registerTapTarget } from '../ui/tapTargets.ts';
 import { Label } from '../ui/text.ts';
 import { ButtonRow, drawPanel, fillRect, UI_DEPTH } from '../ui/widgets.ts';
@@ -26,6 +28,7 @@ import {
   onMenuKeys,
   restartOnModalityChange,
   SceneKey,
+  visibleLadderIds,
 } from './app.ts';
 
 export interface RecordsData {
@@ -45,28 +48,12 @@ const PANEL = { x: 2, y: 20, w: 316, h: 126 } as const;
 const HEAD_Y = 23;
 const ROW_Y = 32;
 const ROW_H = 16;
-const TOTAL_Y = 149;
-const SPLITS_Y = 160;
-const HELP_Y = 171;
-
-/**
- * Column x positions per event. Name and icons are left edges; time columns are centres, so 'DQ',
- * 'DNF', '--.--', '12.34' and '1:04.37' all sit centred under their header. Hurdles adds HIT after PB.
- */
-interface Columns {
-  readonly portrait: number;
-  readonly name: number;
-  readonly trophy: number;
-  readonly pb: number;
-  readonly hit: number | null;
-  readonly target: number;
-  readonly last: readonly number[];
-}
-const COLUMNS: Readonly<Record<EventId, Columns>> = {
-  '100m': { portrait: 8, name: 28, trophy: 84, pb: 124, hit: null, target: 166, last: [214, 252, 290] },
-  '110mh': { portrait: 8, name: 28, trophy: 84, pb: 118, hit: 144, target: 182, last: [222, 257, 292] },
-  '400m': { portrait: 8, name: 28, trophy: 84, pb: 124, hit: null, target: 168, last: [216, 254, 292] },
-};
+// Footer (29.2.4): ladder total, the Gauntlet line, 400 m splits, help (touch: BACK at the left).
+const TOTAL_Y = 148;
+const GAUNTLET_Y = 158;
+const SPLITS_Y = 166;
+const HELP_Y = 173;
+const BACK_Y = 167;
 
 /** S6 Records v2 (design 4.5, 18.7): event tabs, per-rival PB table, last results, ladder total. */
 export class RecordsScene extends Phaser.Scene {
@@ -85,7 +72,7 @@ export class RecordsScene extends Phaser.Scene {
     const rec = app.records;
     this.event = data.event ?? app.event;
     this.from = data.from ?? SceneKey.Ladder;
-    this.row = data.row ?? 0;
+    this.row = Math.min(data.row ?? 0, visibleLadderIds(rec, this.event).length - 1);
     this.cameras.main.setBackgroundColor(paletteColor(PAL.ink));
     applyCrt(this);
     const touch = isTouch();
@@ -116,8 +103,8 @@ export class RecordsScene extends Phaser.Scene {
 
     if (touch) {
       const back = new ButtonRow<'back'>(this, [{ id: 'back', label: 'BACK' }], {
-        centerX: 160,
-        y: HELP_Y - 3,
+        centerX: 30,
+        y: BACK_Y,
       });
       back.enableTaps(this, () => this.back());
     } else {
@@ -135,7 +122,7 @@ export class RecordsScene extends Phaser.Scene {
   private buildTable(): void {
     const rec = getApp().records;
     const event = this.event;
-    const col = COLUMNS[event];
+    const col = RECORDS_COLUMNS[event];
     const head = { font: FONT_MINI, color: PAL.lightGrey, depth: UI_DEPTH + 2 } as const;
     const headCentre = { ...head, align: 'center' } as const;
     new Label(this, col.name, HEAD_Y, 'RIVAL', head);
@@ -144,7 +131,7 @@ export class RecordsScene extends Phaser.Scene {
     new Label(this, col.target, HEAD_Y, 'TARGET', headCentre);
     new Label(this, col.last[1] ?? 0, HEAD_Y, 'LAST 3', headCentre);
 
-    ladderIds(event).forEach((id, i) => {
+    visibleLadderIds(rec, event).forEach((id, i) => {
       const y = ROW_Y + i * ROW_H;
       const info = OPPONENTS[id];
       const unlocked = rec.isUnlocked(event, id);
@@ -157,20 +144,32 @@ export class RecordsScene extends Phaser.Scene {
         ...cell,
         color: unlocked ? PAL.white : PAL.grey,
       });
-      if (rec.isBeaten(event, id)) {
+      // Status (29.2.1): medal pip of the best placing, then the place text, or `-`.
+      const place = rec.bestPlace(event, id);
+      if (place !== null && place <= 3) {
         this.add
-          .image(col.trophy, y, iconKey('trophy'))
+          .image(col.pip, y + 5, medalPipKey(place as MedalTier))
           .setOrigin(0, 0)
           .setDepth(UI_DEPTH + 2);
       }
+      new Label(this, col.place, y + 5, place === null ? '-' : ordinal(place), {
+        ...cell,
+        color: place === 1 ? PAL.gold : PAL.white,
+      });
       const num = { ...cell, align: 'center' } as const;
       const best = rec.best(event, id);
       new Label(this, col.pb, y + 5, formatTime(best?.ms ?? null), { ...num, color: PAL.gold });
       if (col.hit !== null) new Label(this, col.hit, y + 5, best ? hitCell(best.hit) : '-', num);
       new Label(this, col.target, y + 5, formatTime(ladderEntry(event, id)?.targetMs ?? null), num);
+      // LAST 3 (29.2.2): each time followed by its place digit; migrated entries show the time only.
       rec.recent(event, id, 3).forEach((e, j) => {
         const x = col.last[j];
-        if (x !== undefined) new Label(this, x, y + 5, historyCell(e), num);
+        if (x === undefined) return;
+        const time = historyCell(e);
+        const digit = historyPlace(e);
+        const at = lastCell(time, digit, x);
+        new Label(this, at.timeX, y + 5, time, cell);
+        if (digit !== '') new Label(this, at.placeX, y + 5, digit, { ...cell, color: PAL.midGrey });
       });
       // Rows are list items (17.5.3): first tap selects, a tap on the selected row shows splits.
       registerTapTarget(this, { x: 4, y, w: 312, h: ROW_H }, () => this.tapRow(i));
@@ -181,9 +180,17 @@ export class RecordsScene extends Phaser.Scene {
       this,
       160,
       TOTAL_Y,
-      total === null ? 'BEAT ALL 7 TO SET A LADDER TOTAL' : `LADDER TOTAL ${formatLadderTotal(total)}`,
+      total === null ? 'BEAT EVERY RIVAL FOR A LADDER TOTAL' : `LADDER TOTAL ${formatLadderTotal(total)}`,
       { align: 'center', color: total === null ? PAL.lightGrey : PAL.gold },
     );
+    // Gauntlet footer (29.2.4).
+    const g = rec.gauntlet(event);
+    const gText = !rec.isGauntletUnlocked(event)
+      ? 'GAUNTLET LOCKED'
+      : g.best !== null
+        ? `GAUNTLET BEST ${formatLadderTotal(g.best.ms)}  ${furthestText(g.furthest)}`
+        : `GAUNTLET ${furthestText(g.furthest)}`;
+    new Label(this, 160, GAUNTLET_Y, gText, { font: FONT_MINI, align: 'center', color: PAL.lightGrey });
   }
 
   /** A locked event's tab shows the lock icon and the unlock text instead of the table (18.7.7). */
@@ -208,7 +215,8 @@ export class RecordsScene extends Phaser.Scene {
       }
       case 'up':
       case 'down': {
-        const next = Math.min(6, Math.max(0, this.row + (action === 'down' ? 1 : -1)));
+        const rows = visibleLadderIds(getApp().records, this.event).length;
+        const next = Math.min(rows - 1, Math.max(0, this.row + (action === 'down' ? 1 : -1)));
         if (next !== this.row) {
           this.row = next;
           playSfx('menu_move');

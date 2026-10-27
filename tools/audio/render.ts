@@ -4,8 +4,8 @@
  *   node tools/audio/render.ts            # render everything to tools/audio/out/*.wav and check it
  *   node tools/audio/render.ts --no-wav   # checks only
  *
- * Renders every SFX, every song (race and hurdles tiers 1-6, boss, the quarter track's base and
- * final-100 renders) and the crowd loop with the same pure modules the game uses, prints duration /
+ * Renders every SFX (v3 included), every song (race and hurdles tiers 1-6, boss, the quarter
+ * track's base and final-100 renders, the v3 gauntlet loop) and the crowd loop with the same pure modules the game uses, prints duration /
  * peak / RMS, render time and memory, and fails (exit 1) on clipping, silence, wrong lengths,
  * clicky loop/edge boundaries or a final-100 render that differs in length from its base.
  * Imports only Web-Audio-free modules.
@@ -20,7 +20,7 @@ import { renderSfx, SFX } from '../../src/audio/sfx.ts';
 import { levels, SAMPLE_RATE } from '../../src/audio/synth.ts';
 import { renderCrowdLoop } from '../../src/audio/crowd.ts';
 import { getSong, renderSongSteps, resolveTrack, type TrackRef } from '../../src/audio/music/index.ts';
-import { SFX_IDS, type MusicId } from '../../src/audio/types.ts';
+import { SFX_IDS, type MusicId, type SfxId } from '../../src/audio/types.ts';
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), 'out');
 const writeWav = !process.argv.includes('--no-wav');
@@ -34,6 +34,7 @@ const SONG_RANGE: Record<MusicId, readonly [number, number]> = {
   champion: [55, 65],
   hurdles: [27, 33],
   quarter: [64, 64],
+  gauntlet: [44.99, 45], // 30 bars at 160 BPM; ZzFXM's whole-sample rows make it 44.996 s
 };
 
 function wav(path: string, channels: readonly Float32Array[], sampleRate: number): void {
@@ -119,8 +120,19 @@ function check(
 
 if (writeWav) mkdirSync(OUT, { recursive: true });
 
+/** Design 36.1 lengths of the v3 SFX: the definitions must match the spec, not just themselves. */
+const V3_SFX_LENGTH: Partial<Record<SfxId, number>> = {
+  pistol: 0.25,
+  trip_thud: 0.3,
+  reveal_sting_1: 0.6,
+  reveal_sting_2: 1.5,
+  photo_click: 0.12,
+  bubble: 0.06,
+  gauntlet_clear: 3.0,
+};
+
 for (const id of SFX_IDS) {
-  const len = SFX[id].length;
+  const len = V3_SFX_LENGTH[id] ?? SFX[id].length;
   check(`sfx_${id}`, [renderSfx(id)], [len, len], false);
 }
 
@@ -145,6 +157,7 @@ const songs: [string, TrackRef, MusicId][] = [
     'hurdles',
   ]),
   ['music_quarter', resolveTrack('quarter', 3), 'quarter'],
+  ['music_gauntlet', resolveTrack('gauntlet', 2), 'gauntlet'],
 ];
 for (const [name, ref, id] of songs) {
   const song = getSong(ref);

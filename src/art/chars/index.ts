@@ -6,7 +6,10 @@ import { createMap, outline, remap, setPx, getPx, type IndexMap } from '../bake/
 import { PALETTE } from '../palette.ts';
 import {
   ANIMS,
+  FALL_POSES,
+  GETUP_POSES,
   HURDLE_POSES,
+  LIE_POSES,
   RUN_POSES,
   TIRED_POSES,
   UNIT7_LANDING,
@@ -160,7 +163,13 @@ export function buildCharacter(id: SpecId): CharacterArt {
     const poses = id === 'unit7' ? [...HURDLE_POSES.slice(0, 3), UNIT7_LANDING] : HURDLE_POSES;
     addPoses(frames, anims, id, 'hurdle', poses, 10, 0);
   }
-  if (id === 'rio') addPoses(frames, anims, id, 'tired', TIRED_POSES, 12, -1);
+  if (id === 'rio') {
+    addPoses(frames, anims, id, 'tired', TIRED_POSES, 12, -1);
+    // v3 trip (design 33.2, 35.1): fall 3, lie 1, getup 3 at 12 fps, each played once.
+    addPoses(frames, anims, id, 'fall', FALL_POSES, 12, 0);
+    addPoses(frames, anims, id, 'lie', LIE_POSES, 12, 0);
+    addPoses(frames, anims, id, 'getup', GETUP_POSES, 12, 0);
+  }
   if (id === 'sol') {
     // Watch glance overlay baked over every run leg frame (see poses.ts watchPoses); no auto-played anim.
     for (let k = 0; k < WATCH_OVERLAY_POSES; k++) {

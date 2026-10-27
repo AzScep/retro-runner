@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures.ts';
 import {
   bootToTitle,
   expectText,
@@ -38,8 +39,9 @@ test('boots to the title screen with a fresh save', async ({ page }) => {
   await waitForState(page, (st) => st.audioPreloaded, 'audio preloaded', 30_000);
   const ladder = await titleToLadder(page);
   expect(ladder.ladderCursor).toBe('pip');
-  // Tiers 2-7 are silhouettes named "???" (design 10, flow and unlocks).
-  expect(ladder.texts.filter((t) => t === '???').length).toBeGreaterThanOrEqual(6);
+  // Tiers 2-6 are silhouettes named "???"; tier 7 is hidden until the reveal (design 29.1.3).
+  expect(ladder.texts.filter((t) => t === '???')).toHaveLength(5);
+  expect(ladder.texts).not.toContain('ZYX');
   expectText(ladder, 'PIP');
 });
 
@@ -62,8 +64,16 @@ test('beat Pip: win, recorded time, Jess unlocked, PB persists after reload, rec
   const res = await waitForResults(page);
   const outcome = res.race?.outcome;
   expect(outcome?.result).toBe('win');
+  expect(outcome?.place).toBe(1);
   expect(outcome?.ms).toBe(playerMs);
   expect(outcome?.oppMs).not.toBeNull();
+  // Six runners, all with times and places (design 24.1, 28.1).
+  expect(outcome?.standings).toHaveLength(6);
+  expect(outcome?.standings[0]).toMatchObject({ lane: 0, place: 1, ms: playerMs });
+  for (const st of outcome?.standings ?? []) {
+    expect(st.ms).not.toBeNull();
+    expectText(res, st.name);
+  }
   expectText(res, 'YOU WIN!');
   expectText(res, 'JESS UNLOCKED!');
   // NEW PB! flashes at 2 Hz, so wait for an "on" frame.
@@ -71,11 +81,22 @@ test('beat Pip: win, recorded time, Jess unlocked, PB persists after reload, rec
   expect(res.records?.events['100m'].best['pip']?.ms).toBe(playerMs);
   expect(res.records?.events['100m'].beaten).toContain('pip');
   expect(res.records?.events['100m'].unlockedTier).toBeGreaterThanOrEqual(2);
-  expect(res.records?.events['100m'].history[0]).toMatchObject({ opp: 'pip', result: 'win', ms: playerMs });
+  expect(res.records?.events['100m'].history[0]).toMatchObject({
+    opp: 'pip',
+    result: 'win',
+    ms: playerMs,
+    place: 1,
+    fieldSize: 6,
+    mode: 'l',
+    input: 'k',
+  });
+  // Fumble logging on every new entry (design 33.5).
+  expect(res.records?.events['100m'].history[0]?.steps).toBeGreaterThan(50);
+  expect(res.records?.events['100m'].place['pip']).toBe(1);
   // localStorage holds the design 4.3 document.
   const raw = await page.evaluate((k) => localStorage.getItem(k), SAVE_KEY);
   expect(JSON.parse(raw ?? 'null')).toMatchObject({
-    version: 2,
+    version: 3,
     events: { '100m': { best: { pip: { ms: playerMs } } } },
   });
 
@@ -93,7 +114,8 @@ test('beat Pip: win, recorded time, Jess unlocked, PB persists after reload, rec
   expect(ladder.ladderCursor).toBe('jess');
   expectText(ladder, 'JESS');
 
-  // Records screen (RECORDS is right of RACE in the menu row).
+  // Records screen (menu row RACE GAUNTLET / RECORDS OPTIONS: two steps right of RACE).
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   const records = await waitForScene(page, 'Records');
@@ -382,6 +404,7 @@ test('records screen shows the ladder total once all 7 rivals have a PB', async 
   await seedStorage(page, SAVE_KEY_V1, fullLadderSave(true));
   await bootToTitle(page);
   await titleToLadder(page);
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   const rec = await waitForScene(page, 'Records');

@@ -3,9 +3,9 @@
  *
  * Pure TypeScript: no Phaser, no DOM, except `attachKeyboard` (input/adapter.ts) and
  * `browserStorage` (platform/storage.ts). Other layers import only from this file. Signatures here
- * are the cross-team contract (docs/work/expansion-contracts.md, section "Core").
+ * are the cross-team contract (docs/work/v3-contracts.md, section "Core").
  *
- * Spec: docs/design.md sections 1-4, 11 (v1) and 12-16 (v2). Timing approach: docs/research.md 7.
+ * Spec: docs/design.md sections 1-4, 11 (v1), 12-16 (v2) and 23-34 (v3). Timing: docs/research.md 7.
  */
 
 // ---------------------------------------------------------------------------
@@ -59,6 +59,36 @@ export type { EventCourse } from './events.ts';
 export { OPPONENTS, LADDERS, ladderEntry, nextRival, PLAYER, WORLD, TUNING } from './roster.ts';
 
 // ---------------------------------------------------------------------------
+// [v3] Field runners and meets (design 24.2, 24.3, 31.1)
+// ---------------------------------------------------------------------------
+
+export type FieldBodyId = 'fKid' | 'fTeen' | 'fStudent' | 'fClub' | 'fElite' | 'fBot' | 'fDrone';
+export type FieldVariant = 'A' | 'B' | 'C' | 'D';
+
+export interface FieldRunnerInfo {
+  /** 1-7 */
+  readonly tier: number;
+  readonly body: FieldBodyId;
+  readonly variant: FieldVariant;
+  /** 'DOT', 'MK-2', 'ZX-1' (design 24.3) */
+  readonly name: string;
+}
+
+export interface MeetInfo {
+  readonly tier: number;
+  /** 'SPORTS DAY' ... 'GALACTIC MEET' */
+  readonly name: string;
+}
+
+/**
+ * fieldRunners(tier): the 4 field runners of a tier in variant order A-D (design 24.2-24.3), the
+ * same in every event. Throws for a tier outside 1-7.
+ * meet(tier): the tier's meet (design 31.1). Throws for a tier outside 1-7.
+ * FIELD_SIZE: 6 runners per race (player, named rival, 4 field).
+ */
+export { fieldRunners, meet, FIELD_SIZE } from './field/field.ts';
+
+// ---------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------
 
@@ -70,6 +100,8 @@ export interface RunKeyEvent {
   readonly side: Side;
   readonly t: number;
   readonly repeat: boolean;
+  /** [v3] Input source: 'k' keyboard (default when absent), 't' touch. Only keys can trip (33.1). */
+  readonly source?: InputSource;
 }
 
 /** A raw jump input (ArrowUp/KeyW or the JUMP touch control). Same time base as RunKeyEvent. */
@@ -78,7 +110,12 @@ export interface JumpEvent {
   readonly action: 'jump';
   readonly t: number;
   readonly repeat: boolean;
+  /** [v3] Input source: 'k' keyboard (default when absent), 't' touch. */
+  readonly source?: InputSource;
 }
+
+/** [v3] 'k' keyboard, 't' touch. */
+export type InputSource = 'k' | 't';
 
 export type RaceInput = RunKeyEvent | JumpEvent;
 
@@ -159,7 +196,11 @@ export type RunnerAnim =
   | 'lean'
   | 'celebrate'
   | 'lose'
-  | 'stumble';
+  | 'stumble'
+  /** [v3] Player trip (design 33.2): falling, lying, getting up. */
+  | 'fall'
+  | 'lie'
+  | 'getup';
 
 /** Character-specific overlay effect currently active (design 3.3, 5.6, 15). */
 export type RunnerEffect =
@@ -188,7 +229,39 @@ export interface RunnerState {
   readonly stamina: number | null;
 }
 
+/** [v3] 'win' iff the player's place is 1 (dead heat included); 'lose' for places 2-6. */
 export type RaceResult = 'win' | 'lose' | 'dq' | 'dnf';
+
+/** [v3] 'l' ladder, 'g' Gauntlet (design 32). */
+export type RaceMode = 'l' | 'g';
+
+/** [v3] Who runs in a lane. */
+export type RunnerKind = 'player' | 'rival' | 'field';
+
+/** [v3] A roster character (player, named rival) or a field runner. */
+export type LaneCharacter =
+  | { readonly kind: 'player' | 'rival'; readonly id: CharacterId }
+  | { readonly kind: 'field'; readonly field: FieldRunnerInfo };
+
+export interface LaneRunner {
+  /** 0 = nearest (player), 1 = named rival, 2-5 = field. */
+  readonly lane: number;
+  readonly who: LaneCharacter;
+  /** 'RIO', 'PIP', 'DOT' */
+  readonly name: string;
+  readonly state: RunnerState;
+}
+
+/** [v3] One results row (design 24.1, 28). */
+export interface Standing {
+  readonly lane: number;
+  readonly who: LaneCharacter;
+  readonly name: string;
+  /** null: player DQ/DNF. */
+  readonly ms: number | null;
+  /** Shared place on ties; null for player DQ/DNF. */
+  readonly place: number | null;
+}
 
 export interface RaceOutcome {
   readonly event: EventId;
@@ -196,11 +269,11 @@ export interface RaceOutcome {
   readonly result: RaceResult;
   /** Player ms, null for dq/dnf. */
   readonly ms: number | null;
-  /** Opponent ms (always simulated to completion), null only for dq. */
+  /** NAMED rival's ms (always simulated to completion), null only for dq. */
   readonly oppMs: number | null;
-  /** ms - oppMs when both exist (negative = player faster). */
+  /** ms - oppMs when both exist (negative = player faster than the named rival). */
   readonly marginMs: number | null;
-  /** Equal ms, counts as a win. */
+  /** [v3] The player shares 1st place (equal ms with the fastest AI); counts as a win. */
   readonly photoFinish: boolean;
   readonly falseStarts: number;
   readonly seed: number;
@@ -208,6 +281,24 @@ export interface RaceOutcome {
   readonly hit: number | null;
   /** Player splits reached (400 m, up to 3 ms values at 100/200/300 m), else []. */
   readonly splits: readonly number[];
+
+  // [v3]
+  readonly mode: RaceMode;
+  /** Player place 1-6, null for DQ/DNF. */
+  readonly place: number | null;
+  /** FIELD_SIZE (6). */
+  readonly fieldSize: number;
+  /** Winning time of the race (any runner), null only for DQ. */
+  readonly winMs: number | null;
+  /** All runners sorted by place; the player first among equal times; player DQ/DNF last. DQ: AI ms null too. */
+  readonly standings: readonly Standing[];
+  /** Fumble logging (design 33.5): valid steps, same-side presses, rule C pairs (even with the flag off), trips. */
+  readonly steps: number;
+  readonly fumbles: number;
+  readonly fumble2: number;
+  readonly trips: number;
+  /** 'k' keyboard only, 't' touch only, 'm' both (by run-key downs after GO; 'k' when none). */
+  readonly input: 'k' | 't' | 'm';
 }
 
 export interface RaceState {
@@ -242,9 +333,22 @@ export interface RaceState {
   readonly splits: readonly number[];
   /** 400 m: true while net draining (for the stamina arrow). */
   readonly staminaDraining: boolean;
-}
 
-export type Lane = 'player' | 'rival';
+  // [v3] `player` === runners[0].state, `rival` === runners[1].state.
+  readonly mode: RaceMode;
+  /** Length FIELD_SIZE, index = lane. */
+  readonly runners: readonly LaneRunner[];
+  /**
+   * Raw live place of the player (design 27.2 rule 1): finished runners by finish ms, then running
+   * runners by true distance. null before GO and after DQ or DNF; frozen at the final place once the player
+   * crosses. The UI applies the POSITION_HOLD.
+   */
+  readonly livePlace: number | null;
+  /** Lane of the current race leader (finish order first, then true distance). */
+  readonly leaderLane: number;
+  /** Player trip phase (design 33.2). */
+  readonly trip: 'none' | 'fall' | 'lie' | 'getup';
+}
 
 export type QuirkName =
   | 'trip'
@@ -275,11 +379,21 @@ export type RaceEvent =
   | { readonly type: 'quirk'; readonly name: QuirkName }
   | { readonly type: 'dnf' }
   | { readonly type: 'resultReady'; readonly outcome: RaceOutcome }
-  | { readonly type: 'jump'; readonly lane: Lane }
-  | { readonly type: 'land'; readonly lane: Lane }
-  | { readonly type: 'hurdleClear'; readonly lane: Lane; readonly index: number }
-  | { readonly type: 'hurdleClip'; readonly lane: Lane; readonly index: number }
-  | { readonly type: 'hurdleHit'; readonly lane: Lane; readonly index: number }
+  /** [v3] `lane`: 0 = player, 1 = named rival, 2-5 = field. */
+  | { readonly type: 'jump'; readonly lane: number }
+  | { readonly type: 'land'; readonly lane: number }
+  | { readonly type: 'hurdleClear'; readonly lane: number; readonly index: number }
+  | { readonly type: 'hurdleClip'; readonly lane: number; readonly index: number }
+  | { readonly type: 'hurdleHit'; readonly lane: number; readonly index: number }
+  /** [v3] Any runner (player and named rival included) crosses the line on screen. */
+  | { readonly type: 'runnerFinish'; readonly lane: number; readonly ms: number }
+  /** [v3] The 1st-2nd margin is at most PHOTO_MARGIN_MS (judges); once, when 2nd crosses. */
+  | { readonly type: 'closeFinish' }
+  /** [v3] Player trip starts (fall) / player gets up. */
+  | { readonly type: 'trip' }
+  | { readonly type: 'tripUp' }
+  /** [v3] Raw live place of the player changed (UI holds it POSITION_HOLD). */
+  | { readonly type: 'placeChange'; readonly place: number }
   /** Player, 400 m: index 0-2 for 100/200/300 m, ms is the interpolated crossing. */
   | { readonly type: 'split'; readonly index: number; readonly ms: number }
   /** Player passes 300 m (400 m). */
@@ -298,6 +412,10 @@ export interface RaceOptions {
   readonly seed: number;
   /** performance.now()-origin time at which the race (intro) starts. */
   readonly startT: number;
+  /** [v3] Default 'l' (ladder). */
+  readonly mode?: RaceMode;
+  /** [v3] Deterministic trip (design 33). Default TUNING.TRIP_ENABLED (false). */
+  readonly trip?: boolean;
 }
 
 /**
@@ -317,7 +435,11 @@ export interface RaceOptions {
  * - HUD timer: use state.timerMs (stops at the player's finish), not raceMs.
  * - Interpolated xM renders one tick (8.3 ms) behind the sim, the standard fixed-step blend.
  * - The opponent must be on the event's ladder (LADDERS[event]); otherwise the constructor throws.
- * - Rival hurdle events ('jump', 'land', 'hurdle*') carry lane 'rival'; the player's carry lane 'player'.
+ * - [v3] Hurdle events ('jump', 'land', 'hurdle*') carry the runner's lane number (0 player, 1 named
+ *   rival, 2-5 field). 'runnerFinish' fires for every on-screen crossing; runners still out when the
+ *   results are due are completed off-screen (their ms is in outcome.standings, no event).
+ * - [v3] 'resultReady' (and the outcome) come 1.5 s after the player crosses; the outcome is final
+ *   (all 6 times) from the moment the player crosses.
  */
 export { Race } from './race/race.ts';
 
@@ -340,7 +462,7 @@ export function newSeed(): number {
 export { formatTime, formatLadderTotal, formatMargin, toKmh } from './format.ts';
 
 // ---------------------------------------------------------------------------
-// Records / save v2 (design 16)
+// Records / save v3 (design 16, 34)
 // ---------------------------------------------------------------------------
 
 export interface Settings {
@@ -376,6 +498,29 @@ export interface HistoryEntry {
   readonly hit?: number;
   /** 400 m only (always present there): splits reached, 0-3 values. */
   readonly splits?: readonly number[];
+  // [v3] (design 34.2-34.3)
+  /** 1 to fieldSize, null for dq/dnf. */
+  readonly place: number | null;
+  /** 6, or 2 for entries migrated from v2. */
+  readonly fieldSize: number;
+  /** Winning time of the race, null for dq. Equals ms for a win. */
+  readonly winMs: number | null;
+  readonly mode: RaceMode;
+  /** Fumble logging (33.5); absent on migrated entries. */
+  readonly steps?: number;
+  readonly fumbles?: number;
+  readonly fumble2?: number;
+  readonly trips?: number;
+  readonly input?: 'k' | 't' | 'm';
+}
+
+/** [v3] Gauntlet records per event (design 32.5). */
+export interface GauntletRecord {
+  readonly runs: number;
+  readonly clears: number;
+  /** Highest tier won in any run, 0-7 (7 = cleared). */
+  readonly furthest: number;
+  readonly best: { readonly ms: number; readonly at: string; readonly times: readonly number[] } | null;
 }
 
 export interface EventRecords {
@@ -384,13 +529,19 @@ export interface EventRecords {
   readonly champion: boolean;
   readonly best: Readonly<Partial<Record<OpponentId, BestTime>>>;
   readonly history: readonly HistoryEntry[];
+  // [v3]
+  /** Zyx revealed in this event (design 30.1). */
+  readonly revealed: boolean;
+  /** Best place 1-6 per rival, from 6-runner races (migrated wins count as 1). */
+  readonly place: Readonly<Partial<Record<OpponentId, number>>>;
+  readonly gauntlet: GauntletRecord;
 }
 
 export interface SaveData {
-  readonly version: 2;
+  readonly version: 3;
   readonly lastEvent: EventId;
   readonly seenEvents: readonly EventId[];
-  readonly hints: { readonly addToHomeScreen: boolean };
+  readonly hints: { readonly addToHomeScreen: boolean; readonly revealSeen: boolean };
   readonly settings: Settings;
   readonly events: Readonly<Record<EventId, EventRecords>>;
 }
@@ -406,19 +557,49 @@ export interface RecordOutcome {
   readonly newPb: boolean;
   /** PB before this race, null if none. */
   readonly previousPbMs: number | null;
-  /** Next rival in the same event unlocked by this race (first win only), else null. */
+  /** Next rival in the same event unlocked by this race (first 1st place only), else null. */
   readonly unlocked: OpponentId | null;
   /** Event unlocked by this race (design 12.2), else null. */
   readonly unlockedEvent: EventId | null;
   /** True only on the first ever tier 7 win in this event. */
   readonly becameChampion: boolean;
+  // [v3]
+  /** Player place, null for DQ/DNF. */
+  readonly place: number | null;
+  /** Set when this race improved the rival's best placing to 2 or 3 (medal row), else null. */
+  readonly newBestPlace: number | null;
+  /** 1st vs the tier 6 rival with revealed = false (results show CONTINUE, design 30.1.2). */
+  readonly revealPending: boolean;
+}
+
+/** [v3] A Gauntlet run's end (over, clear or abandoned). `furthest` = highest tier won in this run (0-7). */
+export interface GauntletEnd {
+  readonly cleared: boolean;
+  readonly furthest: number;
+  /** Race ms of the tiers won in this run, in order (7 values on a clear). */
+  readonly times: readonly number[];
+}
+
+export interface GauntletOutcome {
+  readonly newBest: boolean;
+  readonly newFurthest: boolean;
+  readonly previousBestMs: number | null;
 }
 
 /**
- * RecordsStore.load(storage): v2 load plus v1 migration (design 16.4). Never throws on storage
- * failure; `persistent` turns false and the store keeps working in memory.
+ * RecordsStore.load(storage): v3 load plus migration from v2 and from v1 via v2 (design 34.4).
+ * Never throws on storage failure; `persistent` turns false and the store keeps working in memory.
+ *
+ * [v3] additions:
+ * - isUnlocked(event, tier 7 rival) is false until isRevealed(event).
+ * - bestPlace(event, id): best place 1-6, or null.
+ * - isRevealed(event), revealPending(event) (tier 6 beaten and not revealed, 30.1.5).
+ * - markRevealed(event): sets revealed and hints.revealSeen, saves.
+ * - revealSeen(): hints.revealSeen (full vs short reveal).
+ * - isGauntletUnlocked(event) (= isRevealed), gauntlet(event), recordGauntletEnd(event, end, at).
+ * - reset(): removes the v3, v2 and v1 keys, keeps settings and hints.
  */
-export { SAVE_KEY_V1, SAVE_KEY, CORRUPT_KEY, RecordsStore } from './records/store.ts';
+export { SAVE_KEY_V1, SAVE_KEY_V2, SAVE_KEY, CORRUPT_KEY, RecordsStore } from './records/store.ts';
 
 /** window.localStorage if usable (probe write), else null. Safe to call in Node (returns null). */
 export { browserStorage } from './platform/storage.ts';

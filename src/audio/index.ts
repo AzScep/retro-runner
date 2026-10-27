@@ -25,18 +25,33 @@ export function preloadAudio(): Promise<void> {
   return engine.preloadAudio();
 }
 
-/** Play a sound effect. `volume` 0-1 scales this play (rival takeoffs play `jump` at 0.5). */
-export function playSfx(id: SfxId, opts?: { readonly volume?: number }): void {
+/**
+ * Play a sound effect. `volume` 0-1 scales this play (rival takeoffs play `jump` at 0.5).
+ * `field: true` marks a field runner's sound (v3, design 36.1): every field play shares one limit
+ * of one per 100 ms, on top of `volume` (UI plays field hurdle_clip / hurdle_hit at 0.25).
+ */
+export function playSfx(id: SfxId, opts?: { readonly volume?: number; readonly field?: boolean }): void {
   engine.playSfx(id, opts);
 }
 
 /**
  * Crossfade to a track (null = stop). `tier` 1-7: `race` and `hurdles` transpose per tier 1-6,
  * `quarter` is one track for tiers 1-6, and tier 7 (Zyx) plays `boss` for all three.
+ * `gauntlet` is one track for tiers 1-6 (any tier, or none, gives the same track) and `boss` at
+ * tier 7. Asking for the track that is already wanted is a no-op: it keeps playing from where it
+ * is, so playMusic('gauntlet') before every Gauntlet race and card never restarts it.
  * Starting a different track resets the quarter final-100 flag.
  */
 export function playMusic(id: MusicId | null, tier?: number): void {
   engine.playMusic(id, tier);
+}
+
+/**
+ * Additive (v3): stop music dead, without playMusic(null)'s 0.6 s fade (reveal step 3, design
+ * 30.2, together with playSfx('reveal_sting_1')). Same state as playMusic(null) afterwards.
+ */
+export function cutMusic(): void {
+  engine.cutMusic();
 }
 
 /**

@@ -9,6 +9,7 @@
 
 import type { SfxId } from './types.ts';
 import {
+  hz,
   layer,
   levels,
   mixLayers,
@@ -683,7 +684,250 @@ export const SFX: Record<SfxId, SfxDef> = {
     jitter: 0.03,
     minInterval: 2.5,
   },
+
+  // ---- v3 (design 36.1) ----------------------------------------------------------------------
+
+  // Starter's pistol, layered over beep_go: a bright crushed noise crack, a low-passed noise
+  // tail (the report rolling off the stands) and a sinking sine thump for the chest hit.
+  pistol: {
+    length: 0.25,
+    layers: [
+      layer({
+        vol: 0.6,
+        freq: 3200,
+        attack: 0.001,
+        release: 0.025,
+        shape: SHAPE.noise,
+        filter: 1500,
+        crush: 0.02,
+      }),
+      layer({
+        vol: 0.5,
+        freq: 900,
+        attack: 0.002,
+        decay: 0.03,
+        sVol: 0.35,
+        release: 0.21,
+        shape: SHAPE.noise,
+        filter: -2400,
+      }),
+      layer({ vol: 0.42, freq: 150, attack: 0.001, release: 0.07, shape: SHAPE.sine, slide: -4, curve: 0.8 }),
+    ],
+    jitter: 0.03,
+    minInterval: 0.1,
+    normalize: 0.9,
+  },
+
+  // Body hitting the track: a deep sinking sine thump, a smaller bounce, and a short scuff of
+  // muffled fluttering noise as Rio slides.
+  trip_thud: {
+    length: 0.3,
+    layers: [
+      layer({
+        vol: 0.75,
+        freq: 95,
+        attack: 0.002,
+        release: 0.17,
+        shape: SHAPE.sine,
+        slide: -1.6,
+        curve: 0.8,
+      }),
+      layer({ vol: 0.3, freq: 62, attack: 0.002, release: 0.12, shape: SHAPE.triangle, slide: -0.6 }),
+      layer({ vol: 0.32, freq: 82, attack: 0.002, release: 0.07, shape: SHAPE.sine, slide: -1.2 }, 0.115),
+      layer(
+        {
+          vol: 0.3,
+          freq: 900,
+          attack: 0.02,
+          sustain: 0.06,
+          release: 0.1,
+          shape: SHAPE.noise,
+          filter: -1700,
+          repeat: 0.03,
+          trem: 0.4,
+        },
+        0.04,
+      ),
+    ],
+    jitter: 0.02,
+    minInterval: 0.3,
+    normalize: 0.85,
+  },
+
+  // Reveal step 3, power-down: a saw and a pulse an octave below glide 440 -> ~35 Hz like a tape
+  // stopping (slide decelerated by dslide so the pitch flattens out at the bottom), the crush
+  // rising as it dies, over a relay "clunk" at the cut.
+  reveal_sting_1: {
+    length: 0.6,
+    layers: [
+      layer({
+        vol: 0.32,
+        freq: 440,
+        attack: 0.004,
+        sustain: 0.44,
+        release: 0.15,
+        shape: SHAPE.saw,
+        slide: -2.95,
+        dslide: 5.36,
+        crush: 0.04,
+        filter: -2600,
+      }),
+      layer({
+        vol: 0.24,
+        freq: 220,
+        attack: 0.004,
+        sustain: 0.44,
+        release: 0.15,
+        shape: SHAPE.pulse,
+        curve: 0.5,
+        slide: -1.475,
+        dslide: 2.68,
+        filter: -1800,
+      }),
+      layer({ vol: 0.3, freq: 110, attack: 0.004, sustain: 0.3, release: 0.25, slide: -0.74, dslide: 1.34 }),
+      layer({ vol: 0.45, freq: 500, attack: 0.001, release: 0.05, shape: SHAPE.noise, filter: -900 }),
+      layer({ vol: 0.4, freq: 120, attack: 0.001, release: 0.08, shape: SHAPE.sine, slide: -3 }),
+    ],
+    jitter: 0,
+    normalize: 0.8,
+  },
+
+  // Reveal step 9, the alien chord: C minor (C4 Eb4 G4 C5, the boss key) on pairs of saws 15
+  // cents apart with a slow sawtooth pitch warble, swelling in over 0.7 s; a triangle C2 root and a
+  // trembling 12.5% pulse G5 shimmer join on the swell. Leads into the boss intro.
+  reveal_sting_2: {
+    length: 1.5,
+    layers: [
+      ...['C4', 'Eb4', 'G4', 'C5'].flatMap((n, i) =>
+        [-7.5, 7.5].map((cents, k) =>
+          layer({
+            vol: 0.16,
+            freq: hz(n) * 2 ** (cents / 1200),
+            attack: 0.7,
+            sustain: 0.38,
+            release: 0.4,
+            shape: SHAPE.saw,
+            filter: -2200,
+            slide: 0.1,
+            repeat: k ? 0.083 : 0.072 + i * 0.004,
+            trem: 0.1,
+          }),
+        ),
+      ),
+      layer({ vol: 0.4, freq: hz('C2'), attack: 0.5, sustain: 0.55, release: 0.43, shape: SHAPE.triangle }),
+      layer(
+        {
+          vol: 0.1,
+          freq: hz('G5'),
+          attack: 0.35,
+          sustain: 0.3,
+          release: 0.4,
+          shape: SHAPE.pulse,
+          curve: 0.25,
+          repeat: 0.06,
+          trem: 0.6,
+          filter: -5000,
+        },
+        0.4,
+      ),
+    ],
+    jitter: 0,
+    normalize: 0.8,
+  },
+
+  // Dry shutter: a bright noise click as the blade opens, a duller one as it closes, each with a
+  // tiny pulse tick for the mechanism.
+  photo_click: {
+    length: 0.12,
+    layers: [
+      layer({ vol: 0.55, freq: 3000, attack: 0.001, release: 0.012, shape: SHAPE.noise, filter: 2000 }),
+      layer({ vol: 0.2, freq: 1800, attack: 0.001, release: 0.012, shape: SHAPE.pulse, curve: 0.25 }),
+      layer({ vol: 0.45, freq: 2200, attack: 0.001, release: 0.018, shape: SHAPE.noise, filter: 900 }, 0.055),
+      layer({ vol: 0.25, freq: 700, attack: 0.001, release: 0.02, shape: SHAPE.triangle, slide: -4 }, 0.055),
+    ],
+    jitter: 0.04,
+    minInterval: 0.05,
+  },
+
+  // Speech bubble pop: a soft two-note triangle blip G5 -> C6, quieter than menu_move.
+  bubble: {
+    length: 0.06,
+    layers: [
+      layer({ vol: 0.2, freq: hz('G5'), attack: 0.002, release: 0.026, shape: SHAPE.triangle }),
+      layer({ vol: 0.2, freq: hz('C6'), attack: 0.002, release: 0.028, shape: SHAPE.triangle }, 0.03),
+    ],
+    jitter: 0,
+    minInterval: 0.05,
+  },
+
+  // Gauntlet clear: a longer major fanfare in D than win_jingle. Three rising calls (D, G, A)
+  // with brass thirds, triangle bass and drum hits, a snare roll into a held F#6 over D with a
+  // trill and a sparkle arpeggio, and a crash to finish.
+  gauntlet_clear: {
+    length: 3.0,
+    layers: [
+      ...notes(BRASS, [
+        ['D5', 0, 0.12],
+        ['F#5', 0.13, 0.12],
+        ['A5', 0.26, 0.12],
+        ['D6', 0.39, 0.4],
+        ['B5', 0.82, 0.12],
+        ['D6', 0.95, 0.12],
+        ['G6', 1.08, 0.4],
+        ['A5', 1.5, 0.12],
+        ['C#6', 1.63, 0.12],
+        ['E6', 1.76, 0.12],
+      ]),
+      note({ ...BRASS, release: 0.25, repeat: 0.09, trem: 0.15 }, 'F#6', 1.89, 1.05),
+      ...notes(BRASS_LOW, [
+        ['A4', 0, 0.12],
+        ['D5', 0.13, 0.12],
+        ['F#5', 0.26, 0.12],
+        ['A5', 0.39, 0.4],
+        ['G5', 0.82, 0.12],
+        ['B5', 0.95, 0.12],
+        ['D6', 1.08, 0.4],
+        ['E5', 1.5, 0.12],
+        ['A5', 1.63, 0.12],
+        ['C#6', 1.76, 0.12],
+        ['D6', 1.89, 1.05],
+      ]),
+      ...notes(BASS, [
+        ['D3', 0, 0.36],
+        ['D3', 0.39, 0.4],
+        ['G2', 0.82, 0.24],
+        ['G2', 1.08, 0.4],
+        ['A2', 1.5, 0.38],
+        ['D2', 1.89, 1.05],
+      ]),
+      ...['D6', 'F#6', 'A6', 'D7', 'F#7', 'A7'].map((n, i) =>
+        note({ ...SPARKLE, vol: 0.12 }, n, 2.05 + i * 0.06, i === 5 ? 0.4 : 0.12),
+      ),
+      ...[0.39, 1.08, 1.89].flatMap((at) => [layer(KICK, at), layer(SNARE, at)]),
+      ...[0, 1, 2, 3, 4, 5].map((i) =>
+        layer({ ...SNARE, vol: 0.12 + i * 0.03, release: 0.06 }, 1.5 + i * 0.063),
+      ),
+      layer({ ...SNARE, vol: 0.18, release: 1.0, filter: 3000 }, 1.89),
+    ],
+    jitter: 0,
+    normalize: 0.85,
+  },
 };
+
+/**
+ * SFX first needed in a race, the reveal or the Gauntlet, never on the Title or menus (the v3 set,
+ * ~130 ms of synthesis, mostly the two long stings). preloadAudio renders them after the title
+ * song so they never delay the first screen's music.
+ */
+export const LATE_SFX: ReadonlySet<SfxId> = new Set<SfxId>([
+  'pistol',
+  'trip_thud',
+  'reveal_sting_1',
+  'reveal_sting_2',
+  'photo_click',
+  'bubble',
+  'gauntlet_clear',
+]);
 
 /** Render one effect to mono samples. */
 export function renderSfx(id: SfxId, sampleRate = SAMPLE_RATE): Float32Array {

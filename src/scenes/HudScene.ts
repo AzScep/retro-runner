@@ -2,9 +2,11 @@ import Phaser from 'phaser';
 import {
   EVENTS,
   formatTime,
+  meet,
   modality,
   OPPONENTS,
   toKmh,
+  TUNING,
   type CountdownBeat,
   type EventId,
   type ModalityState,
@@ -13,8 +15,11 @@ import {
   type RaceState,
   type Side,
 } from '../core/index.ts';
-import { GAME_WIDTH, iconKey, keyIconKey, portraitKey } from '../art/index.ts';
+import { GAME_WIDTH, iconKey, keyIconKey, meetBadgeKey, portraitKey } from '../art/index.ts';
+import { playSfx } from '../audio/index.ts';
+import { SpeechBubble } from '../ui/bubble.ts';
 import { FONT_MINI } from '../ui/fonts.ts';
+import { gauntletStrip, type GauntletRun } from '../ui/gauntlet.ts';
 import {
   cleanZone,
   flashHz,
@@ -24,14 +29,16 @@ import {
   gaugeVisible,
   jumpReady,
   litSegments,
-  offscreenSide,
+  offscreenIndicators,
   OVAL,
   ovalDot,
   PAL,
   padClock,
   PROGRESS,
   progressMarkerX,
+  PlaceHold,
   progressTickMarks,
+  RIVAL_KIT,
   segmentColorIndex,
   SPEED_SEGMENTS,
   S_FATIGUE,
@@ -41,10 +48,23 @@ import {
   staminaLabelColor,
   sustainTickOffset,
 } from '../ui/hudMath.ts';
-import { firstRaceTip, splitPopup } from '../ui/screenText.ts';
+import {
+  firstRaceTip,
+  livePlaceColor,
+  meetSubtitle,
+  ordinal,
+  splitPopup,
+  starterBubble,
+} from '../ui/screenText.ts';
 import { Label } from '../ui/text.ts';
-import { drawPanel, fillRect, UI_DEPTH } from '../ui/widgets.ts';
-import { applyCrt, getApp, SceneKey, settings } from './app.ts';
+import { ARROW_8X8, drawMask, drawPanel, fillRect, HEAD_6X4, HEAD_8X8, UI_DEPTH } from '../ui/widgets.ts';
+import { applyCrt, getApp, SceneKey, settings, tierOf } from './app.ts';
+
+/** What the HUD needs from the art RaceView (screen positions, design 27.4 and 31.2). */
+export interface RaceViewPositions {
+  runnerScreenPos(lane: number): { readonly x: number; readonly y: number };
+  starterScreenPos(): { readonly x: number; readonly y: number };
+}
 
 export type KeyLook = 'hidden' | 'dim' | 'bright' | 'fumble';
 /** Where the HUD's bottom elements sit (design 17.4): pads over the canvas move the meters. */
@@ -63,6 +83,14 @@ export interface HudSnapshot {
   readonly countdown: string | null;
   readonly banner: string | null;
   readonly offscreen: string | null;
+  /** v3 (design 27): held live position, off-screen indicators, strip, meet card, bubble, trip. */
+  readonly place: string | null;
+  readonly leader: string | null;
+  readonly behind: string | null;
+  readonly strip: string | null;
+  readonly meet: string | null;
+  readonly bubble: string | null;
+  readonly trip: boolean;
   readonly tip: string | null;
   readonly gauge: { readonly visible: boolean; readonly pipX: number; readonly label: boolean };
   readonly stamina: {
@@ -74,6 +102,13 @@ export interface HudSnapshot {
   readonly split: string | null;
   readonly knockedTicks: number;
   readonly speedMeter: { readonly x: number; readonly y: number };
+  /** Gauntlet strip bounds in game px (layout checks), null outside Gauntlet races. */
+  readonly stripBox: {
+    readonly x: number;
+    readonly y: number;
+    readonly w: number;
+    readonly h: number;
+  } | null;
 }
 
 export interface HudData {
@@ -81,6 +116,10 @@ export interface HudData {
   readonly opponent: OpponentId;
   /** First race ever in this event: show the pre-race tip and the JUMP label (13.4.4, 14.3.9). */
   readonly firstRace: boolean;
+  /** How long the meet card shows during the intro walk (31.1). */
+  readonly meetMs: number;
+  /** The Gauntlet run this race belongs to (strip, meet line), else null. */
+  readonly gauntlet: GauntletRun | null;
 }
 
 /** Key prompt (design 6.2, 18.4): two keys, or Left / Up / Right in the hurdles. */
@@ -125,12 +164,36 @@ const GAUGE_AT: Readonly<Record<HudLayout, { x: number; y: number; w: number }>>
   touchCanvas: { x: 118, y: 140, w: 56 },
 };
 const GAUGE_H = 6;
-/** MASH! above the keys (above the gauge in hurdles); touch: above the pads' midpoint at y 100. */
-const MASH_Y = { keys: KEY_Y - 11, hurdles: 128, touch: 100 } as const;
-/** Off-screen arrow and gap label stay 2 px clear of the screen edge. */
+/**
+ * MASH! above the keys (above the gauge in hurdles); touch: above the pads' midpoint, at y 92 so it
+ * clears the named rival's head row (27.6.6).
+ */
+const MASH_Y = { keys: KEY_Y - 11, hurdles: 128, touch: 92 } as const;
+/** Off-screen indicators (27.4) at y 38, 2 px clear of the screen edge. */
 const EDGE = 2;
+const OFF_Y = 38;
 const COUNT_Y = 72;
-const TIP_Y = 60;
+/** Pre-race tip after the meet card (31.1). */
+const TIP_Y = 100;
+/** Live position (4, 4) at 2x and the rival badge frame (56, 4, 18 x 18) (27.1). */
+const PLACE_AT = { x: 4, y: 4 } as const;
+const BADGE = { x: 56, y: 4, size: 18 } as const;
+/**
+ * Gauntlet strip, mini font right-aligned to x 316 at y 4: it replaces the PB line in Gauntlet
+ * races (director call on 32.3), so it clears the timer (ends at x 215) and the finish flag (y 16).
+ */
+const STRIP_AT = { x: 316, y: 4 } as const;
+/** Meet card (31.1): panel, badge at (8, 12), name 2x and a mini line. */
+const MEET = { x: 40, y: 52, w: 240, h: 40 } as const;
+/** TRIP! popup above the player for 0.6 s (33.2). */
+const TRIP_POPUP_MS = 600;
+/** Screen areas the starter's bubble keeps clear of: the 4x/5x countdown digit and the 2x banner. */
+const BUBBLE_AVOID = {
+  digit: { x: 138, y: 50, w: 44, h: 42 },
+  banner: { x: 62, y: 62, w: 196, h: 20 },
+} as const;
+/** The starter's DISQUALIFIED bubble shows this long (31.2). */
+const DQ_BUBBLE_MS = 1500;
 const SPLIT_POPUP = { x: 160, y: 44, ms: 2000 } as const;
 const KNOCK_POPUP_MS = 500;
 /** Player sprite: screen x 96 while racing (camera follow), feet on y 152, ~44 px tall. */
@@ -140,7 +203,6 @@ const FUMBLE_FRAMES = 4;
 const POP_FRAMES = 2;
 /** Fumble red flashes are an element flashing, so they are capped like any flash (design 6.5). */
 const FUMBLE_FLASH_HZ = 3;
-const LANE_RIVAL_Y = 112;
 /** HUD text floats over busy stadium art, so it gets the index 1 outline as well as the shadow. */
 const HUD_TEXT = { outline: true } as const;
 const JUMP_LABEL_HURDLES = 3;
@@ -169,12 +231,27 @@ export class HudScene extends Phaser.Scene {
   private compactMeter = false;
   private segments!: Phaser.GameObjects.Graphics;
   private keyImages!: Partial<Record<'L' | 'R' | 'U', Phaser.GameObjects.Image>>;
-  private rivalHead!: Phaser.GameObjects.Image;
+  private markers!: Phaser.GameObjects.Graphics;
   private playerHead!: Phaser.GameObjects.Image;
   private ticks!: Phaser.GameObjects.Graphics;
   private ovalDots: Phaser.GameObjects.Graphics | null = null;
-  private offArrow!: Phaser.GameObjects.Image;
-  private offLabel!: Label;
+  private offMarks!: Phaser.GameObjects.Graphics;
+  private leaderLabel!: Label;
+  private behindLabel!: Label;
+  private placeLabel!: Label;
+  private placeHold = new PlaceHold(TUNING.POSITION_HOLD_MS);
+  private strip: Label | null = null;
+  private gauntlet: GauntletRun | null = null;
+  private meetObjs: { setVisible(v: boolean): unknown }[] = [];
+  private meetText: string | null = null;
+  private meetUntil = 0;
+  private bubble!: SpeechBubble;
+  private dqUntil = 0;
+  private tripLabel!: Label;
+  private tripUntil = 0;
+  private lastMarkSig = '';
+  private lastOffSig = '';
+  private kit = 8;
   private countdown!: Label;
   private banner!: Label;
   private mash!: Label;
@@ -241,22 +318,40 @@ export class HudScene extends Phaser.Scene {
     this.staSnap = null;
     this.gaugeState = { visible: false, pipX: 0, label: false };
     this.t0 = performance.now();
+    this.placeHold = new PlaceHold(TUNING.POSITION_HOLD_MS);
+    this.gauntlet = data.gauntlet;
+    this.strip = null;
+    this.meetObjs = [];
+    this.dqUntil = 0;
+    this.tripUntil = 0;
+    this.lastMarkSig = '';
+    this.lastOffSig = '';
+    this.kit = RIVAL_KIT[data.opponent];
     applyCrt(this);
-    const info = OPPONENTS[this.opponent];
     const rec = getApp().records;
     const hurdles = this.event === '110mh';
     const quarter = this.event === '400m';
 
-    // Rival badge (4, 4, 80 x 16).
-    this.add.image(4, 4, portraitKey(this.opponent, 16)).setOrigin(0, 0).setDepth(UI_DEPTH);
-    new Label(this, 22, 8, info.name, HUD_TEXT);
+    // Live position (4, 4) at 2x, hidden before GO (27.1, 27.2).
+    this.placeLabel = new Label(this, PLACE_AT.x, PLACE_AT.y, '', { ...HUD_TEXT, scale: 2 });
+    this.placeLabel.setVisible(false);
+    // Rival badge (56, 4, 18 x 18): portrait in a 1 px frame in the rival's kit colour.
+    const badge = this.add.graphics().setDepth(UI_DEPTH);
+    fillRect(badge, BADGE.x, BADGE.y, BADGE.size, BADGE.size, this.kit);
+    this.add
+      .image(BADGE.x + 1, BADGE.y + 1, portraitKey(this.opponent, 16))
+      .setOrigin(0, 0)
+      .setDepth(UI_DEPTH);
     // Timer centred on x 160 at 2x: `SS.hh` (64 px) or, in the 400 m, `M:SS.hh` (112 px, 104-215).
     this.timer = new Label(this, 160, 4, '00.00', { ...HUD_TEXT, scale: 2, align: 'center' });
-    // PB right-aligned to the 4 px screen margin, mirroring the rival badge around the timer.
-    new Label(this, GAME_WIDTH - 4, 4, `PB ${formatTime(rec.bestMs(this.event, this.opponent))}`, {
-      ...HUD_TEXT,
-      align: 'right',
-    });
+    // PB right-aligned to the 4 px screen margin, mirroring the rival badge around the timer. In a
+    // Gauntlet race the strip takes this slot instead (director call on 32.3).
+    if (!data.gauntlet) {
+      new Label(this, GAME_WIDTH - 4, 4, `PB ${formatTime(rec.bestMs(this.event, this.opponent))}`, {
+        ...HUD_TEXT,
+        align: 'right',
+      });
+    }
 
     // Progress bar (40, 24, 240 x 8) = the event distance; ticks above it (hurdles, 100/200/300 m).
     const bar = this.add.graphics().setDepth(UI_DEPTH);
@@ -266,10 +361,8 @@ export class HudScene extends Phaser.Scene {
       .setOrigin(0, 0)
       .setDepth(UI_DEPTH);
     this.ticks = this.add.graphics().setDepth(UI_DEPTH);
-    this.rivalHead = this.add
-      .image(PROGRESS.x, PROGRESS.y - 4, iconKey('headRival'))
-      .setOrigin(0, 0)
-      .setDepth(UI_DEPTH + 1);
+    // Field pips inside the bar and the rival's head above it (27.3), redrawn per frame.
+    this.markers = this.add.graphics().setDepth(UI_DEPTH + 1);
     this.playerHead = this.add
       .image(PROGRESS.x, PROGRESS.y + PROGRESS.h, iconKey('headPlayer'))
       .setOrigin(0, 0)
@@ -282,14 +375,21 @@ export class HudScene extends Phaser.Scene {
       this.ovalDots = this.add.graphics().setDepth(UI_DEPTH + 1);
     }
 
-    // Off-screen rival arrow at the rival lane.
-    this.offArrow = this.add
-      .image(0, LANE_RIVAL_Y - 4, iconKey('offscreenArrow'))
-      .setOrigin(0, 0)
-      .setDepth(UI_DEPTH)
-      .setVisible(false);
-    this.offLabel = new Label(this, 0, LANE_RIVAL_Y - 3, '', { ...HUD_TEXT, font: FONT_MINI });
-    this.offLabel.setVisible(false);
+    // Off-screen leader (right) and pack behind (left) indicators at y 38 (27.4).
+    this.offMarks = this.add.graphics().setDepth(UI_DEPTH);
+    this.leaderLabel = new Label(this, 0, OFF_Y + 1, '', { ...HUD_TEXT, font: FONT_MINI, align: 'right' });
+    this.leaderLabel.setVisible(false);
+    this.behindLabel = new Label(this, EDGE + 10, OFF_Y + 1, '', { ...HUD_TEXT, font: FONT_MINI });
+    this.behindLabel.setVisible(false);
+
+    // Gauntlet strip (32.3).
+    if (this.gauntlet) {
+      this.strip = new Label(this, STRIP_AT.x, STRIP_AT.y, gauntletStrip(this.gauntlet, 0), {
+        ...HUD_TEXT,
+        font: FONT_MINI,
+        align: 'right',
+      });
+    }
 
     // Speed meter, in a container so the touch layout can move it as one piece.
     this.meterBg = this.add.graphics();
@@ -356,13 +456,54 @@ export class HudScene extends Phaser.Scene {
     this.splitLabel.setVisible(false);
     this.knockLabel = new Label(this, PLAYER_POPUP.x, PLAYER_POPUP.y, '', { ...HUD_TEXT, align: 'center' });
     this.knockLabel.setVisible(false);
+    this.tripLabel = new Label(this, PLAYER_POPUP.x, PLAYER_POPUP.y, 'TRIP!', {
+      ...HUD_TEXT,
+      align: 'center',
+      color: PAL.red,
+    });
+    this.tripLabel.setVisible(false);
+
+    // Starter speech bubble (31.2), under the countdown digits.
+    this.bubble = new SpeechBubble(this, UI_DEPTH - 2);
+
+    // Meet card (31.1) during the intro walk.
+    this.buildMeetCard(data);
 
     this.drawSegments(0);
     this.applyLayout(layoutOf(modality.get()), true);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.bubble.destroy());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.ready = false;
     });
     this.ready = true;
+  }
+
+  private buildMeetCard(data: HudData): void {
+    const tier = tierOf(data.event, data.opponent);
+    const name = meet(tier).name;
+    const sub = meetSubtitle(data.event, OPPONENTS[data.opponent].name, data.gauntlet?.tier ?? null);
+    const depth = UI_DEPTH + 3;
+    const panel = this.add.graphics().setDepth(depth);
+    drawPanel(panel, MEET.x, MEET.y, MEET.w, MEET.h);
+    const badge = this.add
+      .image(MEET.x + 8, MEET.y + 12, meetBadgeKey(tier))
+      .setOrigin(0, 0)
+      .setDepth(depth + 1);
+    const title = new Label(this, MEET.x + 28, MEET.y + 6, name, {
+      scale: 2,
+      color: PAL.gold,
+      depth: depth + 1,
+    });
+    const line = new Label(this, MEET.x + 28, MEET.y + 26, sub, { font: FONT_MINI, depth: depth + 1 });
+    this.meetObjs = [panel, badge, title, line];
+    this.meetText = `${name} | ${sub}`;
+    this.meetUntil = this.t0 + data.meetMs;
+  }
+
+  private hideMeetCard(): void {
+    if (this.meetText === null) return;
+    this.meetText = null;
+    for (const o of this.meetObjs) o.setVisible(false);
   }
 
   /** Moves the bottom HUD for the modality and pad placement (design 17.4, 18.4). */
@@ -408,7 +549,14 @@ export class HudScene extends Phaser.Scene {
       fumbles: this.fumbles,
       countdown: this.countdown.visible ? this.countdown.text : null,
       banner: this.banner.visible ? this.banner.text : null,
-      offscreen: this.offLabel.visible ? this.offLabel.text : null,
+      offscreen: this.leaderLabel.visible ? this.leaderLabel.text : null,
+      place: this.placeLabel.visible ? this.placeLabel.text : null,
+      leader: this.leaderLabel.visible ? this.leaderLabel.text : null,
+      behind: this.behindLabel.visible ? this.behindLabel.text : null,
+      strip: this.strip?.text ?? null,
+      meet: this.meetText,
+      bubble: this.bubble.text,
+      trip: this.tripLabel.visible,
       tip: this.tip.visible ? this.tip.text : null,
       gauge: { ...this.gaugeState },
       stamina: this.staSnap,
@@ -416,10 +564,13 @@ export class HudScene extends Phaser.Scene {
       split: this.splitLabel.visible ? this.splitLabel.text : null,
       knockedTicks: this.knocked,
       speedMeter: { x: this.speed.x, y: this.speed.y },
+      stripBox: this.strip
+        ? { x: this.strip.main.x, y: this.strip.main.y, w: this.strip.width, h: this.strip.height }
+        : null,
     };
   }
 
-  onFrame(state: RaceState, events: readonly RaceEvent[], rivalScreenX: number): void {
+  onFrame(state: RaceState, events: readonly RaceEvent[], view: RaceViewPositions): void {
     if (!this.ready) return;
     const s = settings();
     const now = performance.now();
@@ -443,7 +594,11 @@ export class HudScene extends Phaser.Scene {
       } else if (ev.type === 'split') {
         this.splitLabel.setText(splitPopup(ev.index, ev.ms)).setVisible(true);
         this.splitUntil = now + SPLIT_POPUP.ms;
-      } else if ((ev.type === 'hurdleClip' || ev.type === 'hurdleHit') && ev.lane === 'player') {
+      } else if (ev.type === 'trip') {
+        this.tripUntil = now + TRIP_POPUP_MS;
+      } else if (ev.type === 'disqualified') {
+        this.dqUntil = now + DQ_BUBBLE_MS;
+      } else if ((ev.type === 'hurdleClip' || ev.type === 'hurdleHit') && ev.lane === 0) {
         const hit = ev.type === 'hurdleHit';
         const lift = Math.round(p.airM * 24);
         this.knockLabel
@@ -462,12 +617,49 @@ export class HudScene extends Phaser.Scene {
       this.knockUntil = 0;
       this.knockLabel.setVisible(false);
     }
+    // TRIP! rides above the player (who may be falling or lying).
+    const tripOn = now < this.tripUntil;
+    this.tripLabel.setVisible(tripOn);
+    if (tripOn)
+      this.tripLabel.setPosition(PLAYER_POPUP.x, PLAYER_POPUP.y - (this.knockLabel.visible ? 10 : 0));
+
+    // Live position (27.2): held 0.35 s, hidden before GO and after a DQ, frozen once crossed.
+    const crossedLine = p.finishMs !== null;
+    const place = this.placeHold.update(state.livePlace, now, crossedLine);
+    if (place === null) {
+      this.placeLabel.setVisible(false);
+    } else {
+      this.placeLabel.setText(ordinal(place)).setColor(livePlaceColor(place)).setVisible(true);
+    }
+
+    // Gauntlet strip: won races plus the live timer, frozen at the crossing (32.3).
+    if (this.strip && this.gauntlet) this.strip.setText(gauntletStrip(this.gauntlet, state.timerMs));
+
+    // Meet card during the intro walk, then the starter's bubbles (31.1, 31.2).
+    if (this.meetText !== null && (now >= this.meetUntil || state.phase !== 'intro')) this.hideMeetCard();
+    const bubbleText = starterBubble({
+      phase: state.phase,
+      countdown: state.countdown,
+      falseStarts: state.falseStarts,
+      disqualified: now < this.dqUntil,
+    });
+    if (bubbleText === null) {
+      this.bubble.hide();
+    } else {
+      const was = this.bubble.text;
+      const at = view.starterScreenPos();
+      // Never under the big countdown digit or the FALSE START! banner (6.3 stays the timing cue).
+      const avoid = state.phase === 'falseStart' ? BUBBLE_AVOID.banner : BUBBLE_AVOID.digit;
+      this.bubble.show(bubbleText, Math.round(at.x), Math.round(at.y), avoid);
+      if (was !== bubbleText) playSfx('bubble');
+    }
 
     // Timer: core's timerMs (0 before GO, live while running, frozen at the player's finish).
     this.timer.setText(padClock(formatTime(state.timerMs)));
 
-    // Progress markers (6x4 heads centred on their metre position) and knocked hurdle ticks.
-    this.rivalHead.setX(progressMarkerX(state.rival.xM, distance) - 3);
+    // Progress markers (27.3): field pips inside the bar, the rival's head above it in kit colour,
+    // the player's head below; knocked hurdle ticks above.
+    this.drawMarkers(state, distance);
     this.playerHead.setX(progressMarkerX(p.xM, distance) - 3);
     this.drawTicks(p.hurdlesKnocked);
     if (this.ovalDots) {
@@ -479,24 +671,8 @@ export class HudScene extends Phaser.Scene {
       fillRect(g, OVAL.x + d.x, OVAL.y + d.y, 2, 2, PAL.redLight);
     }
 
-    // Off-screen rival arrow.
-    const side =
-      state.rival.visible && p.finishMs === null && state.phase !== 'finished'
-        ? offscreenSide(Math.round(rivalScreenX), GAME_WIDTH)
-        : null;
-    if (side === null) {
-      this.offArrow.setVisible(false);
-      this.offLabel.setVisible(false);
-    } else {
-      const gap = gapLabel(state.rival.xM - p.xM);
-      this.offArrow.setVisible(true).setFlipX(side === 'left');
-      this.offArrow.setX(side === 'left' ? EDGE : GAME_WIDTH - EDGE - 8);
-      this.offLabel.setText(gap).setVisible(true);
-      this.offLabel.setPosition(
-        side === 'left' ? EDGE + 10 : GAME_WIDTH - EDGE - 10 - this.offLabel.width,
-        LANE_RIVAL_Y - 3,
-      );
-    }
+    // Off-screen leader ahead and pack behind (27.4), from each runner's drawn x.
+    this.drawOffscreen(state, view);
 
     // Speed meter.
     const lit = litSegments(p.vMps);
@@ -547,7 +723,10 @@ export class HudScene extends Phaser.Scene {
     if (this.gauge) this.drawGauge(state, running);
 
     // Pre-race tip during the intro walk, first race of the event only (18.5).
-    const tip = this.firstRace && state.phase === 'intro' ? firstRaceTip(this.event, m.modality) : null;
+    const tip =
+      this.firstRace && state.phase === 'intro' && this.meetText === null
+        ? firstRaceTip(this.event, m.modality)
+        : null;
     if (tip === null) {
       this.tip.setVisible(false);
       this.tipPanel.setVisible(false);
@@ -586,6 +765,68 @@ export class HudScene extends Phaser.Scene {
     } else {
       this.banner.setVisible(false);
     }
+  }
+
+  private drawMarkers(state: RaceState, distance: number): void {
+    const xs = state.runners.map((r) => progressMarkerX(r.state.xM, distance));
+    const sig = xs.join(',');
+    if (sig === this.lastMarkSig) return;
+    this.lastMarkSig = sig;
+    const g = this.markers;
+    g.clear();
+    // Field: 2x4 pips inside the bar, index 7, all alike.
+    state.runners.forEach((r, i) => {
+      if (r.lane < 2) return;
+      fillRect(g, (xs[i] ?? PROGRESS.x) - 1, PROGRESS.y + 2, 2, 4, PAL.lightGrey);
+    });
+    const rx = xs[1] ?? PROGRESS.x;
+    drawMask(g, rx - 3, PROGRESS.y - 4, HEAD_6X4, { k: PAL.ink, c: this.kit, w: PAL.white });
+  }
+
+  private drawOffscreen(state: RaceState, view: RaceViewPositions): void {
+    const p = state.player;
+    const live = p.finishMs === null && state.phase !== 'finished' && state.phase !== 'intro';
+    const ind = live
+      ? offscreenIndicators(
+          state.runners.map((r) => ({
+            lane: r.lane,
+            screenX: view.runnerScreenPos(r.lane).x,
+            xM: r.state.xM,
+            visible: r.state.visible,
+          })),
+          state.leaderLane,
+          GAME_WIDTH,
+        )
+      : { leader: null, behind: null };
+    const leader = ind.leader;
+    const behind = ind.behind;
+    const leaderText = leader ? `> ${gapLabel(leader.gapM)}` : null;
+    const behindText = behind ? `< ${behind.count}` : null;
+    const sig = `${leader?.lane ?? '-'}|${behind?.rival ?? '-'}|${behindText ?? ''}`;
+    if (sig !== this.lastOffSig) {
+      this.lastOffSig = sig;
+      const g = this.offMarks;
+      g.clear();
+      if (leader) {
+        const c = leader.lane === 1 ? this.kit : PAL.lightGrey;
+        drawMask(g, GAME_WIDTH - EDGE - 8, OFF_Y, ARROW_8X8, { k: PAL.ink, c });
+        drawMask(g, GAME_WIDTH - EDGE - 18, OFF_Y, HEAD_8X8, { k: PAL.ink, c, w: PAL.white });
+      }
+      if (behind) {
+        const c = behind.rival ? this.kit : PAL.lightGrey;
+        drawMask(g, EDGE, OFF_Y, ARROW_8X8, { k: PAL.ink, c }, true);
+      }
+    }
+    if (leaderText === null) {
+      this.leaderLabel.setVisible(false);
+    } else {
+      this.leaderLabel
+        .setText(leaderText)
+        .setPosition(GAME_WIDTH - EDGE - 21, OFF_Y + 1)
+        .setVisible(true);
+    }
+    if (behindText === null) this.behindLabel.setVisible(false);
+    else this.behindLabel.setText(behindText).setVisible(true);
   }
 
   /** 2x3 px ticks above the bar, index 8, or index 17 for a hurdle the player knocked (18.4). */

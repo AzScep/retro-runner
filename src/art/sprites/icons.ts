@@ -26,7 +26,10 @@ export type IconName =
   | 'staminaArrowDown'
   | 'lapOval'
   | 'hurdleTick'
-  | 'hurdleTickHit';
+  | 'hurdleTickHit'
+  // v3 (design 27.4, 35.3)
+  | 'finishFlagSmall'
+  | 'offscreenArrowLeft';
 
 export type KeyState = 'dim' | 'bright' | 'wrong';
 
@@ -90,7 +93,7 @@ const L: Legend = {
 
 type ArtIcon = Exclude<
   IconName,
-  'arrowLeft' | 'arrowRight' | 'keyUp' | 'rotatePhone' | 'lapOval' | 'newBadge'
+  'arrowLeft' | 'arrowRight' | 'keyUp' | 'rotatePhone' | 'lapOval' | 'newBadge' | 'offscreenArrowLeft'
 >;
 
 const ART: Readonly<Record<ArtIcon, readonly string[]>> = {
@@ -213,6 +216,17 @@ const ART: Readonly<Record<ArtIcon, readonly string[]>> = {
   // Hurdle ticks above the progress bar, 2x3 (design 18.4): standing (8) and knocked (17).
   hurdleTick: ['ww', 'ww', 'ww'],
   hurdleTickHit: ['RR', 'RR', 'RR'],
+  // Ladder top before the reveal (design 35.3): 8x8 checkered flag on a short pole.
+  finishFlagSmall: [
+    'kkkkkkk.',
+    'kwdwdwk.',
+    'kdwdwdk.',
+    'kwdwdwk.',
+    'kkkkkkk.',
+    'kgk.....',
+    'kgk.....',
+    'kkk.....',
+  ],
   offscreenArrow: [
     '..kk....',
     '..kyk...',
@@ -334,6 +348,8 @@ export function buildIcon(name: IconName): IndexMap {
   if (name === 'rotatePhone') return rotatePhone(0);
   if (name === 'lapOval') return lapOval();
   if (name === 'newBadge') return newBadge();
+  // Pack-behind indicator (design 27.4): the leader arrow pointing left, same light from the top.
+  if (name === 'offscreenArrowLeft') return flipH(parseRows(ART.offscreenArrow, L));
   return parseRows(ART[name], L);
 }
 
@@ -358,6 +374,8 @@ export const ICON_NAMES: readonly IconName[] = [
   'lapOval',
   'hurdleTick',
   'hurdleTickHit',
+  'finishFlagSmall',
+  'offscreenArrowLeft',
 ];
 
 export function iconSize(name: IconName): readonly [number, number] {
@@ -366,6 +384,8 @@ export function iconSize(name: IconName): readonly [number, number] {
     case 'headPlayer':
       return [6, 4];
     case 'offscreenArrow':
+    case 'offscreenArrowLeft':
+    case 'finishFlagSmall':
     case 'crown':
       return [8, 8];
     case 'newBadge':

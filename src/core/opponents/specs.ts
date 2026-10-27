@@ -53,7 +53,7 @@ export interface RivalSpec {
   readonly reactionMs: number;
   /** Speed approach time constant in s. */
   readonly tau: number;
-  /** Cruise speed in m/s, tuned headlessly (see vtop.test.ts). */
+  /** Cruise speed in m/s, tuned headlessly with the field (see field/tuning.test.ts). */
   readonly vTop: number;
   readonly marks: readonly MarkSpec[];
   readonly zones: readonly ZoneSpec[];
@@ -84,54 +84,53 @@ const hurdles = (pClip: number, script: HurdleSpec['script'] = {}, landKeep = 0.
 });
 
 /**
- * V_TOP values are tuned by a headless sweep of 1000 seeded races per rival and event
- * (opponents/vtop.test.ts) so the mean finish matches the target within +/-0.05 s, pressure excluded.
- * Measured means are in the comments. Design starting values, for reference:
- * 100 m 6.55, 7.70, 8.77, 8.99, 9.63, 11.74, 10.18; hurdles 6.66, 7.22, 8.75, 8.66, 8.95, 10.40, 8.99;
- * 400 m 6.56, 6.52, 7.13, 7.37, 7.65, 8.00, 7.79.
+ * [v3] V_TOP values are retuned together with the field (design 23.2.3, 25.5): a headless sweep of
+ * 1000 seeded 5-runner AI races per event and tier (field/tuning.test.ts, pressure excluded) puts
+ * the median winning time on the tier target and the named rival's win share at about 0.67. The
+ * rival's own mean now ends 0.03-0.23 s slower than the target. Comments give the v2 value and the
+ * measured means.
  */
 export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<OpponentId, RivalSpec>>>>> = {
   '100m': {
-    // Tuned 2026-10-27 (v1), unchanged in v2.
     pip: {
       reactionMs: 300,
       tau: 1.5,
-      vTop: 6.383, // 17999.6 ms
+      vTop: 6.362, // v2 6.383; rival mean 18051.5 ms, field median win 18001 ms
       marks: [jit(45, TRIP), jit(80, WAVE)],
       zones: [],
     },
     jess: {
       reactionMs: 250,
       tau: 1.2,
-      vTop: 7.628, // 15000.7 ms
+      vTop: 7.605, // v2 7.628; rival mean 15042.1 ms, field median win 15000 ms
       marks: [jit(60, say('fade'))],
       zones: [{ from: 0, mult: 0.9 }],
     },
     marco: {
       reactionMs: 220,
       tau: 1.8,
-      vTop: 8.757, // 13600.0 ms
+      vTop: 8.73, // v2 8.757; rival mean 13635.9 ms, field median win 13600 ms
       marks: [jit(30, say('coast'))],
       zones: [{ from: 0, len: 20, mult: 0.93 }],
     },
     kofi: {
       reactionMs: 180,
       tau: 1.4,
-      vTop: 9.025, // 12599.5 ms
+      vTop: 8.996, // v2 9.025; rival mean 12634.9 ms, field median win 12600 ms
       marks: [jit(80, say('kick'))],
       zones: [{ from: 0, mult: 1.05 }],
     },
     valentina: {
       reactionMs: 140,
       tau: 1.2,
-      vTop: 9.666, // 11599.5 ms
+      vTop: 9.635, // v2 9.666; rival mean 11632.5 ms, field median win 11600 ms
       marks: [jit(70, say('kick', 'flashbulb'))],
       zones: [{ from: 0, mult: 1.04 }],
     },
     unit7: {
       reactionMs: 100,
       tau: 2.4,
-      vTop: 11.604, // 11000.1 ms
+      vTop: 11.569, // v2 11.604; rival mean 11026.1 ms, field median win 11000 ms
       marks: [jit(50, say('overclock')), jit(85, say('overheat'))],
       zones: [
         { from: 0, to: 1, mult: 1.06, effect: 'overclock' },
@@ -141,18 +140,17 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     zyx: {
       reactionMs: 50,
       tau: 1.0,
-      vTop: 10.158, // 10400.0 ms
+      vTop: 10.125, // v2 10.158; rival mean 10428.9 ms, field median win 10400 ms
       marks: [jit(30, warp(5)), jit(65, warp(5)), jit(50)],
       zones: [],
       pressure: { from: 2, leadM: 1.5 },
     },
   },
   '110mh': {
-    // Tuned 2026-10-27.
     pip: {
       reactionMs: 300,
       tau: 1.5,
-      vTop: 6.674, // 22000.9 ms
+      vTop: 6.618, // v2 6.674; rival mean 22141.1 ms, field median win 21999.5 ms
       marks: [jit(100, WAVE)],
       zones: [],
       hurdles: hurdles(0.3, { 2: 'hit', 6: 'hit' }),
@@ -160,7 +158,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     jess: {
       reactionMs: 250,
       tau: 1.2,
-      vTop: 7.19, // 18601.0 ms
+      vTop: 7.133, // v2 7.19; rival mean 18727.4 ms, field median win 18601 ms
       marks: [fixed(h(6), say('fade'))],
       zones: [{ from: 0, mult: 0.9 }],
       hurdles: hurdles(0.15),
@@ -168,7 +166,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     marco: {
       reactionMs: 220,
       tau: 1.8,
-      vTop: 8.699, // 16900.7 ms
+      vTop: 8.609, // v2 8.699; rival mean 17033.1 ms, field median win 16901 ms
       marks: [fixed(h(3), say('coast')), fixed(h(5))],
       zones: [{ from: 0, to: 1, mult: 0.93 }],
       hurdles: hurdles(0.25),
@@ -176,7 +174,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     kofi: {
       reactionMs: 180,
       tau: 1.4,
-      vTop: 8.632, // 15600.6 ms
+      vTop: 8.567, // v2 8.632; rival mean 15694.3 ms, field median win 15599 ms
       marks: [fixed(96, say('kick'))],
       zones: [{ from: 0, mult: 1.08 }],
       hurdles: hurdles(0.1),
@@ -184,7 +182,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     valentina: {
       reactionMs: 140,
       tau: 1.2,
-      vTop: 8.944, // 14500.1 ms
+      vTop: 8.914, // v2 8.944; rival mean 14539.9 ms, field median win 14500 ms
       marks: [fixed(h(8), say('kick')), fixed(h(10), say('flashbulb'))],
       zones: [{ from: 0, mult: 1.03 }],
       hurdles: hurdles(0),
@@ -192,7 +190,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     unit7: {
       reactionMs: 100,
       tau: 2.4,
-      vTop: 10.396, // 13800.0 ms
+      vTop: 10.359, // v2 10.396; rival mean 13836.1 ms, field median win 13800 ms
       marks: [jit(50, say('overclock')), jit(85, say('overheat'))],
       zones: [
         { from: 0, to: 1, mult: 1.06, effect: 'overclock' },
@@ -203,7 +201,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     zyx: {
       reactionMs: 50,
       tau: 1.0,
-      vTop: 8.968, // 13299.6 ms
+      vTop: 8.938, // v2 8.968; rival mean 13336.1 ms, field median win 13300 ms
       marks: [
         fixed(h(4) - WARP_THROUGH_HALF_M, warp(2 * WARP_THROUGH_HALF_M)),
         fixed(h(8) - WARP_THROUGH_HALF_M, warp(2 * WARP_THROUGH_HALF_M)),
@@ -215,11 +213,10 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     },
   },
   '400m': {
-    // Tuned 2026-10-27.
     pip: {
       reactionMs: 300,
       tau: 1.5,
-      vTop: 6.572, // 72000.6 ms
+      vTop: 6.551, // v2 6.572; rival mean 72228.9 ms, field median win 72001 ms
       marks: [jit(60, say('sweat')), jit(380, WAVE)],
       zones: [
         { to: 0, mult: 1.4 },
@@ -229,7 +226,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     jess: {
       reactionMs: 250,
       tau: 1.2,
-      vTop: 6.522, // 63998.8 ms
+      vTop: 6.503, // v2 6.522; rival mean 64182.6 ms, field median win 63997 ms
       marks: [jit(150), jit(250, say('fade'))],
       zones: [
         { to: 0, mult: 1.12 },
@@ -239,7 +236,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     marco: {
       reactionMs: 220,
       tau: 1.8,
-      vTop: 7.128, // 59001.8 ms
+      vTop: 7.106, // v2 7.128; rival mean 59177.9 ms, field median win 59001 ms
       marks: [jit(150, say('coast')), jit(250), jit(320, say('kick'))],
       zones: [
         { from: 0, to: 1, mult: 0.92 },
@@ -250,7 +247,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     kofi: {
       reactionMs: 180,
       tau: 1.4,
-      vTop: 7.367, // 56001.0 ms
+      vTop: 7.343, // v2 7.367; rival mean 56178.7 ms, field median win 56001.5 ms
       marks: [jit(200), jit(320, say('kick'))],
       zones: [
         { from: 0, to: 1, mult: 0.97 },
@@ -260,7 +257,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     sol: {
       reactionMs: 150,
       tau: 1.6,
-      vTop: 7.653, // 53999.1 ms
+      vTop: 7.628, // v2 7.653; rival mean 54170.4 ms, field median win 54001 ms
       // Glances at his watch at the split marks: overlay only, never jittered.
       marks: [fixed(100, WATCH), fixed(200, WATCH), fixed(300, WATCH)],
       zones: [],
@@ -268,7 +265,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     unit7: {
       reactionMs: 100,
       tau: 2.4,
-      vTop: 8.002, // 52503.0 ms
+      vTop: 7.975, // v2 8.002; rival mean 52673.2 ms, field median win 52502 ms
       marks: [jit(100, say('overclock')), jit(250), jit(300, say('overheat')), jit(330)],
       zones: [
         { from: 0, to: 1, mult: 1.08, effect: 'overclock' },
@@ -279,7 +276,7 @@ export const RIVAL_SPECS: Readonly<Record<EventId, Readonly<Partial<Record<Oppon
     zyx: {
       reactionMs: 50,
       tau: 1.0,
-      vTop: 7.788, // 51396.9 ms
+      vTop: 7.761, // v2 7.788; rival mean 51570.6 ms, field median win 51401.5 ms
       // Default profile (x0.97 from 200 m, x0.94 from 300 m); pressure shares the 200 m mark.
       marks: [jit(150, warp(10)), jit(330, warp(10)), jit(200), jit(300)],
       zones: [

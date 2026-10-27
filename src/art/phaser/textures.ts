@@ -10,7 +10,17 @@
  * inline when that result is not there (worker unsupported, failed or not awaited).
  */
 import type Phaser from 'phaser';
-import { bakeArt, BOARD50_M, KEYS, SPLIT_BOARD_M, type BakedArt } from '../baked.ts';
+import {
+  bakeField,
+  bakeMain,
+  BOARD50_M,
+  FIELD_PARTS,
+  joinFieldParts,
+  KEYS,
+  mergeBaked,
+  SPLIT_BOARD_M,
+  type BakedArt,
+} from '../baked.ts';
 import type { Anchors } from '../chars/rig.ts';
 
 export { BOARD50_M, KEYS, SPLIT_BOARD_M };
@@ -26,40 +36,60 @@ export function frameAnchors(id: string, frame: string): Anchors | undefined {
 const NEAREST = 1;
 
 let prepared: Promise<void> | null = null;
-let baked: BakedArt | null = null;
+let bakedMain: BakedArt | null = null;
+let bakedField: BakedArt | null = null;
 
-/** Starts the bake worker once. Resolves when its result arrived or it failed; never rejects. */
-export function prepareBake(): Promise<void> {
-  prepared ??= new Promise<void>((resolve) => {
-    if (typeof Worker === 'undefined') {
-      resolve();
-      return;
-    }
+/** Runs one bake worker; resolves with its result, or null if it failed or is unsupported. */
+function runWorker(create: () => Worker, message?: number): Promise<BakedArt | null> {
+  return new Promise((resolve) => {
     try {
-      const worker = new Worker(new URL('../bake.worker.ts', import.meta.url), { type: 'module' });
+      const worker = create();
+      if (message !== undefined) worker.postMessage(message);
       const done = (art: BakedArt | null): void => {
-        baked ??= art;
         worker.terminate();
-        resolve();
+        resolve(art);
       };
       worker.addEventListener('message', (e: MessageEvent<BakedArt>) => done(e.data));
       worker.addEventListener('error', () => done(null));
       worker.addEventListener('messageerror', () => done(null));
     } catch {
-      resolve();
+      resolve(null);
     }
   });
+}
+
+/**
+ * Starts the bake workers once, in parallel: the main page and the two halves of the field page.
+ * Resolves when all results arrived or failed; never rejects.
+ */
+export function prepareBake(): Promise<void> {
+  prepared ??= (async () => {
+    if (typeof Worker === 'undefined') return;
+    // Literal `new Worker(new URL(...))` expressions: Vite only bundles workers written this way.
+    const [main, ...parts] = await Promise.all([
+      runWorker(() => new Worker(new URL('../bake.worker.ts', import.meta.url), { type: 'module' })),
+      ...FIELD_PARTS.map((_, i) =>
+        runWorker(() => new Worker(new URL('../field.worker.ts', import.meta.url), { type: 'module' }), i),
+      ),
+    ]);
+    const field = parts.every((p) => p !== null) ? joinFieldParts(parts as BakedArt[]) : null;
+    bakedMain ??= main;
+    bakedField ??= field;
+  })();
   return prepared;
 }
 
 /**
- * Uploads the page, then registers each key as a Texture on the shared GL texture: `__BASE` covers
+ * Uploads the pages, then registers each key as a Texture on its page's GL texture: `__BASE` covers
  * the key's rect (as a standalone texture's would) plus its named frames.
  */
 function addAtlas(scene: Phaser.Scene, art: BakedArt): void {
-  const atlas = scene.textures.addUint8Array(KEYS.atlas, art.page, art.w, art.h);
-  const gl = atlas?.source[0]?.glTexture;
-  if (!gl) throw new Error('art: could not create the atlas texture (WebGL required)');
+  const gls = art.pages.map((p) => {
+    const atlas = scene.textures.addUint8Array(p.key, p.data, p.w, p.h);
+    const gl = atlas?.source[0]?.glTexture;
+    if (!gl) throw new Error(`art: could not create the atlas texture ${p.key} (WebGL required)`);
+    return gl;
+  });
   // A new TextureSource in a pixel-art game calls setFilter(NEAREST), which re-uploads the whole
   // GL texture: 124 keys meant 124 uploads of the page (~340 ms). The shared texture is already
   // NEAREST (created above with antialias off), so skip that per key and record the mode instead.
@@ -68,7 +98,7 @@ function addAtlas(scene: Phaser.Scene, art: BakedArt): void {
   config.antialias = true;
   try {
     for (const t of art.textures) {
-      const tex = scene.textures.addGLTexture(t.key, gl);
+      const tex = scene.textures.addGLTexture(t.key, gls[t.page]!);
       if (!tex) throw new Error(`art: could not create texture ${t.key}`);
       tex.source[0]!.scaleMode = NEAREST;
       tex.remove('__BASE');
@@ -83,8 +113,9 @@ function addAtlas(scene: Phaser.Scene, art: BakedArt): void {
 export function registerAll(scene: Phaser.Scene): void {
   // Idempotent per game.
   if (scene.textures.exists(KEYS.atlas)) return;
-  const art = baked ?? bakeArt();
-  baked = null;
+  const art = mergeBaked(bakedMain ?? bakeMain(), bakedField ?? bakeField());
+  bakedMain = null;
+  bakedField = null;
   addAtlas(scene, art);
   for (const [k, a] of art.anchors) anchors.set(k, a);
   for (const a of art.anims) {

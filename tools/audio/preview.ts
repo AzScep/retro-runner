@@ -28,6 +28,7 @@ const tracks: [string, MusicId | null, number?][] = [
   ...[1, 2, 3, 4, 5, 6].map((t): [string, MusicId, number] => [`race ${t}`, 'race', t]),
   ['race 7 (boss)', 'race', 7],
   ['champion', 'champion'],
+  ['gauntlet', 'gauntlet'],
   ['stop', null],
 ];
 for (const [label, id, tier] of tracks) button($('music'), label, () => audio.playMusic(id, tier));

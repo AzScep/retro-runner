@@ -107,7 +107,7 @@ describe('AI jumps (design 15.2)', () => {
     expect(hurdleEvents(events)).toEqual(H.map((_, i) => `hurdleClear:${i}`));
     expect(events.filter((e) => e.type === 'jump')).toHaveLength(10);
     expect(events.filter((e) => e.type === 'land')).toHaveLength(10);
-    expect(events.every((e) => !('lane' in e) || e.lane === 'rival')).toBe(true);
+    expect(events.every((e) => !('lane' in e) || e.lane === 1)).toBe(true);
     expect(sim.knocked.every((k) => !k)).toBe(true);
     // At the H1 crossing the arc is in the middle (s ~ 0.48-0.5).
     const cross = samples.findIndex((s) => s.x >= (H[0] ?? 0));

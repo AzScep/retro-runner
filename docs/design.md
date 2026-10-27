@@ -1,6 +1,6 @@
 # Retro Runner - Game Design Document
 
-Status: v1 design, engine-agnostic, shipped; v2 expansion (three events, touch) specified in sections 12-22.
+Status: v1 design, engine-agnostic, shipped; v2 expansion (three events, touch) shipped, specified in sections 12-22; **[v3]** multi-runner expansion specified in sections 23-38.
 Owner: Game Director.
 All numbers in this document are the source of truth for tuning.
 Section 11 collects every tunable constant in one table so implementers can put them in a single config module.
@@ -15,7 +15,7 @@ The player mashes Left and Right alternately to sprint against a ladder of seven
 | Honest mashing | Speed comes only from alternating key presses. Holding, auto-repeat and same-key spam give nothing. |
 | Every hundredth counts | Every race records a time. Personal bests per rival persist and are always visible. |
 | 16-bit authenticity | 320x180 internal canvas, fixed 42-colour palette, 1 px dark outlines, nearest-neighbour scaling that fills the window at 16:9. |
-| Short, replayable races | A race lasts 10-20 s. Retry is one key press away. **[v2]** 100 m and hurdles stay 10-25 s; the 400 m is the one long-form event at 50-75 s (section 14). |
+| Short, replayable races | A race lasts 10-20 s. Retry is one key press away. **[v2]** 100 m and hurdles stay 10-25 s; the 400 m is the one long-form event at 50-75 s (section 14). **[v3]** Instant retry stays on the ladder; the one-loss run lives only in Gauntlet mode (section 32). |
 
 ## 1. Core loop and screen flow
 
@@ -25,20 +25,24 @@ The player mashes Left and Right alternately to sprint against a ladder of seven
 2. Countdown, race 100 m, see the result card with times and PB.
 3. Win to unlock the next rival, or retry instantly to beat your time.
 
+**[v3]** Every race has 6 runners (the player, the tier's named rival and 4 field runners); only 1st place is a win (sections 23-24).
+
 ### 1.2 Screens
 
 | # | Screen | Shows | Inputs | Goes to |
 |---|---|---|---|---|
 | S1 | Boot / Title | Logo, "PRESS ENTER", version, mute icon. **[v2]** Event pictograms, `TAP TO START` on touch (18.8). | Enter/Space: continue. M: mute. | **[v2]** S10 (was S2) |
 | S2 | Ladder Map | Vertical ladder of 7 rival nodes, bottom (Pip) to top (Zyx). Selected rival card: portrait, name, tier, target time, your PB. Menu row: RACE, RECORDS, OPTIONS. | Up/Down: move between rivals. Left/Right: move in menu row. Enter: confirm. Esc: back to Title. **[v2]** One ladder per event (18.3); Esc goes back to S10. | S3, S6, S7, **[v2]** S10 |
-| S3 | Pre-race | Stadium for that tier, both runners walk to blocks (1.5 s), then crouch. Countdown 3-2-1-GO. | Left/Right only matter as false start detection. Esc: pause. | S4 |
+| S3 | Pre-race | Stadium for that tier, both runners walk to blocks (1.5 s), then crouch. Countdown 3-2-1-GO. **[v3]** All 6 runners walk in; meet title card and starter official (section 31). | Left/Right only matter as false start detection. Esc: pause. | S4 |
 | S4 | Race | Running, HUD (section 6). | Left/Right (or A/D): run. Esc: pause. | S5 |
 | S5 | Results | Result card (section 6.6). | Enter: default button. Left/Right: choose button. R: retry. Esc: map. | S3 (retry), S3 next rival (next), S2 (map) |
 | S6 | Records | Per-rival PB table and last results (section 4.5). **[v2]** Event tabs (18.7). | Up/Down: scroll. **[v2]** Left/Right: tab. Esc: back. | S2 **[v2]** or S10 |
 | S7 | Options | Volume (0-10), mute, reduced flashing, screen shake on/off, reset records. | Up/Down, Left/Right, Enter, Esc. | S2 |
 | S8 | Pause (overlay) | RESUME, RESTART, QUIT TO MAP. | Up/Down, Enter. Esc: resume. | S4, S3, S2 |
-| S9 | Champion | Shown once after first win vs Zyx: celebration, ladder total time, credits scroll. **[v2]** Once per event (12.3). | Enter: skip. | S2 |
+| S9 | Champion | Shown once after first win vs Zyx: celebration, ladder total time, credits scroll. **[v2]** Once per event (12.3). **[v3]** A fake champion card after tier 6 opens the Zyx reveal (section 30). | Enter: skip. | S2 |
 | S10 | **[v2]** Event Select | Three event cards, locks, progress, totals (18.2). Menu row: RECORDS, OPTIONS. | Left/Right, Up/Down, Enter, Esc. | S2, S6, S7, S1 |
+| S11 | **[v3]** Gauntlet cards | Gauntlet intro, between-race, over and clear cards (32). | Enter, Esc, taps. | S3, S2 |
+| S12 | **[v3]** Reveal | The Zyx reveal sequence (30). | Enter: skip after 1.0 s. | S2 |
 
 ### 1.3 Unlock rules
 
@@ -52,6 +56,10 @@ The player mashes Left and Right alternately to sprint against a ladder of seven
 
 **[v2]** Rules 1-7 apply per event, each event with its own ladder (section 15); events themselves unlock per 12.2.
 
+**[v3]** "Winning against tier N" means finishing 1st of 6 in that tier's race (24.1); 2nd and 3rd earn placing medals only (29).
+Tier 7 is hidden until tier 6 is won in that event, and rule 5 does not apply to it before the reveal (30).
+Rule 7's ladder total is unchanged: PBs count from any placing.
+
 ### 1.4 Race end rules
 
 1. The race clock starts at GO (t = 0) and runs on the simulation clock, not wall time.
@@ -64,6 +72,8 @@ The player mashes Left and Right alternately to sprint against a ladder of seven
 6. Win if player ms < opponent ms.
    Equal ms is a dead heat and counts as a win, shown as "PHOTO FINISH".
 7. Both runners keep running past the line into a 20 m run-out and decelerate (player: input ignored after crossing; AI: target speed 0 with its tau).
+
+**[v3]** Rules 3, 4 and 6 apply to all 5 AI runners: everyone not finished 1.5 s after the player crosses is simulated off-screen, and the win rule becomes 1st place (24.1).
 
 ## 2. Mash-to-speed model
 
@@ -91,6 +101,7 @@ A "valid step" is a keydown that satisfies all of the following.
 A keydown on the same side as the last valid step (a "same-key press") is a fumble.
 It gives zero impulse, does not change `lastSide`, does not reset the idle timer, and plays the fumble feedback (prompt shake, soft thud SFX).
 There is no extra penalty beyond the lost tempo.
+**[v3]** A deterministic trip on two fumbles in a row is prototyped behind a flag (section 33); with the flag off (the fallback) this rule is unchanged.
 
 Keyups are only used for rule 3 and are otherwise ignored.
 Inputs are processed in timestamp order at the start of the next simulation step.
@@ -191,6 +202,7 @@ vTarget = V_TOP * quirkMultiplier(x, t, state)
 Approximate finish time is `REACTION + TAU + (effective distance) / V_TOP`.
 The V_TOP values below are computed from that approximation and are starting values.
 Implementers must tune V_TOP with a headless simulation (1000 seeded races per rival) until the mean finish time equals the target within +/-0.05 s.
+**[v3]** The tuning target becomes the median winning time of the 5-runner AI field, and the named rival's own V_TOP is retuned with the field (25.5).
 
 Per-race variance: V_TOP is multiplied by a seeded uniform factor in [0.99, 1.01], and quirk trigger distances shift by a seeded uniform +/-3 m.
 The race seed is stored in the history entry for reproduction.
@@ -259,6 +271,7 @@ The Zyx pressure rule is excluded from the 10.40 s target, so it only bites when
 ### 4.3 Storage schema
 
 **[v2]** Superseded for the live save by section 16 (`retroRunner.save.v2`, per-event records); this v1 schema stays authoritative as the migration source.
+**[v3]** The live save becomes `retroRunner.save.v3` (section 34).
 
 Single key in browser `localStorage` (or the engine's equivalent string key-value store): `retroRunner.save.v1`.
 Value: one JSON document.
@@ -439,7 +452,7 @@ Never flip a sprite to fake a different direction for facial features or numbers
 | lean | 2 | 12 | no | Dip at the finish line, triggered at 98 m, held until 102 m. |
 | celebrate | 6 | 8 | yes | Win pose. |
 | lose | 4 | 6 | yes | Hands on knees or slump. |
-| stumble | 3 | 12 | no | Pip trip, player fumble does not use this. Also used for false start "jolt" (frames 1-2). |
+| stumble | 3 | 12 | no | Pip trip, player fumble does not use this. Also used for false start "jolt" (frames 1-2). **[v3]** The player's trip uses the new `fall` anim (35.1). |
 
 Per character: 35 frames.
 Total for 8 characters: 280 frames.
@@ -467,8 +480,8 @@ Camera: follows the player so that Rio's pivot is at screen x = 96, clamped so t
 | L1 Far | 24-64 | 0.10 | Stadium roof, skyline, floodlight towers. 256 px wide tile. |
 | L2 Far stands | 48-92 | 0.30 | Crowd tile 128 px wide, 2-frame crowd bob at 4 fps, faster (8 fps) when a runner is within 10 m of the finish. |
 | L3 Near stands | 88-104 | 0.60 | Advertising boards and wall, 64 px tiles with fictional brand-free signage. |
-| L4 Track | 104-160 | 1.00 | Lane 1 (rival): feet at y = 128. Lane 2 (player): feet at y = 152. 1 px lane lines index 8 at y = 108, 132, 156. Start line, checkered finish line, distance boards every 10 m. **[v2]** Hurdles: 10 hurdles per lane (13.1). 400 m: boards every 50 m, 9600 px track (14.3). |
-| L5 Foreground | 160-180 | 1.30 | Sparse props: infield grass, camera operator, hurdle stacks, cones. Max 1 prop per 160 px. Never covers runner feet. |
+| L4 Track | 104-160 (**[v3]** 101-165, 6 lanes with an oblique, section 26) | 1.00 | Lane 1 (rival): feet at y = 128. Lane 2 (player): feet at y = 152. 1 px lane lines index 8 at y = 108, 132, 156. Start line, checkered finish line, distance boards every 10 m. **[v2]** Hurdles: 10 hurdles per lane (13.1). 400 m: boards every 50 m, 9600 px track (14.3). |
+| L5 Foreground | 160-180 | 1.30 | Sparse props: infield grass, camera operator, hurdle stacks, cones. Max 1 prop per 160 px. Never covers runner feet. **[v3]** Rows 166-180 only; props at most 15 px tall (26.1). |
 
 ### 5.8 Stadium themes (one per tier)
 
@@ -485,6 +498,8 @@ Built from shared layer tiles plus palette-index remaps within the master palett
 | 7 Zyx | Mothership track in orbit | Space: 42, 1 with star pixels 8 and 37 | Planet on L1, teal glowing lane lines |
 
 Note: Olympic rings and real brand logos are not used anywhere.
+
+**[v3]** Every theme is redrawn for 6 lanes with slanted start and finish lines (26.4) and gains a meet name (31.1).
 
 ## 6. UI and HUD
 
@@ -514,12 +529,16 @@ Text colours: index 8 on panels of index 2, with a 1 px drop shadow in index 1.
 
 **[v2]** Per-event HUD changes (hurdle ticks, jump gauge, stamina meter, oval lap icon, 400 m timer width) and touch-mode positions are in 18.4 and 17.4.
 
+**[v3]** The rival badge, progress bar markers and off-screen arrow change for 6 runners, and a live position is added (section 27).
+
 ### 6.3 Countdown
 
 1. Centred at (160, 72), glyphs 32 px tall (Press Start 2P at 4x).
 2. "3", "2", "1" in index 8 with a 1 px index 1 outline, scale pop from 1.25x to 1x over 80 ms in integer steps (draw 5x for 2 frames then 4x).
 3. "GO!" in index 22 for 0.60 s.
 4. "FALSE START!" in index 18 at 2x, 1.5 s.
+
+**[v3]** A starter official with speech bubbles wraps the countdown without changing any timing in 2.5 (31.2).
 
 ### 6.4 Key prompt behaviour
 
@@ -553,12 +572,16 @@ The card slides in from the bottom over 0.25 s while runners play celebrate or l
 
 **[v2]** The card grows to (52, 22, 216 x 136) with an event row and an event-unlock line (18.6).
 
+**[v3]** Replaced by the two-column results card v3 with a 6-row placings table (section 28).
+
 ### 6.7 Ladder map layout
 
 1. Ladder occupies x 16-120, 7 nodes from y = 156 (Pip) to y = 20 (Zyx), 22 px apart, joined by a 2 px rope line.
 2. Node: 16x16 portrait in a 20x20 frame. Beaten: trophy pip. Locked: silhouette.
 3. Rival card on the right: (136, 16, 168 x 132) with 48x48 portrait, name, tier label, `TARGET 13.60`, `PB 12.84`, one-line flavour text.
 4. Menu row at y = 156: `RACE`, `RECORDS`, `OPTIONS`.
+
+**[v3]** Nodes show placing medal pips, tier 7 stays hidden until the reveal, and the menu row gains `GAUNTLET` (29.1, 30, 32.1).
 
 ## 7. Audio
 
@@ -576,6 +599,8 @@ Songs are ZzFXM tracker data synthesised at runtime in a Web Worker (see `src/au
 | Champion / credits | 120 BPM | 60 s | Triumphant. |
 
 Music ducks to 40% volume during the countdown and the results jingles.
+
+**[v3]** New `gauntlet` track and reveal sting in section 36.
 
 ### 7.2 SFX list
 
@@ -600,6 +625,8 @@ Music ducks to 40% volume during the countdown and the results jingles.
 | flashbulb | Valentina passes 70 m (off with reduced flashing) | Camera shutter pop | 250 ms |
 
 Audio starts only after the first user input (browser autoplay policy); the Title screen's first Enter unlocks audio.
+
+**[v3]** New SFX (`pistol`, `trip_thud`, `reveal_sting`, `photo_click`, `gauntlet_clear`) in section 36.
 
 **[v2]** New SFX and music in section 20; on touch, audio unlocks on the release of the first tap (17.6).
 
@@ -659,6 +686,8 @@ Rules:
 7. Online leaderboard with replay-based validation.
 8. Difficulty modes and an accessibility "assist" mode with separately tracked records.
 
+**[v3]** v3 scope and its own "later" list are in section 37.
+
 ## 10. Acceptance criteria
 
 A tester verifies each item by playing in the browser.
@@ -696,6 +725,7 @@ A tester verifies each item by playing in the browser.
 - [ ] Zyx disappears and reappears further ahead twice per race.
 - [ ] Rival finish times vary by no more than about +/-0.2 s from their target across 5 races (for example Pip 17.8-18.2).
 - [ ] A headless test (CI) asserts each rival's mean finish over 1000 seeded races is within +/-0.05 s of its target.
+  **[v3]** Replaced by the field tuning test of 25.5: median winning time within +/-0.05 s and named-rival win share 60-75%.
 
 ### Timing and records
 
@@ -815,14 +845,54 @@ Per-rival AI numbers (REACTION, TAU, V_TOP, pClip, landKeep, pace segments) live
 | STAMINA_LOW_SFX_EVERY | 0.6 s | 20.1 |
 | QUARTER_FINAL_LAYER_AT_M | 300 | 20.2 |
 
+**[v3]** Multi-runner constants (sections 23-34).
+Per-tier field numbers (REACTION, TAU, V_FIELD, pClip, pHit) live in the field table 25.2, like 3.2.
+Values marked "prototype" were confirmed by the lane and trip prototypes (`tools/prototype/`); values marked "sim" are starting values for headless tuning.
+
+| Name | Value | Section |
+|---|---|---|
+| FIELD_SIZE | 6 (player + named rival + 4 field) | 24.1 |
+| FIELD_RUNNERS | 4 | 24.1 |
+| FIELD_PACE_LO / HI | 0.90 / 1.00 (multiplier range per half) | 25.1 |
+| FIELD_SWITCH_FRAC | 0.40-0.80 of the event distance | 25.1 |
+| FIELD_400_PROFILE | x1.00 from 0 m, x0.97 from 200 m, x0.94 from 300 m | 25.1 |
+| FIELD_SEED_XOR | `0x5bd1e995` | 25.3 |
+| FIELD_FLOOR_PCT | 2.0% (100 m, 400 m), 4.0% (hurdles) | 25.4 |
+| RIVAL_WIN_SHARE | 0.60-0.75, aim 0.67 | 25.5 |
+| WIN_MEDIAN_TOL | +/-0.05 s | 25.5 |
+| LANE_FEET_Y | 157, 143, 132, 123, 115, 108 (lane 0 = player, nearest) (prototype) | 26.1 |
+| LANE_LINE_Y | 161, 147, 136, 127, 119, 112, far line 105 (prototype) | 26.1 |
+| TRACK_BAND_Y | 101-165 (prototype) | 26.1 |
+| FOREGROUND_PROP_MAX_H | 15 px (prototype) | 26.1 |
+| LANE_OBLIQUE_PX | +10 px per lane, far lane +50 (prototype) | 26.2 |
+| PLAYER_LANE / RIVAL_LANE | 0 / 1 | 26.3 |
+| POSITION_HOLD | 0.35 s | 27.2 |
+| OFFSCREEN_ARROW_Y | 38 (prototype) | 27.4 |
+| FIELD_PIP | 2 x 4 px, index 7, inside the progress bar (prototype) | 27.3 |
+| MEET_CARD_SHOW | 1.2 s (first race of a tier), 0.8 s (retry) | 31.1 |
+| JUDGE_LEAN_M | 10 m | 31.3 |
+| PHOTO_MARGIN_MS | 20 | 31.3 |
+| REVEAL_SKIP_AFTER | 1.0 s | 30.3 |
+| REVEAL_FULL / SHORT | ~13.0 s / ~6.4 s plus the final card | 30.2 |
+| GAUNTLET_NEXT_DELAY | 3.0 s auto-advance | 32.2 |
+| TRIP_ENABLED | false until the user's keep/drop call (33.4) | 33 |
+| TRIP_RULE | C: 2 fumbles in a row (no valid step between) | 33.1 |
+| TRIP_WINDOW | 0.50 s between the two fumbles | 33.1 |
+| TRIP_BLEED | 0.25 s, speed to 0 linearly | 33.1 |
+| TRIP_LIE | 0.40 s | 33.1 |
+| TRIP_KEEP | 0.30 of the speed at the trip | 33.1 |
+| TRIP_INPUTS | keyboard only (never touch) | 33.1 |
+| SAVE_KEY_V3 | `retroRunner.save.v3` | 34.2 |
+
 ---
 
 # Part 2 - Expansion v2: three events and touch
 
-Status: v2 design, approved scope, not yet built.
+Status: v2 design, approved scope, not yet built. **[v3]** v2 has shipped; Part 3 builds on it.
 Sections 0-11 stay authoritative for the 100 m.
 Where the expansion changes them, the change is marked inline with **[v2]** and points here.
 Sections 12-22 below are the source of truth for everything new.
+**[v3]** Part 3 (sections 23-38) extends these sections for 6-runner races; changes are marked **[v3]** inline.
 Starting values marked "prototype sim" come from a throwaway fixed-step simulation of the exact formulas in this document (120 Hz, same J, K_DRAG, V_MAX); mechanics must still tune them headless as in section 3.1.
 
 ## 12. Events and event unlocks
@@ -864,6 +934,7 @@ An event that is unlocked but whose ladder has never been opened shows a `NEW!` 
 
 1. Each event has its own champion flag, set on the first win against that event's tier 7 rival (Zyx in all three).
 2. S9 (Champion) is shown once per event, titled `100M CHAMPION`, `HURDLES CHAMPION` or `400M CHAMPION`, with that event's ladder total.
+   **[v3]** S9 still follows the first 1st place against Zyx; the earlier fake champion card is part of the reveal (30).
 3. A migrated v1 save with `champion: true` never sees the 100 m S9 again.
 
 ## 13. Event: 110 m hurdles
@@ -880,7 +951,7 @@ An event that is unlocked but whose ladder has never been opened shows a `NEW!` 
 | Hurdle positions (m) | 13.72, 22.86, 32.00, 41.14, 50.28, 59.42, 68.56, 77.70, 86.84, 95.98 |
 | Hurdle bar height (game) | 1.00 m = 24 px above the lane's feet row (stylised; real 1.067 m) |
 | Run-out | 20 m, no hurdles |
-| Lanes | Rival lane 1, player lane 2, as in 5.7; each lane has its own 10 hurdles |
+| Lanes | Rival lane 1, player lane 2, as in 5.7; each lane has its own 10 hurdles. **[v3]** 6 lanes, 60 hurdles per race, drawn with the lane oblique (26.2) |
 
 ### 13.2 Jump model (sim terms)
 
@@ -1065,6 +1136,7 @@ Extensions:
 Hurdle-indexed quirks never jitter; distance-based ones do.
 Every V_TOP below is a starting value from the prototype sim of exactly these rules (mean over seeded clips, no V_TOP jitter).
 Mechanics tunes V_TOP headless to the target within +/-0.05 s over 1000 seeded races, as in 3.1, with pressure excluded.
+**[v3]** In v3 the target is the field's median winning time (25.5); the retuned V_TOP starting values are in 25.6.
 
 "Required rate" for hurdles is the sustained rate a player with all clean jumps needs to match the target (from 13.3).
 "Required even pace" for the 400 m is the even rate that matches the target (from 14.2).
@@ -1164,6 +1236,7 @@ Note on drift: the shipped code already stores `settings.crt` (CRT post-effect, 
 ### 16.2 Storage schema
 
 Key: `retroRunner.save.v2` (SAVE_KEY_V2).
+**[v3]** Superseded for the live save by `retroRunner.save.v3` (section 34); v2 stays authoritative as a migration source.
 Value: one JSON document.
 
 ```json
@@ -1330,6 +1403,7 @@ Pad placement:
 | Narrower or no side bars (tablets) | Over the canvas at game (6, 118) | At game (250, 118) | At game (250, 62) |
 
 When pads are over the canvas, the speed meter moves to (118, 166) and the stamina meter to (118, 152), and the key prompt is hidden (the pads replace it in all layouts).
+**[v3]** Over-canvas pads must not hide the player or the named rival (27.6).
 
 Feedback timing: the pressed state toggles in the same pointer handler, so it shows on the next frame regardless of the game loop.
 The 6.4 prompt rules (both bright before the first step, `MASH!` after 0.5 s idle, reduced flashing keeps both bright) apply to the pads, with `MASH!` drawn above the pads' midpoint at game y 100.
@@ -1423,6 +1497,8 @@ Unchanged from 6.2 unless listed.
 | Split popup | - | - | At each split, `200M 26.10` at (160, 44) in 8 px for 2.0 s. |
 | Clip / hit popup | - | `CLIP` (index 22) or `HIT!` (index 17) in 8 px above the player for 0.5 s | - |
 
+**[v3]** The oval lap icon shows the named rival's dot only; field dots are omitted (27.3).
+
 ### 18.5 Pre-race and pause
 
 1. Pre-race tips (13.4, 14.3) appear during the 1.5 s intro walk at (160, 60) in 8 px, first race of the event only.
@@ -1431,6 +1507,7 @@ Unchanged from 6.2 unless listed.
 ### 18.6 Results card v2
 
 Panel grows to (52, 22, 216 x 136) in every event so the layout is shared.
+**[v3]** Replaced by results card v3 (section 28); the event row content below is kept.
 
 | Row | y offset | Content |
 |---|---|---|
@@ -1452,6 +1529,8 @@ Panel grows to (52, 22, 216 x 136) in every event so the layout is shared.
 5. 400 m `Last 3` shows finish times; selecting a row with Enter (or tapping it) shows that rival's best race splits in a one-line footer.
 6. Footer: `LADDER TOTAL` for the selected event or `BEAT ALL 7 TO SET A LADDER TOTAL`.
 7. A locked event's tab shows the lock icon and the unlock text from 12.2 instead of the table.
+
+**[v3]** Status column shows placing medals, tier 7 rows stay hidden until the reveal, and a Gauntlet footer line is added (29.2).
 
 Note: to support items 4 and 5, `best.<id>` in hurdles also stores `hit` (0-10) and in the 400 m `splits` (3 integers); validation as 16.3; migrated and old entries without them show `-`.
 
@@ -1482,11 +1561,11 @@ New character frames: 32 + 8 + 35 + 2 = 77.
 
 | Item | Size | Frames | Notes |
 |---|---|---|---|
-| Hurdle | 16 x 28 (pivot bottom-centre) | 1 standing, 4 knock (16 fps), last knock frame = lying | Drawn in a slight oblique so the bar reads: white and black striped bar (indices 8 and 1) 12 px wide, top edge exactly 24 px above the feet row; metal legs and L-shaped base (4-6). Drawn behind runners of the same or nearer lane. |
+| Hurdle | 16 x 28 (pivot bottom-centre) | 1 standing, 4 knock (16 fps), last knock frame = lying | Drawn in a slight oblique so the bar reads: white and black striped bar (indices 8 and 1) 12 px wide, top edge exactly 24 px above the feet row; metal legs and L-shaped base (4-6). Drawn behind runners of the same or nearer lane. **[v3]** The 16 px far-lane offset is replaced by the lane oblique, which moves runners too (26.2). |
 | Hurdle stacks (L5) | existing | - | Already in 5.7; used more often in the hurdles event. |
 | 50 m distance boards | 16 x 12 | 1 | 400 m only; `50`, `150`, ... |
 | Large split boards | 24 x 16 | 1 | `100`, `200`, `300`. |
-| Lap-bell official | 32 x 32 | 2 (ringing, 6 fps, only while `bell` plays) | L5 foreground at 300 m, 400 m only. |
+| Lap-bell official | 32 x 32 | 2 (ringing, 6 fps, only while `bell` plays) | L5 foreground at 300 m, 400 m only. **[v3]** Moves to the far side of the track (26.4), since L5 props are now at most 15 px tall. |
 | Clip burst | 16 x 16 | 4 at 16 fps | Small splinter and dust burst at the hurdle bar. |
 | Sweat drop | existing 16 x 16 effect | - | Spawned every 0.5 s above Rio when S < S_FATIGUE and above Pip after his 400 m gas-out. |
 
@@ -1568,6 +1647,7 @@ Crowd: hurdles as 100 m (last 20 m); 400 m rises over the last 100 m.
 
 A tester verifies each item by playing in the browser.
 Section 10 still applies to the 100 m.
+**[v3]** Wherever this section says "beating" or "win", it means 1st place of 6; section 38 adds the v3 criteria.
 
 ### Events and unlocks
 
@@ -1623,3 +1703,810 @@ Section 10 still applies to the 100 m.
 - [ ] The pause button pauses; the page never scrolls, zooms, selects text or shows a callout.
 - [ ] On Android with haptics on, a fumble vibrates once; steps never vibrate; turning haptics off stops it; iOS shows no haptics option.
 - [ ] Pressing a key on a tablet with a keyboard hides the touch pads; touching the screen shows them again.
+
+---
+
+# Part 3 - Expansion v3: multi-runner races
+
+Status: v3 design, approved direction, not yet built.
+Input: `docs/research-sprinter.md` section 7 (brief), the lane and trip prototypes in `tools/prototype/` (results in `tools/prototype/out/`), and a throwaway field simulation that drives the shipped `RivalSim` (25.6).
+Sections 0-22 stay authoritative where Part 3 does not change them; every change to them is marked **[v3]** inline and points here.
+Nothing in Part 3 reuses names, text or level data from the researched game; meets, cohorts, names and lines below are original.
+
+## 23. Overview and decisions
+
+### 23.1 Decisions made by the user (closed)
+
+| # | Decision | Where |
+|---|---|---|
+| 1 | 6 runners per race in every event: the player, the tier's named rival and 4 field runners of the same cohort. | 24 |
+| 2 | Only 1st place wins and unlocks the next tier; 2nd and 3rd earn placing medals on the ladder (best placing per rival). | 24.1, 29 |
+| 3 | The player always runs in the nearest lane. | 26.3 |
+| 4 | Tier 7 is hidden until tier 6 is won in that event; a fake champion ending is interrupted by Zyx and 4 alien drones. Saves that already unlocked or beat Zyx skip the reveal. | 30 |
+| 5 | A deterministic trip is prototyped behind an on/off flag; the keep/drop call follows the prototype; today's fumble stays as the fallback. | 33 |
+| 6 | Gauntlet mode per event: tiers 1-7 back to back, any finish other than 1st ends the run, score is the total time; records for best total and furthest tier. | 32 |
+
+### 23.2 Decisions made in this spec
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | Lanes use the prototype's layout R (uneven gaps, +10 px oblique per lane on runners, hurdles and lines), not the research's even 9 px spacing. | The prototype rejected even spacing (level runners stack into one column) and hurdle-only offsets (far runners jump 2-3 m from their gate). |
+| 2 | The trip ships as rule C (two fumbles in a row), keyboard only, flag default off until the user's call. | Rule B (any 2 same-side presses in 0.5 s) tripped 66% of races at a 5% error rate. |
+| 3 | The named rival's V_TOP is retuned together with the field so the median winning time hits today's target; the rival's own mean ends 0.03-0.16 s slower than the target. | A field that sometimes beats the rival pulls the winning time down; retuning both keeps PBs comparable and the required rate unchanged. |
+| 4 | FIELD_PACE_LO is 0.90, not the research's 0.85. | At 0.85 the field must cruise faster to win a third of races, so its best runs land 2.3% under the target and the pack strings out; 0.90 keeps the field tight and the fastest field run within 1.2-1.7% of the target in the flat events. |
+| 5 | Same cohort, same 4 names and same meet per tier in all three events. | Art budget (7 bodies) and recognisability; the event changes the race, not the people. |
+| 6 | Migrated 2-runner losses never become medals; only old wins become 1st place. | A 2nd of 2 is not a silver in a field of 6. |
+| 7 | Gauntlet opens once Zyx is revealed in that event. | Gauntlet runs tiers 1-7, so opening it earlier would spoil the reveal. |
+| 8 | Gauntlet races also count for PBs, best placings and history. | They are real races under identical rules. |
+| 9 | The first reveal is the full ~13 s sequence; reveals in the other two events use a ~6.4 s short version. | The twist only surprises once. |
+| 10 | The big countdown digits stay; the starter's bubbles are flavour on top. | Digits are the timing and accessibility cue of 2.5 and 6.3. |
+| 11 | Live position is a 2x label in the top-left, replacing the rival's name in the badge. | It is the only free 2x slot at 320 px that clears the 400 m timer and the PB. |
+
+## 24. The race field
+
+### 24.1 Format and race rules
+
+| Rule | Value |
+|---|---|
+| Runners | 6 in every event and tier: player (lane 0), named rival (lane 1), 4 field runners (lanes 2-5). |
+| Start | All 6 on one start line (the oblique of 26.2 is visual only); same countdown and false start rules (2.5). A false start is only ever the player's. |
+| Finish times | Every runner gets an interpolated ms time (2.6). |
+| Places | Ascending finish ms. Equal ms share the better place; the player is listed first among equal times. |
+| Win | Player place = 1, including a dead heat for 1st (title `PHOTO FINISH`, as 1.4.6). |
+| Loss | Place 2-6. Place 2-3 can earn a medal (29). |
+| DQ / DNF | No place; the player row shows `DQ` or `DNF` below the 5 AI rows. DNF cap per event as 12.1. |
+| Race end | As 1.4 rules 3-4 for all AI runners: the results card appears 1.5 s after the player crosses; AI runners not yet finished are simulated off-screen at that moment. |
+| Run-out | Every runner decelerates in the 20 m run-out as 1.4.7. |
+| Results animation | Winner (AI or player) plays `celebrate`. Rio: `celebrate` on 1st, `idle` on 2nd-3rd, `lose` on 4th-6th, DQ or DNF. AI runners other than the winner play `lose` (field) or their own lose anim (named rival). |
+
+### 24.2 Cohorts and bodies
+
+One cohort per tier, the same in all three events.
+Seven field bodies in total, each with 4 palette variants (A-D), so the 4 field runners in a race never look alike (except the deliberately identical alien drones, which differ by bib number).
+Bodies are new `CharacterSpec` rigs (proportions plus one hand-drawn head, `src/art/chars/specs.ts`); variants swap ramps only, plus at most 6 patched head pixels (hair shape) per variant.
+
+| Tier | Cohort | Body id | Height | Look (all variants) | Variants A-D (kit ramp / skin ramp / hair) |
+|---|---|---|---|---|---|
+| 1 | Sports day kids, Pip's classmates | `fKid` | ~30 px | House-colour PE shirt, white shorts, plimsolls, number bib on a safety pin. | red / skinLight / brown bob; blue / skinDark / black puffs; green / skinTan / black crop; yellow / skinMid / brown pigtails |
+| 2 | School team | `fTeen` | ~37 px | Track vest and shorts in the school colours, long socks. | navy / skinMid / ponytail; red / skinDark / short twists; white / skinLight / curtains; purple / skinTan / bun |
+| 3 | Campus runners | `fStudent` | ~40 px | Mismatched kit: club tee, running tights, headband or cap. | purple / skinTan / cap; green / skinLight / headband; orange / skinDark / locs; grey / skinMid / buzz cut |
+| 4 | Club athletes | `fClub` | ~40 px | Club singlet with a hoop stripe, compression shorts, broad build. | green-yellow / skinDark / shaved; blue-white / skinMid / short; red-black / skinLight / braid; orange-navy / skinTan / quiff |
+| 5 | International finalists | `fElite` | ~41 px | Full national-style crop kit (fictional colours, no flags), spikes, lean build. | blue-gold / skinTan / tight bun; red-white / skinDark / short; green-white / skinMid / long braid; teal-navy / skinLight / short |
+| 6 | Practice robots, UNIT-7's older models | `fBot` | ~40 px | Boxy grey chassis, single round visor, hose joints, painted model number. | chrome / visor red; chrome / visor yellow; grey / visor green; grey / visor blue |
+| 7 | Alien drones, Zyx's squad | `fDrone` | ~44 px | Silver-grey suit, smooth teal head, one band visor, short antenna; identical except a 3x5 bib digit 1-4. | all one palette; bib digit 1, 2, 3, 4 |
+
+Kit colours avoid index 18 (player kit) on every field variant, so Rio's red never repeats on the track.
+The tier 5 field also races the 400 m around Sol; the cohort does not change.
+
+### 24.3 Names
+
+Short original names (at most 5 characters, 8 px font) for human cohorts; model codes for machines.
+No name belongs to a known athlete; the list was checked against famous sprinters and against the researched game's names.
+
+| Tier | Variant A | Variant B | Variant C | Variant D |
+|---|---|---|---|---|
+| 1 | `DOT` | `MILO` | `BEA` | `NOOR` |
+| 2 | `KAI` | `RUBY` | `TEO` | `ZARA` |
+| 3 | `FINN` | `ANYA` | `RAJ` | `LENA` |
+| 4 | `BRUNO` | `IMANI` | `SVEN` | `MEI` |
+| 5 | `ODA` | `PAZ` | `NIKO` | `ADA` |
+| 6 | `MK-2` | `MK-3` | `MK-4` | `MK-5` |
+| 7 | `ZX-1` | `ZX-2` | `ZX-3` | `ZX-4` |
+
+Field runners are personality-free: no flavour text, no quirks, no overlays, no reactions to the player.
+
+### 24.4 Lane assignment
+
+| Lane (0 = nearest) | Runner |
+|---|---|
+| 0 | Player (always) |
+| 1 | Named rival (always) |
+| 2-5 | The tier's 4 field runners, order shuffled per race from the field seed (25.3). |
+
+## 25. Field AI and tuning
+
+### 25.1 Model
+
+Field runners reuse the AI of 3.1 and 15.2 (exponential approach to `vTarget`, same REACTION handling, same jump physics), with these differences.
+
+| Rule | Field runner |
+|---|---|
+| Target speed | `vTarget = V_FIELD * m1` before the switch point, `V_FIELD * m2` after it. |
+| m1, m2 | Seeded uniform in [FIELD_PACE_LO, FIELD_PACE_HI] = [0.90, 1.00], one pair per runner per race. Never above 1.00. |
+| Switch point | Seeded uniform in [0.40, 0.80] of the event distance (40-80 m, 44-88 m, 160-320 m). |
+| 400 m | The default 400 m pace profile (x1.00 from 0, x0.97 from 200 m, x0.94 from 300 m) multiplied by m1 or m2. No stamina. |
+| Hurdles | Same jump physics and takeoff rules as rivals (15.2); per hurdle a seeded draw gives HIT with pHit, CLIP with pClip, else CLEAN; landKeep 0.94. |
+| V_TOP jitter | None (the pace pair is the variance). |
+| Quirks, warps, pressure | Never. The named rival keeps all of its quirks, warps and pressure unchanged. |
+| Interaction | None: field runners ignore every other runner, including the player. |
+
+### 25.2 Field table per tier
+
+REACTION, TAU, pClip and pHit are per tier and shared by the three events; V_FIELD is per event and tier (25.6).
+
+| Tier | Cohort | REACTION | TAU | pClip | pHit |
+|---|---|---|---|---|---|
+| 1 | Kids | 0.30 s | 1.5 s | 0.30 | 0.03 |
+| 2 | School team | 0.25 s | 1.2 s | 0.20 | 0 |
+| 3 | Campus | 0.22 s | 1.6 s | 0.20 | 0 |
+| 4 | Club | 0.18 s | 1.4 s | 0.12 | 0 |
+| 5 | Finalists | 0.15 s | 1.3 s | 0.05 | 0 |
+| 6 | Robots | 0.12 s | 1.6 s | 0.05 | 0 |
+| 7 | Drones | 0.08 s | 1.1 s | 0.05 | 0 |
+
+Robots do not copy UNIT-7's 2.4 s boot-up TAU, and drones jump hurdles normally (only Zyx warps), so the named rival's quirks stay his own.
+
+### 25.3 Seeding
+
+1. The race seed (stored in history) drives three independent streams.
+2. Named rival: `mulberry32(seed)`, unchanged from v2, so a v2 seed still reproduces the rival.
+3. Countdown: unchanged (`seed ^ 0x9e3779b9`).
+4. Field: `mulberry32(seed ^ FIELD_SEED_XOR)`, FIELD_SEED_XOR = `0x5bd1e995`.
+5. Field draw order (stable): 3 draws for the lane shuffle (Fisher-Yates over the 4 variants), then per field runner in lane order 2-5: m1, m2, switch fraction, then one draw per hurdle (110 m hurdles only, whether or not it matters).
+
+### 25.4 Fairness caps
+
+| Cap | Rule | Sim result (25.6) |
+|---|---|---|
+| Pace ceiling | m1 and m2 never exceed 1.00, so a field runner never cruises above V_FIELD. | By construction. |
+| Field floor | The fastest single field-runner finish across the 1000-race tuning sweep is no faster than `T * (1 - FIELD_FLOOR_PCT)`: 2.0% for the 100 m and 400 m, 4.0% for hurdles (clips spread hurdles times). If a tier fails, raise that tier's FIELD_PACE_LO in steps of 0.01 and retune. | 100 m 1.2-1.4%, 400 m 1.6-1.7%, hurdles 1.5-3.7%. |
+| Rival dominance | The named rival wins the AI field in 60-75% of races (aim 67%). | 66.7-67.5% in every tier. |
+| No surprises | Field runners have no speed bursts, no reactions and no quirks; a field win is always a steady runner who held pace. | By construction. |
+
+### 25.5 Tuning targets and what mechanics measures
+
+Target T is today's tier target (15.6), unchanged in every event.
+Tuning runs headless with no player (pressure excluded, as 3.1), 1000 seeded races per event and tier, all 5 AI runners simulated.
+
+| Measure | Requirement |
+|---|---|
+| Median winning time (fastest of the 5 AI) | T +/-0.05 s (WIN_MEDIAN_TOL). |
+| Named-rival win share | 0.60-0.75 (aim 0.67). |
+| p10 and p90 winning time | Report; no hard bound. |
+| Fastest single field time | Within the field floor (25.4). |
+| Named rival mean finish | Report (expected T + 0.03-0.16 s). |
+| Wins per field lane | Report; each field lane between 4% and 12% (no lane bias from the shuffle). |
+
+Procedure: (1) at the rival's current V_TOP, bisect V_FIELD until the rival-win share is 0.67; (2) scale the rival V_TOP so the median winning time moves to T; (3) repeat until both hold (2-3 rounds).
+The v2 CI test (rival mean +/-0.05 s, `vtop.test.ts`) is replaced by a test of the first three rows.
+Because the median winning time equals T, a player running exactly T still wins about half the time, so every required rate in 3.2, 15.3 and 15.4 stays valid.
+
+### 25.6 Starting values (sim)
+
+Throwaway sim using the shipped `RivalSim` for the named rival and the rules of 25.1-25.3 for the field, 1000 seeds, FIELD_PACE_LO 0.90.
+Mechanics retunes headless; the numbers below are starting points.
+Times in seconds (400 m in `M:SS.hh`); "Field median" is one field runner's median time; "Fastest field" is the fastest single field run in the sweep.
+
+100 m:
+
+| Tier | Rival | Rival V_TOP v2 -> v3 | V_FIELD | Median win | p10 | p90 | Rival mean | Field median | Fastest field |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | Pip | 6.383 -> 6.364 | 6.272 | 18.00 | 17.90 | 18.14 | 18.05 | 18.58 | 17.75 |
+| 2 | Jess | 7.628 -> 7.604 | 7.494 | 15.00 | 14.91 | 15.13 | 15.04 | 15.50 | 14.79 |
+| 3 | Marco | 8.757 -> 8.731 | 8.619 | 13.60 | 13.53 | 13.70 | 13.63 | 14.03 | 13.43 |
+| 4 | Kofi | 9.025 -> 8.996 | 9.211 | 12.60 | 12.53 | 12.70 | 12.64 | 13.01 | 12.44 |
+| 5 | Valentina | 9.666 -> 9.635 | 9.997 | 11.60 | 11.54 | 11.69 | 11.63 | 11.98 | 11.45 |
+| 6 | UNIT-7 | 11.604 -> 11.569 | 10.934 | 11.00 | 10.94 | 11.07 | 11.03 | 11.35 | 10.87 |
+| 7 | Zyx | 10.158 -> 10.127 | 11.014 | 10.40 | 10.34 | 10.48 | 10.43 | 10.74 | 10.26 |
+
+110 m hurdles:
+
+| Tier | Rival | Rival V_TOP v2 -> v3 | V_FIELD | Median win | p10 | p90 | Rival mean | Field median | Fastest field |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | Pip | 6.674 -> 6.615 | 6.044 | 22.00 | 21.65 | 22.43 | 22.15 | 23.09 | 21.19 |
+| 2 | Jess | 7.190 -> 7.142 | 6.964 | 18.59 | 18.31 | 18.92 | 18.71 | 19.39 | 18.11 |
+| 3 | Marco | 8.699 -> 8.618 | 8.156 | 16.90 | 16.50 | 17.29 | 17.02 | 17.76 | 16.49 |
+| 4 | Kofi | 8.632 -> 8.574 | 8.712 | 15.59 | 15.35 | 15.85 | 15.68 | 16.24 | 15.28 |
+| 5 | Valentina | 8.944 -> 8.913 | 9.332 | 14.50 | 14.39 | 14.61 | 14.54 | 14.98 | 14.26 |
+| 6 | UNIT-7 | 10.396 -> 10.363 | 10.371 | 13.79 | 13.70 | 13.90 | 13.83 | 14.26 | 13.59 |
+| 7 | Zyx | 8.968 -> 8.937 | 10.008 | 13.30 | 13.20 | 13.40 | 13.34 | 13.75 | 13.08 |
+
+400 m:
+
+| Tier | Rival | Rival V_TOP v2 -> v3 | V_FIELD | Median win | p10 | p90 | Rival mean | Field median | Fastest field |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | Pip | 6.572 -> 6.550 | 5.923 | 1:12.01 | 1:11.27 | 1:12.75 | 1:12.24 | 1:14.52 | 1:10.87 |
+| 2 | Jess | 6.522 -> 6.504 | 6.653 | 1:04.00 | 1:03.49 | 1:04.56 | 1:04.17 | 1:06.20 | 1:02.96 |
+| 3 | Marco | 7.128 -> 7.108 | 7.276 | 59.00 | 58.55 | 59.52 | 59.16 | 1:01.00 | 58.03 |
+| 4 | Kofi | 7.367 -> 7.344 | 7.647 | 56.00 | 55.61 | 56.48 | 56.17 | 57.90 | 55.07 |
+| 5 | Sol | 7.653 -> 7.629 | 7.921 | 54.00 | 53.65 | 54.46 | 54.16 | 55.81 | 53.09 |
+| 6 | UNIT-7 | 8.002 -> 7.977 | 8.186 | 52.50 | 51.98 | 53.03 | 52.66 | 54.31 | 51.67 |
+| 7 | Zyx | 7.788 -> 7.763 | 8.288 | 51.40 | 51.06 | 51.85 | 51.56 | 53.15 | 50.54 |
+
+Reading the numbers: V_FIELD sits above the rival's V_TOP where the rival has a kick or warps (Kofi, Valentina, Zyx, Sol) and below it where the rival has a costly quirk (Pip's trip and hits, UNIT-7's overheat); the field is always slower on average (field median 0.3-2.3 s behind the winning time) and wins only by holding pace while the rival's quirk costs him.
+
+## 26. Lanes, camera and track
+
+### 26.1 Lane rows (prototype layout R, adopted)
+
+| Lane | Runner | Feet row (y) | Gap to nearer lane | Lane line below (y) | Oblique x offset |
+|---|---|---|---|---|---|
+| 0 | Player | 157 | - | 161 | 0 |
+| 1 | Named rival | 143 | 14 | 147 | +10 |
+| 2 | Field | 132 | 11 | 136 | +20 |
+| 3 | Field | 123 | 9 | 127 | +30 |
+| 4 | Field | 115 | 8 | 119 | +40 |
+| 5 | Field | 108 | 7 | 112 | +50 |
+
+| Item | Value |
+|---|---|
+| Far lane line | y 105 |
+| Track band (L4) | rows 101-165; it takes 3 rows from the bottom of the L3 ad-board wall. |
+| Grass foreground (L5) | the 15 rows below the track band; every L5 prop is at most 15 px tall. |
+| Sprite size | Same 48x48 frames in every lane (side-on TV shot, no scaling). |
+| Tunables | LANE_FEET_Y, LANE_LINE_Y and LANE_OBLIQUE_PX are config arrays, not formulas, so a later layout can change one row. |
+| Rejected | Even spacing of 7, 9 (the research proposal) or 11 px: level runners stack into one column. Hurdle-only offsets: far runners visibly jump 2-3 m from their own gate. |
+
+### 26.2 Lane oblique
+
+1. Each lane's screen x is shifted right by LANE_OBLIQUE_PX x lane index (+10 per lane, far lane +50).
+2. The shift applies alike to that lane's runner, ground shadow, hurdles, start-line segment, finish-line segment and any per-lane marking, so every jump stays over its own gate.
+3. Simulation and timing use true positions only; the oblique is a drawing rule.
+4. The camera still follows the player (lane 0, offset 0) at screen x 96 (5.7).
+5. Off-screen tests (27.4) use each runner's drawn x, including its offset.
+6. This replaces v2's 16 px far-lane hurdle offset (19.2).
+
+### 26.3 Lane order and draw order
+
+1. Player in lane 0, named rival in lane 1, field in lanes 2-5 (24.4).
+2. Draw order: far lane first; within a lane, hurdles first, then the ground shadow, then the runner.
+3. So each lane's hurdles sit behind its own runner and in front of every farther lane, and the player is never covered.
+4. Effects (dust, clip bursts, warp rings, popups) take their lane's runner depth plus a small offset.
+
+### 26.4 Track art and props per tier
+
+| Item | Rule |
+|---|---|
+| Lane lines | 7 lines (26.1 rows above), 1 px, tier colours as 5.8 (tier 1 chalk on grass, tier 7 teal glow). |
+| Start and finish lines | One 2 px segment per lane, each segment shifted by its lane's oblique, so the lines read as a slanted stepped diagonal. The checkered finish keeps its pattern per segment. |
+| Distance boards | Stand on the far side above the far line, drawn with the far-lane offset (+50). |
+| Starter, judges, photo camera, lap-bell official | On the far side, feet on row 100 in front of the ad-board wall, using the far-lane offset (31). The lap-bell official moves here from L5. |
+| L5 foreground | Camera operator, hurdle stacks and cones redrawn at 15 px or less; max 1 prop per 160 px as 5.7. |
+| Per-tier themes | All 7 themes of 5.8 are re-laid for 6 lanes; the L3 wall art loses its bottom 3 rows. |
+
+### 26.5 Hurdles and performance
+
+1. 6 lanes x 10 hurdles = 60 hurdle sprites per hurdles race, each with the 4-frame knock anim (19.2).
+2. Only hurdles whose drawn x is within the view plus 40 px are visible (about 12-18 at a time).
+3. All runner, hurdle and prop frames stay in atlas pages; budget at most 2 texture binds per race frame (one shared page plus the field page of 35.1).
+4. Performance target unchanged: no dropped frames in a 6-runner hurdles race at 4x CPU throttle (`tools/perf/measure.ts`).
+
+## 27. HUD v3
+
+### 27.1 Layout (changes to 6.2 and 18.4)
+
+| Element | Position (x, y, w x h) | Details |
+|---|---|---|
+| Live position | (4, 4, 48 x 16) | `1ST` ... `6TH` at 2x. Colours: 1ST index 22, 2ND index 7, 3RD index 21, 4TH-6TH index 8; all with the 1 px index 1 drop shadow. |
+| Rival badge | (56, 4, 18 x 18) | Named rival's 16x16 portrait in a 1 px frame in the rival's kit base colour. The name moves to the meet card (31.1) and results. |
+| Timer | 6.2 / 18.4 | Unchanged. |
+| PB | 6.2 | Unchanged. |
+| Gauntlet strip | right-aligned to x 316, y 12, starting at x 216 or later | Gauntlet only (32.3). |
+| Progress bar | 6.2 | Markers per 27.3. |
+| Off-screen indicators | y 38 | 27.4. |
+| Speed meter, stamina, key prompt, jump gauge | 6.2, 18.4 | Unchanged. |
+| Trip popup | above the player | `TRIP!` index 17, 8 px, 0.6 s (33.2). |
+
+### 27.2 Live position rules
+
+1. Rank = finished runners by finish ms, then running runners by true distance, descending.
+2. A new rank is shown only after it has held for POSITION_HOLD = 0.35 s, so the label changes at most about 3 times a second and never flickers between level runners (6.5 safe; same with reduced flashing).
+3. Hidden before GO; shows from GO.
+4. When the player crosses, the label freezes to the player's final place (the off-screen completion of 24.1 can still only confirm it, since every runner ahead has already crossed).
+5. DQ hides it.
+
+### 27.3 Progress bar markers (prototype)
+
+| Runner | Marker |
+|---|---|
+| Player | 6x4 red head below the bar (6.2). |
+| Named rival | 6x4 head above the bar, in the rival's kit colour. |
+| Field runners | 2x4 px pips inside the bar, index 7, all the same. |
+| 400 m oval lap icon (18.4) | Player and named rival dots only. |
+| Hurdles ticks (18.4) | Unchanged (player's own knocks). |
+
+### 27.4 Off-screen indicators
+
+| Indicator | When | Look |
+|---|---|---|
+| Leader ahead | The race leader is not the player and is off-screen to the right. | Right edge at y 38: 8x8 arrow, gap in metres (`> 4.2m`, true distance), and the leader's 8x8 head (rival kit colour if the named rival, else neutral index 7). |
+| Pack behind | At least one runner is off-screen to the left. | Left edge at y 38: 8x8 arrow pointing left plus the count (`< 3`); the arrow is drawn in the rival's kit colour if the named rival is among them, else index 7. |
+
+These replace the single rival arrow of 6.2.
+
+### 27.5 Readability guard
+
+1. The player is never covered (nearest lane, drawn last).
+2. The named rival is the next lane up, 14 px above the player's feet row with a +10 px offset, so its head and shoulders stay clear of Rio when level (prototype).
+3. If playtests still lose the rival in a bunched pack, the fallback is a 5x3 chevron in the rival's kit colour above its head; it is "later" unless the acceptance check of 38 fails.
+
+### 27.6 Touch layout impact
+
+1. Zones (17.2) are unchanged.
+2. Pads in the side bars: no impact.
+3. Pads over the canvas (tablets): left pad at game (6, 118) and right pad at (250, 118) never overlap the player, whose sprite spans about x 72-120.
+4. Over-canvas pads draw a 1 px border (not 2 px) and their glyph only, so a rival or field runner behind them stays readable.
+5. Pause button at (300, 18) sits above the off-screen leader indicator (y 38); they never overlap.
+6. `MASH!` (17.4) moves from game y 100 to y 92 so it clears the named rival's head row.
+
+## 28. Results card v3
+
+### 28.1 Panel
+
+Panel at (8, 12, 304 x 156), fill index 2, 1 px index 8 border inside a 1 px index 1 outline, sliding in from the bottom over 0.25 s as 6.6.
+Two columns: placings table on the left (x 8-176 inside the panel), race facts on the right (x 184-300), title and buttons across the full width.
+
+| Row | Panel y offset | Left column | Right column |
+|---|---|---|---|
+| Title | 6 | `YOU WIN!`, `2ND PLACE`, `3RD PLACE`, `4TH PLACE` ... (index 22 for 1st, index 8 for 2nd-3rd, index 17 for 4th-6th), `PHOTO FINISH`, `DISQUALIFIED`, `DID NOT FINISH`, 2x, centred across the panel | - |
+| Table rows | 28, 44, 60, 76, 92, 108 (6 rows of 16 px) | place (`1ST`, mini font), 16x16 portrait, name (8 px), time right-aligned (14.4 format); DQ/DNF player row last with `DQ`/`DNF` in the time column | - |
+| Margin | 28 | - | Player 1st: `AHEAD -0.12` (to 2nd). Otherwise: `TO 1ST +0.31` (to the winner). Hidden on DQ/DNF. |
+| Event facts | 40-62 | - | Hurdles `CLEAN RACE!` or `HIT 2/10`; 400 m splits on 3 lines (`100 13.92`, `200 26.10`, `300 38.25`); 100 m empty. |
+| PB | 68 | - | `NEW PB!` (2x, flashing 2 Hz, 1 Hz reduced) or `PB 11.52`; `OLD 12.10` below at 86. |
+| Medal / unlock | 98 | - | First 1st vs this rival: `<NEXT> UNLOCKED!` (index 22). New best 2nd or 3rd: `SILVER!` or `BRONZE!` plus a 8x8 medal. Lost but ahead of the named rival: `BEAT <RIVAL>!` (index 8). Else `BEST <PLACE>` (index 6). |
+| Event unlock | 110 | - | `NEW EVENT: 110M HURDLES` in mini font (18.6). |
+| Buttons | 134 | `NEXT` (only if the next tier is unlocked), `RETRY`, `MAP`, centred across the panel; default focus `NEXT` after 1st, `RETRY` otherwise. Touch: tap targets (17.5). | |
+
+### 28.2 Row styling
+
+| Row | Style |
+|---|---|
+| Player | Fill index 3 across the left column, 1 px index 22 border, a 5x5 index 22 pointer at the left edge. |
+| Named rival | Name in index 22. |
+| Field | Name in index 7. |
+| Ties | Equal places print the same place label. |
+
+The tier 6 win with the reveal still pending replaces the buttons with a single `CONTINUE` (30.1).
+
+## 29. Ladder, records screen and event select
+
+### 29.1 Ladder map (S2, changes to 6.7 and 18.3)
+
+1. Node badge: best placing against that rival as a 6x6 medal pip with its digit: gold `1` (index 22), silver `2` (index 7), bronze `3` (index 20); no pip for 4th-6th or no race. The gold pip replaces the v1 trophy pip.
+2. Rival card adds `BEST 2ND` (or `BEST --`) under the PB line.
+3. Before the reveal, the tier 7 node is not drawn: the rope ends at tier 6 under an 8x8 finish-flag icon and the cursor cannot go above tier 6.
+4. After the reveal, tier 7 shows as any other node.
+5. Menu row: `RACE`, `GAUNTLET`, `RECORDS`, `OPTIONS` (touch: `BACK` first). `GAUNTLET` is dimmed until revealed (32.1).
+
+### 29.2 Records screen (S6, changes to 4.5 and 18.7)
+
+1. Status column: medal pip of the best placing, then the place text (`1ST`..`6TH`) in mini font, or `-`.
+2. `Last 3`: each time followed by its place digit in mini font (`12.41 2`), `DQ`, `DNF`; migrated 2-runner entries show their time only.
+3. Before the reveal, row 7 is not drawn.
+4. Footer gains a second line: `GAUNTLET BEST 1:24.10  FURTHEST 7/7`, or `GAUNTLET FURTHEST 3/7`, or `GAUNTLET LOCKED`.
+5. Ladder total unchanged (16.5).
+
+### 29.3 Event select (S10)
+
+1. Card progress shows `x/6` before the event's reveal and `x/7` after (counting 1st places).
+2. The crown icon is unchanged (S9 champion).
+
+## 30. The Zyx reveal
+
+### 30.1 Trigger and state
+
+1. Per event state `revealed` (34.2), false on a fresh save.
+2. A 1st place against the tier 6 rival with `revealed = false` saves the race (beaten, unlock of tier 7, place) as usual, then the results card shows `CHAMPIONSHIP WON!` in the medal row and a single `CONTINUE` button.
+3. `CONTINUE` starts the reveal (S12): the full version if `hints.revealSeen` is false, else the short version.
+4. `revealed` and `hints.revealSeen` are set true and saved when the final card (step 9) appears, or on skip.
+5. If the reveal is interrupted before step 9 (tab closed, reload), the event has tier 6 beaten and `revealed = false`; the next entry to that event's S2 plays the reveal first.
+6. Migrated saves skip it (34.4).
+
+### 30.2 Timeline
+
+Full version (first reveal of the game).
+Times from `CONTINUE`.
+
+| Step | t (s) | What happens | Audio |
+|---|---|---|---|
+| 1 | 0.0 | Fake champion card: S9 layout titled `<EVENT> CHAMPION` with Rio celebrating and `SIX RIVALS BEATEN` instead of the ladder total. | `champion` music starts. |
+| 2 | 1.5 | Credits start scrolling as S9. | - |
+| 3 | 4.0 | Interruption: music stops dead; one band glitch (rows 40-140 shifted 2 px in alternating 4-row bands, held 0.4 s, then restored; a single shift, never repeated). Credits freeze. | `reveal_sting` part 1 (power-down). |
+| 4 | 4.6 | Credits panel text replaced by `WAIT.` (2x, index 8). | - |
+| 5 | 5.6 | Second line `SOMETHING IS ON THE TRACK.` | - |
+| 6 | 6.6 | Cut to the tier 6 stadium at the start line, Rio in lane 0. Sky steps to the tier 7 space colours in 4 steps of 0.25 s (to 7.6). | Crowd hush (crowd loop volume to 0 over 1 s). |
+| 7 | 7.6 | Squad lands: a teal beam (35.3) drops one drone into lanes 5, 4, 3, 2 in turn, every 0.4 s (to 9.2). Drones land in the same pose, perfectly in sync. | `land` per drone. |
+| 8 | 9.2 | Zyx warps into lane 1 (warp-in anim 0.3 s). Speech bubble at 9.8: `CUTE TROPHY.` (1.6 s); at 11.4: `NOW RUN WITH US.` (1.6 s). | `warp`. |
+| 9 | 13.0 | Final card over the scene: `GALACTIC MEET` (2x, index 37), `ZYX UNLOCKED!` (index 22), prompt `PRESS ENTER` / `TAP`. | `reveal_sting` part 2 (alien chord), then `boss` intro loop. |
+| 10 | on input | S2 of the event; the rope extends 22 px upward over 0.5 s, the tier 7 node pops in, the cursor moves to Zyx. | `unlock`. |
+
+Short version (the other events): starts at step 6 (no fake card), steps 6-9 compressed to 6.4 s (sky 0.5 s, drones every 0.3 s, one bubble `AGAIN?` 1.4 s), then step 9 and 10.
+
+### 30.3 Skip, flashing and one-time rules
+
+1. Enter, Space, Esc or a tap skips to step 9 after REVEAL_SKIP_AFTER = 1.0 s (short version: immediately).
+2. One time per event: once `revealed` is true it never plays again in that event.
+3. Reduced flashing: no band glitch (a hard cut at 4.0 s instead), the sky changes in one step, the beam is drawn static (no 4-frame shimmer), no screen shake.
+4. Nothing in the sequence changes brightness more than once per 0.33 s (6.5).
+
+## 31. Meets and officials
+
+### 31.1 Meet title cards
+
+| Tier | Meet name (all events) | 16x16 meet badge |
+|---|---|---|
+| 1 | `SPORTS DAY` | Whistle |
+| 2 | `SCHOOL CHAMPS` | Shield crest |
+| 3 | `CAMPUS GAMES` | Pennant |
+| 4 | `CITY OPEN` | Skyline |
+| 5 | `WORLD GAMES` | Torch (no rings) |
+| 6 | `NEON CUP` | Circuit chip |
+| 7 | `GALACTIC MEET` | Saucer |
+
+| Item | Rule |
+|---|---|
+| Panel | (40, 52, 240 x 40), index 2 fill, standard outline. |
+| Lines | Badge at panel (8, 12); meet name 2x index 22; second line in mini font index 8: `100M FINAL`, `110M HURDLES FINAL`, `400M FINAL`, plus ` - VS <RIVAL>`; in Gauntlet `MEET 3 OF 7`. |
+| Timing | Shown during the existing 1.5 s intro walk (S3) for MEET_CARD_SHOW: 1.2 s on the first race of a tier in a session, 0.8 s on retries. The intro is not lengthened. |
+| Pre-race tips | v2 tips (18.5) show after the card, at (160, 100), for the rest of the intro. |
+
+### 31.2 Starter official
+
+A 32x32 pixel starter on the far side at the start line (26.4), with speech bubbles driven by the countdown beats of 2.5.
+Countdown timing, digits, beeps and false start windows are unchanged; the starter only reacts to them.
+
+| Countdown moment (2.5) | Starter | Bubble |
+|---|---|---|
+| Intro walk | Idle, pistol down. | - |
+| "3" appears | Idle. | `ON YOUR MARKS` (through "3" and "2") |
+| "1" appears | Arm up. | `SET` |
+| GO | Fire frame plus a 16x16 smoke puff (3 frames, 12 fps). | Bubble removed. |
+| First false start | Arm down, points at the player. | `FALSE START!` for the 1.5 s banner. |
+| Second false start | Arm down. | `DISQUALIFIED` |
+
+Bubbles: 9-slice panel, index 8 fill, index 1 outline, 3 px tail toward the starter's head, mini font index 1, placed above the starter and clamped inside the screen.
+Tier 7 starter wears a 1-frame space helmet overlay; no other variants.
+
+### 31.3 Finish judges and photo-finish camera
+
+| Prop | Size | Placement | Behaviour |
+|---|---|---|---|
+| Judges (3) | 16x16 each | Bench on the far side just past the finish line. | `sit` (2 frames, 2 fps); `lean` while any runner is within JUDGE_LEAN_M = 10 m of the line; one judge `stand` for 1.0 s when the 1st-2nd margin is at most PHOTO_MARGIN_MS = 20 ms, and the nearest judge stands for 1.0 s when the player trips (33.2). |
+| Photo-finish camera | 8x40 pole with a 6x6 camera | Far side on the finish line. | 2x2 red light (index 18) steady on while any runner is within 10 m; `photo_click` at each of the first 3 crossings; no screen flash ever. |
+
+## 32. Gauntlet mode
+
+### 32.1 Entry
+
+1. S2 menu row item `GAUNTLET`, per event.
+2. Locked until that event's `revealed` is true; selecting it while locked plays `menu_back` and shows `WIN THE NEON CUP FIRST` (no spoiler).
+3. Confirm opens the Gauntlet intro card (S11): `<EVENT> GAUNTLET`, `7 MEETS. LOSE ONCE AND IT ENDS.`, best total and furthest tier, buttons `START` (default) and `BACK`.
+
+### 32.2 Flow
+
+| Step | Screen | Rule |
+|---|---|---|
+| 1 | Race, tier n (n = 1..7) | Normal race (S3, S4) with the Gauntlet HUD strip; meet card says `MEET n OF 7`. |
+| 2a | Between-race card (S11) | Shown after the 1.5 s results delay when the player is 1st and n < 7: top 3 rows plus the player row, `TIME 12.41`, `TOTAL 1:02.37`, `NEXT: <MEET>` and an auto-advance after GAUNTLET_NEXT_DELAY = 3.0 s (Enter or tap advances at once; Esc opens pause). |
+| 2b | Gauntlet over card (S11) | Player not 1st, DQ or DNF: `GAUNTLET OVER`, `OUT AT <MEET> - <PLACE>`, total so far (not a record), furthest tier, `NEW FURTHEST!` if it is; buttons `NEW RUN` (default), `MAP`. |
+| 2c | Gauntlet clear card (S11) | Player 1st at tier 7: `GAUNTLET CLEAR!`, the 7 race times, `TOTAL`, `NEW BEST!` or `BEST <time>`; buttons `NEW RUN`, `MAP`. |
+
+### 32.3 HUD strip
+
+Mini font, right-aligned to x 316 at y 12: `3/7  TOTAL 1:02.37`, where the total is the sum of the completed races plus the live timer, and freezes when the player crosses.
+
+### 32.4 Rules inside a run
+
+| Situation | Rule |
+|---|---|
+| Retry | None inside a run; `NEW RUN` restarts from tier 1 with fresh seeds. |
+| First false start | As 2.5: banner, countdown restarts, no time added. |
+| Second false start | DQ: the run ends (2b). |
+| DNF | The run ends (2b). |
+| Pause | Menu `RESUME`, `ABANDON RUN` (no RESTART, no QUIT TO MAP). Abandoning ends the run as a loss at the current tier. Auto-pause on blur as 8.5. |
+| Trip | Same flag and rule as the ladder (33). |
+| Records of each race | Each race is a normal race for PBs, best placings and history (`mode: "g"`). |
+| Music | `gauntlet` plays from the intro card through races 1-6 without restarting between them (ducking as 7.1); tier 7 uses `boss`; the clear card uses `champion`. |
+
+### 32.5 Gauntlet records (per event)
+
+| Field | Rule |
+|---|---|
+| `runs` | +1 when a run ends (over, clear or abandoned). |
+| `clears` | +1 on a clear. |
+| `furthest` | Highest tier won in any run, 0-7 (7 = cleared). Shown as `FURTHEST 4/7`. |
+| `best` | Lowest total ms of a cleared run, with `at` and the 7 race times; only clears set it. |
+
+## 33. Deterministic trip (prototype rule C, behind a flag)
+
+### 33.1 Rule
+
+| Item | Value |
+|---|---|
+| Flag | TRIP_ENABLED, default false until the user's keep/drop call (33.4). With it off, 2.2's fumble is the whole rule. |
+| Trigger | Two fumbles in a row (two same-side presses with no valid step between them), the second within TRIP_WINDOW = 0.50 s of the first. |
+| Inputs | Keyboard only: the second fumble must come from a key. Touch presses never trip (touch error rates are higher). Mixed-input races follow the press that completes the pair. |
+| Who | Player only; field runners never trip; Pip keeps his scripted trip quirk. |
+| Hurdles | A trigger while airborne starts the trip at landing; a hurdle crossed while tripping or lying is a HIT with no extra stumble. |
+| 400 m | Stamina keeps regenerating while down. |
+
+### 33.2 Effects
+
+| Phase | Duration | Effect |
+|---|---|---|
+| Fall | TRIP_BLEED = 0.25 s | Speed falls linearly to 0; `fall` anim; `trip_thud`; 2 px screen shake for 0.15 s if enabled; `TRIP!` popup; nearest judge stands. |
+| Lie | TRIP_LIE = 0.40 s | Speed 0. |
+| Get up | - | `getup` anim; speed set to TRIP_KEEP = 0.30 x the speed at the trigger; the next step accepts either side. |
+| Inputs | whole trip | Ignored for impulse and fumbles; held tracking continues (2.2 rule 3). Key prompt shows both keys dim, then both bright on getting up. |
+| Cost | - | About 1.45 s per trip at 8-12 alt/s (prototype). |
+
+### 33.3 Prototype evidence (`tools/prototype/out/trip-sim.txt`, 4000 races per cell)
+
+| Rule | 10 alt/s, 2% errors | 5% errors | 10% errors | Lost per trip |
+|---|---|---|---|---|
+| B: any 2 same-side presses in 0.5 s, lie 0.4 s, restart from 0 | 17.7% races trip | 65.9% | 97.3% | ~1.9 s |
+| C: 2 fumbles in a row in 0.5 s, keep 30% | 4.6% | 25.7% | 69.8% | ~1.45 s |
+
+Rule B is rejected.
+Caveat: with bursty errors (mistakes clustered in panics) rule C at 2% trips 57% of races at 8 alt/s, so real error patterns decide it.
+
+### 33.4 Keep/drop decision
+
+1. Ship with TRIP_ENABLED = false and the fumble logging of 33.5 on.
+2. After at least 200 logged keyboard races, compute the share of races with `fumble2 >= 1` among races finishing within 0.5 s of their target.
+3. Recommendation: enable if that share is 15% or less; otherwise drop the trip and keep the fumble.
+4. The final call is the user's; the flag lets it change without a code change.
+
+### 33.5 Fumble logging (always on)
+
+Every history entry stores `steps` (valid steps), `fumbles` (same-side presses), `fumble2` (fumble pairs that would trip under rule C, counted even with the flag off), `trips` (actual trips) and `input` (`k` keyboard, `t` touch, `m` mixed), so real error rates can be measured per modality.
+
+## 34. Records v3
+
+### 34.1 What changes from v2
+
+| Data | v2 (16) | v3 |
+|---|---|---|
+| Win | Beat the one rival | 1st place of 6; `beaten` means "finished 1st at least once" (migrated wins count). |
+| Best placing | - | `place.<id>`: best place 1-6 per rival, from 6-runner races only. |
+| Reveal | - | `revealed` per event; `hints.revealSeen` global. |
+| Gauntlet | - | `gauntlet` per event (32.5). |
+| History extras | `hit`, `splits` | Plus `place`, `fieldSize`, `winMs`, `mode`, and fumble logging (`steps`, `fumbles`, `fumble2`, `trips`, `input`). |
+| PB, ladder total, history length | 16.5 | Unchanged (PBs from any placing; 50 entries per event, ladder and Gauntlet races together). |
+
+### 34.2 Storage schema
+
+Key: `retroRunner.save.v3` (SAVE_KEY_V3).
+Value: one JSON document; fields not shown are as 16.2.
+
+```json
+{
+  "version": 3,
+  "lastEvent": "100m",
+  "seenEvents": ["100m", "110mh", "400m"],
+  "hints": { "addToHomeScreen": false, "revealSeen": true },
+  "settings": {
+    "volume": 8, "muted": false, "reducedFlashing": false,
+    "screenShake": true, "crt": false, "haptics": true
+  },
+  "events": {
+    "100m": {
+      "unlockedTier": 7,
+      "beaten": ["pip", "jess", "marco", "kofi", "valentina", "unit7"],
+      "champion": false,
+      "revealed": true,
+      "best": { "zyx": { "ms": 10620, "at": "2026-11-02T19:40:12.004Z" } },
+      "place": { "pip": 1, "jess": 1, "marco": 1, "kofi": 1, "valentina": 1, "unit7": 1, "zyx": 3 },
+      "gauntlet": {
+        "runs": 4, "clears": 1, "furthest": 7,
+        "best": { "ms": 84210, "at": "2026-11-02T20:01:55.120Z",
+                  "times": [16010, 13420, 12280, 11690, 10990, 10560, 9260] }
+      },
+      "history": [
+        { "opp": "zyx", "result": "lose", "ms": 10620, "oppMs": 10380, "winMs": 10380,
+          "place": 3, "fieldSize": 6, "mode": "l", "falseStarts": 0, "seed": 4410923,
+          "at": "2026-11-02T19:40:12.004Z",
+          "steps": 121, "fumbles": 3, "fumble2": 0, "trips": 0, "input": "k" }
+      ]
+    }
+  }
+}
+```
+
+### 34.3 Validation (on load; additions to 16.3)
+
+| Field | Rule |
+|---|---|
+| `version` | Integer 3, else the document is corrupt. |
+| `events.<e>.revealed` | Boolean, default false; forced true if `champion` is true or `beaten` contains the tier 7 rival. `revealed = false` with the tier 6 rival beaten is valid (a pending reveal, 30.1). |
+| `events.<e>.place.<id>` | Integer 1-6, `<id>` on that event's ladder. Every id in `beaten` is repaired to 1; a 1 for an id not in `beaten` drops the entry. |
+| `events.<e>.gauntlet` | Object, default `{ runs: 0, clears: 0, furthest: 0, best: null }`. `runs`, `clears` integers 0-99999 with `clears <= runs`; `furthest` integer 0-7, raised to 7 if `clears >= 1`. |
+| `gauntlet.best` | Null or an object: `times` 7 integers each in the event's PB range (16.3), `ms` equal to their sum, `at` ISO 8601 UTC; requires `clears >= 1`; anything else becomes null. |
+| `history[].place` | Integer 1 to `fieldSize`, or null; `win` requires 1, `lose` requires 2 or more, `dq` and `dnf` require null; a mismatch drops the entry. |
+| `history[].fieldSize` | 6, or 2 for migrated entries; anything else drops the entry. |
+| `history[].winMs` | Integer in 0 to the event's DNF cap, or null for `dq`; for `win` it equals `ms`. |
+| `history[].mode` | `l` (ladder) or `g` (Gauntlet); default `l`. |
+| `history[].steps`, `fumbles`, `fumble2`, `trips` | Optional integers 0-9999 (absent on migrated entries); `fumble2 <= fumbles`, `trips <= fumble2`; invalid values are removed from the entry, not the entry itself. |
+| `history[].input` | Optional, one of `k`, `t`, `m`. |
+| `hints.revealSeen` | Boolean, default false. |
+
+### 34.4 Load and migration
+
+Load order:
+
+1. `retroRunner.save.v3` exists and validates: use it.
+2. v3 exists but fails JSON parse or `version !== 3`: copy the raw string to `retroRunner.save.corrupt`, continue with step 3.
+3. `retroRunner.save.v2` exists and validates: migrate v2 to v3 (below), write v3 immediately.
+4. Else `retroRunner.save.v1` exists and validates: migrate v1 to v2 in memory (16.4), then v2 to v3, write v3 only.
+5. Corrupt older keys follow their own rules (16.4); otherwise a fresh v3.
+
+Migration v2 to v3:
+
+| v3 field | Value |
+|---|---|
+| `unlockedTier`, `beaten`, `champion`, `best` | Copied unchanged. |
+| `revealed` | True if `beaten` contains the tier 6 rival (Zyx already unlocked) or `champion` is true; else false. This is the skip rule for existing saves. |
+| `place` | 1 for every id in `beaten`; nothing else (2-runner losses never become medals). |
+| `gauntlet` | Fresh (all zero, `best: null`). |
+| `history[]` | `win` gets `place: 1`, `winMs: ms`; `lose` gets `place: 2`, `winMs: oppMs`; `dq` and `dnf` get `place: null`, `winMs: oppMs` (`dnf`) or null (`dq`); all get `fieldSize: 2`, `mode: "l"`; no fumble fields. |
+| `hints.revealSeen` | True if any event migrated with `revealed: true`. |
+| Everything else | Copied. |
+
+Rules:
+
+1. The v1 and v2 keys are never written or deleted by migration (read-only backups), as 16.4.1.
+2. Migration runs once; after the first successful v3 write, step 1 always wins.
+3. A failed v3 write keeps the migrated document in memory and shows the 4.3.3 message; the next load migrates again.
+4. Reset records removes the v3, v2 and v1 keys, keeps settings and hints (so `revealSeen` stays true and a reset player sees the short reveal), and starts a fresh v3.
+5. Save is written after every race result, every Gauntlet run end, the reveal's step 9 or skip, and the v2 triggers of 16.4.6.
+
+## 35. Art list v3
+
+All items follow 5.1-5.6 (palette, outlines, shading, pivots).
+
+### 35.1 Characters
+
+| Item | Who | Frames | Notes |
+|---|---|---|---|
+| Field bodies | `fKid`, `fTeen`, `fStudent`, `fClub`, `fElite`, `fBot`, `fDrone` (7 rigs, 7 heads) | - | 24.2. |
+| Field anim set | each body x 4 palette variants (28 sets) | 31 per set: walk 6, ready 2, run 8, lean 2, hurdle 4, stumble 3 (hurdle HIT), celebrate 4, lose 2 | 868 frames, baked from the rigs by palette swap. No idle, no quirk overlays. |
+| Field atlas page | all field frames | - | One extra page of at most 2048 x 1024 (882 cells of 48x48 before trimming); a race binds at most 2 pages (26.5). |
+| Field portraits | 28 x 16x16 | 1 each | Results table; in the main page. |
+| Rio `fall` / `lie` / `getup` | Rio | 3 / 1 / 3 | 12 fps; needed only if TRIP_ENABLED ships, drawn now for the prototype decision. |
+| Zyx `land` pose | Zyx | reuse warp-in | Reveal step 8. |
+
+Bodies are cheap because the rig draws every frame from proportions and pose tables; the real cost is 7 heads, 28 palette tables, the drone bib digits and review of 868 frames.
+
+### 35.2 Props and effects
+
+| Item | Size | Frames | Notes |
+|---|---|---|---|
+| Starter official | 32 x 32 | idle 2 (2 fps), arm up 1, fire 1; tier 7 helmet overlay 1 | Far side at the start line (31.2). |
+| Pistol smoke | 16 x 16 | 3 at 12 fps | - |
+| Speech bubble | 9-slice: 4x4 corners and edges, 3x3 tail | - | Index 8 fill, index 1 outline. |
+| Finish judges | 16 x 16, 3 palette variants | sit 2, lean 1, stand 1 | 31.3. |
+| Photo-finish camera | 8 x 40 | 2 (light off, on) | 31.3. |
+| Alien landing beam | 16 x 48 | 4 at 12 fps (1 static frame with reduced flashing) | Reveal step 7. |
+| 6-lane track layers | 7 tier themes | - | Lane lines, slanted start and finish segments, L3 wall minus 3 rows (26.4). |
+| L5 props at 15 px or less | camera operator, hurdle stacks, cones | as before | Redrawn (26.1). |
+| Lap-bell official | existing 32 x 32 | - | Moved to the far side. |
+
+### 35.3 UI
+
+| Item | Size | Notes |
+|---|---|---|
+| Meet badges | 7 x 16x16 | 31.1. |
+| Medal pips | 6 x 6 gold, silver, bronze with digits | Ladder nodes, records. |
+| Medals | 8 x 8 gold, silver, bronze | Results medal row. |
+| Finish-flag icon | 8 x 8 | Ladder top before the reveal. |
+| Off-screen left arrow | 8 x 8 | Pack-behind indicator (the right arrow exists). |
+| Field progress pip | 2 x 4 | Can be a code-drawn rect. |
+| Results card v3, S11 cards | code-drawn panels | 28, 32. |
+
+## 36. Audio list v3
+
+### 36.1 New SFX
+
+| SfxId | Trigger | Character | Length |
+|---|---|---|---|
+| `pistol` | GO, layered over `beep_go` | Sharp noise crack with a short tail | 250 ms |
+| `trip_thud` | Player trip (33.2) | Low body thump plus a short scuff of noise | 300 ms |
+| `reveal_sting` | Reveal steps 3 (part 1) and 9 (part 2) | Part 1: pitch-down power cut; part 2: detuned alien minor chord swell | 600 ms / 1.5 s |
+| `photo_click` | Each of the first 3 finish crossings | Dry shutter click | 120 ms |
+| `bubble` | Each starter bubble | Soft two-note blip, quiet | 60 ms |
+| `gauntlet_clear` | Gauntlet clear card | Major fanfare, longer than `win_jingle` | 3.0 s |
+
+Reused: `land` (drone landings), `warp`, `unlock`, `win_jingle` (between-race card), `lose_jingle` (Gauntlet over), `hurdle_clip` and `hurdle_hit` for field runners at a quarter volume with at most one field hurdle SFX per 100 ms; field runners have no step or jump SFX.
+
+### 36.2 Music
+
+| MusicId | Tempo | Length | Notes |
+|---|---|---|---|
+| `gauntlet` | 160 BPM | 45 s loop | Driving, minor-to-major lift each loop; plays continuously across Gauntlet races 1-6 and cards (32.4). |
+| Per-tier race variants (optional) | as `race` | 30 s | Same song, one arrangement per cohort (kids: toy-like lead; robots: square arps; drones: detuned lead). Later unless audio has time (37.2). |
+
+The fake champion card uses `champion`; the reveal ends on the `boss` intro.
+
+## 37. Scope v3
+
+### 37.1 Must ship
+
+1. 6-runner races in all three events and all 7 tiers, with the race rules of 24.1.
+2. Field cohorts, names and the 7 bodies x 4 variants (24, 35.1).
+3. Field AI of 25.1-25.3 and the headless tuning of 25.5, with the named rivals retuned; CI test replaced (25.5).
+4. Lanes, oblique and draw order of 26 (layout R), 6-lane track art for the 7 themes.
+5. HUD v3 (27), results card v3 (28), medals and records screen changes (29).
+6. Hidden tier 7 and the reveal, full and short versions, with migration skip rules (30).
+7. Meet cards, starter official, judges and photo-finish camera (31).
+8. Gauntlet mode per event with records (32).
+9. Records v3 with migration from v2 and v1, validation and corruption handling (34).
+10. Fumble logging (33.5) and the trip code path behind TRIP_ENABLED = false, keyboard only (33).
+11. Art of 35 and the SFX and `gauntlet` music of 36.
+
+### 37.2 Later
+
+1. Per-tier race music variants.
+2. Rival chevron marker (27.5), unless the readability check of 38 fails.
+3. Trip on touch, or a tuned trip window per modality.
+4. Lane choice, 8-runner fields, heats and finals.
+5. Online Gauntlet leaderboard (needs replay validation, 9.2.7).
+6. A Gauntlet across all three events (all-round, 21.2.3).
+7. Ghost runner (9.2.2).
+
+## 38. Acceptance criteria v3
+
+A tester verifies each item by playing in the browser; headless items run in CI.
+Sections 10 and 22 still apply with "win" meaning 1st place.
+
+### Field and races
+
+- [ ] Every race in every event shows 6 runners: Rio nearest, the named rival in the next lane, 4 field runners of that tier's cohort farther away.
+- [ ] The 4 field runners in a race look different (palette), except the tier 7 drones, which differ only by bib digit.
+- [ ] Field runners never trip on their own, warp, glow, wave or show any overlay; the named rival still shows all of its quirks.
+- [ ] The results table lists all 6 runners with places and times; equal times share a place.
+- [ ] Finishing 2nd in a tier never unlocks the next tier; finishing 1st does.
+- [ ] Headless (CI): for every event and tier, over 1000 seeded races with no player, the median winning time is within +/-0.05 s of the tier target and the named rival wins 60-75% of races; p10 and p90 are reported.
+- [ ] Headless (CI): the fastest single field run in that sweep is no faster than the floor of 25.4.
+- [ ] The same race seed replays the same field (lanes, paces, hurdle outcomes).
+
+### Lanes and HUD
+
+- [ ] When all 6 runners are level, every runner's head is visible and the named rival's head and shoulders are clear of Rio.
+- [ ] In hurdles, every runner jumps over the hurdle drawn in its own lane, including the far lane.
+- [ ] The live position reads `1ST`..`6TH`, updates as runners pass, and never changes more than about 3 times a second.
+- [ ] The progress bar shows Rio's head below, the named rival's head above in its kit colour, and 4 grey pips inside the bar.
+- [ ] When the leader is off-screen ahead, a right-edge arrow at y 38 shows the gap; when runners are off-screen behind, a left-edge arrow shows how many.
+- [ ] On a 16:9 tablet with pads over the canvas, the player is never under a pad and the named rival stays readable through the hollow pad.
+
+### Results, ladder and records
+
+- [ ] The results card fits inside 320x180 with title, 6 rows, margin, PB, medal or unlock line and buttons, in every event (400 m splits on 3 lines).
+- [ ] Winning shows `AHEAD -x.xx` to 2nd; losing shows `TO 1ST +x.xx`.
+- [ ] A first 2nd place against a rival shows `SILVER!` and a silver pip on that ladder node; a later 3rd does not downgrade it.
+- [ ] The records screen shows medal and place per rival and the Gauntlet footer line.
+
+### Reveal
+
+- [ ] On a fresh profile, the 100 m ladder shows 6 nodes and no hint of tier 7; the event card shows `x/6`.
+- [ ] Winning tier 6 shows `CHAMPIONSHIP WON!` and `CONTINUE`, then the fake champion card, the interruption, 4 drones landing and Zyx warping in, then `ZYX UNLOCKED!`; the ladder then grows a 7th node.
+- [ ] The reveal can be skipped after 1 s; it never plays twice in the same event; the second event plays the short version.
+- [ ] Closing the tab during the reveal and reopening plays it on the next visit to that event's ladder.
+- [ ] With reduced flashing on, the reveal has no glitch bands, no beam shimmer and a one-step sky change.
+- [ ] A v2 save with Zyx unlocked in an event shows Zyx on that ladder at once and never plays the reveal there.
+
+### Meets and officials
+
+- [ ] Each tier shows its meet card during the intro walk without making the intro longer.
+- [ ] The starter says `ON YOUR MARKS` at "3", `SET` at "1" and fires at GO; countdown timing and false start windows are unchanged (section 10 checks still pass).
+- [ ] Judges lean in the last 10 m, and the photo camera light turns on without any screen flash.
+
+### Gauntlet
+
+- [ ] `GAUNTLET` is dimmed until Zyx is revealed in that event and says `WIN THE NEON CUP FIRST`.
+- [ ] A run goes tier 1 to 7 with between-race cards and a running total on the HUD; any place other than 1st, a DQ or a DNF ends it.
+- [ ] Pause offers `RESUME` and `ABANDON RUN` only; there is no retry inside a run.
+- [ ] Clearing all 7 records the total and the 7 times; Records shows best total and furthest tier.
+- [ ] Gauntlet races appear in history with their places and can set PBs.
+
+### Trip and logging
+
+- [ ] With TRIP_ENABLED off (shipping default), two same-side key presses only fumble, as v2.
+- [ ] With TRIP_ENABLED on, two fumbles in a row within 0.5 s on the keyboard make Rio fall, lie and get up at reduced speed, costing about 1.5 s; the same on touch never trips.
+- [ ] Every new history entry stores `steps`, `fumbles`, `fumble2`, `trips` and `input`.
+
+### Records v3 and migration
+
+- [ ] Loading a v2 save writes `retroRunner.save.v3` with the same PBs, history, unlocks and settings; old wins show as 1st, old losses carry no medal, and the v2 key is unchanged.
+- [ ] Loading a v1-only save migrates through v2 to v3 without writing the v2 key.
+- [ ] Replacing the v3 value with `not json` backs it up to `retroRunner.save.corrupt` and re-migrates from v2.
+- [ ] Reset records removes the v3, v2 and v1 keys and hides tier 7 again in every event.

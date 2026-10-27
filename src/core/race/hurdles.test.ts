@@ -7,7 +7,7 @@ import { Race } from './race.ts';
 // Design 13 in the full race loop (player lane), plus jump input rules.
 
 const playerHurdles = (log: RaceEvent[]): string[] =>
-  log.flatMap((e) => ('lane' in e && e.lane === 'player' && e.type.startsWith('hurdle') ? [e.type] : []));
+  log.flatMap((e) => ('lane' in e && e.lane === 0 && e.type.startsWith('hurdle') ? [e.type] : []));
 const count = (log: RaceEvent[], type: string): number => log.filter((e) => e.type === type).length;
 const jumpDown = (t: number, repeat = false): RaceInput => ({ kind: 'down', action: 'jump', t, repeat });
 const jumpUp = (t: number): RaceInput => ({ kind: 'up', action: 'jump', t, repeat: false });
@@ -21,11 +21,10 @@ describe('hurdles race times (design 13.3)', () => {
     expect(Math.abs((o?.ms ?? 0) - 14470)).toBeLessThan(300);
     expect(playerHurdles(log)).toEqual(Array.from({ length: 10 }, () => 'hurdleClear'));
     expect(
-      count(log, 'jump') -
-        count(
-          log.filter((e) => 'lane' in e && e.lane === 'rival'),
-          'jump',
-        ),
+      count(
+        log.filter((e) => 'lane' in e && e.lane === 0),
+        'jump',
+      ),
     ).toBe(10);
   });
 
@@ -77,8 +76,8 @@ describe('jump input (design 13.2, 13.4)', () => {
       samples.push(race.state.player);
     }
     const jumps = log.filter((e) => e.type === 'jump');
-    expect(jumps).toEqual([{ type: 'jump', lane: 'player' }]);
-    expect(log).toContainEqual({ type: 'land', lane: 'player' });
+    expect(jumps).toEqual([{ type: 'jump', lane: 0 }]);
+    expect(log).toContainEqual({ type: 'land', lane: 0 });
     const air = samples.filter((p) => p.airPhase !== null);
     expect(air.every((p) => p.anim === 'hurdle')).toBe(true);
     const peak = Math.max(...air.map((p) => p.airM));
@@ -223,7 +222,7 @@ describe('hurdles HUD state (design 18.4)', () => {
     // Pip's scripted hits at H3 and H7 show in his lane, with lane 'rival' events.
     expect(race.state.rival.hurdlesKnocked[2]).toBe(true);
     expect(race.state.rival.hurdlesKnocked[6]).toBe(true);
-    expect(log).toContainEqual({ type: 'hurdleHit', lane: 'rival', index: 2 });
+    expect(log).toContainEqual({ type: 'hurdleHit', lane: 1, index: 2 });
     expect(race.state.player.stamina).toBeNull();
     expect(race.state.splits).toEqual([]);
   });

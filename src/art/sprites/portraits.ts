@@ -3,6 +3,7 @@
  * it matches the sprite) and a 48x48 bust for the rival card. Plus black silhouettes for locked rivals.
  */
 import { blit, createMap, getPx, outline, setPx, silhouette, type IndexMap } from '../bake/index.ts';
+import type { CharacterSpec } from '../chars/rig.ts';
 import { SPECS, type SpecId } from '../chars/specs.ts';
 import { ellipse, line, poly, rect, shadeSphere, type Ramp4 } from '../paint.ts';
 
@@ -11,17 +12,20 @@ import { ellipse, line, poly, rect, shadeSphere, type Ramp4 } from '../paint.ts'
 // ---------------------------------------------------------------------------
 
 /** Kit colour for the shoulders, sampled from the torso material near the neck. */
-function shoulderRamp(id: SpecId): Ramp4 {
-  const spec = SPECS[id];
+function shoulderRamp(spec: CharacterSpec): Ramp4 {
   const mat = spec.torsoMat(0.75, 0.3, { lean: 0, legN: [0, 0], legF: [0, 0], armN: [0, 0], armF: [0, 0] });
   return (spec.materials[mat] ?? spec.materials['skin']) as Ramp4;
 }
 
 export function portrait16(id: SpecId): IndexMap {
-  const spec = SPECS[id];
+  return portrait16Spec(SPECS[id]);
+}
+
+/** 16x16 head icon of any rig spec (v3: the field variants, design 35.1). */
+export function portrait16Spec(spec: CharacterSpec): IndexMap {
   const head = spec.heads.normal;
   const m = createMap(16, 16);
-  const kit = shoulderRamp(id);
+  const kit = shoulderRamp(spec);
   // Shoulders: rounded block under the head.
   const top = Math.min(15, Math.max(11, head.map.h));
   for (let y = top; y < 16; y++) {

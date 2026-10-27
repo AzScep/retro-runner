@@ -8,7 +8,15 @@ import type {
   RaceResult,
   SaveData,
 } from '../index.ts';
-import { browserStorage, CORRUPT_KEY, LADDERS, RecordsStore, SAVE_KEY, SAVE_KEY_V1 } from '../index.ts';
+import {
+  browserStorage,
+  CORRUPT_KEY,
+  LADDERS,
+  RecordsStore,
+  SAVE_KEY,
+  SAVE_KEY_V1,
+  SAVE_KEY_V2,
+} from '../index.ts';
 
 class MemStorage implements KeyValueStorage {
   readonly map = new Map<string, string>();
@@ -50,6 +58,16 @@ function outcome(
     seed: 1849302231,
     hit: event === '110mh' ? 0 : null,
     splits: [],
+    mode: 'l',
+    place: result === 'win' ? 1 : result === 'lose' ? 2 : null,
+    fieldSize: 6,
+    winMs: result === 'dq' ? null : result === 'win' ? ms : oppMs,
+    standings: [],
+    steps: 100,
+    fumbles: 2,
+    fumble2: 0,
+    trips: 0,
+    input: 'k',
     ...extra,
   };
 }
@@ -152,18 +170,68 @@ const V2_DOC = {
   },
 };
 
-const FRESH_EVENT = { unlockedTier: 1, beaten: [], champion: false, best: {}, history: [] };
+const FRESH_EVENT = {
+  unlockedTier: 1,
+  beaten: [],
+  champion: false,
+  best: {},
+  history: [],
+  revealed: false,
+  place: {},
+  gauntlet: { runs: 0, clears: 0, furthest: 0, best: null },
+};
 
-describe('RecordsStore load v2 (design 16.2-16.4)', () => {
+/** v3 fields a migrated 2-runner history entry gains (design 34.4). */
+const MIGRATED = { fieldSize: 2, mode: 'l' } as const;
+const migratedEntry = (h: Omit<HistoryEntry, 'place' | 'fieldSize' | 'winMs' | 'mode'>): HistoryEntry => ({
+  ...h,
+  ...MIGRATED,
+  place: h.result === 'win' ? 1 : h.result === 'lose' ? 2 : null,
+  winMs: h.result === 'win' ? h.ms : h.result === 'dq' ? null : h.oppMs,
+});
+
+/** The v3 migration of V2_DOC (design 34.4): Kofi beaten in the 100 m, no tier 6 win anywhere. */
+const V2_DOC_MIGRATED: SaveData = {
+  version: 3,
+  lastEvent: '110mh',
+  seenEvents: ['100m', '110mh'],
+  hints: { addToHomeScreen: false, revealSeen: false },
+  settings: V2_DOC.settings,
+  events: {
+    '100m': {
+      ...(V2_DOC.events['100m'] as unknown as SaveData['events']['100m']),
+      history: V2_DOC.events['100m'].history.map((h) => migratedEntry(h as unknown as HistoryEntry)),
+      revealed: false,
+      place: { pip: 1, jess: 1, marco: 1, kofi: 1 },
+      gauntlet: FRESH_EVENT.gauntlet,
+    },
+    '110mh': {
+      ...(V2_DOC.events['110mh'] as unknown as SaveData['events']['110mh']),
+      history: V2_DOC.events['110mh'].history.map((h) => migratedEntry(h as unknown as HistoryEntry)),
+      revealed: false,
+      place: { pip: 1 },
+      gauntlet: FRESH_EVENT.gauntlet,
+    },
+    '400m': {
+      ...(V2_DOC.events['400m'] as unknown as SaveData['events']['400m']),
+      history: V2_DOC.events['400m'].history.map((h) => migratedEntry(h as unknown as HistoryEntry)),
+      revealed: false,
+      place: {},
+      gauntlet: FRESH_EVENT.gauntlet,
+    },
+  },
+};
+
+describe('RecordsStore load v3 and v2 migration (design 34.4, with the v2 rules of 16.2-16.4)', () => {
   it('starts fresh: 100 m only, Pip unlocked, default settings with crt off and haptics on', () => {
     const s = new MemStorage();
     const store = RecordsStore.load(s);
     expect(store.persistent).toBe(true);
     expect(store.data).toEqual({
-      version: 2,
+      version: 3,
       lastEvent: '100m',
       seenEvents: ['100m'],
-      hints: { addToHomeScreen: false },
+      hints: { addToHomeScreen: false, revealSeen: false },
       settings: {
         volume: 8,
         muted: false,
@@ -184,11 +252,17 @@ describe('RecordsStore load v2 (design 16.2-16.4)', () => {
     expect(s.map.size).toBe(0);
   });
 
-  it('round-trips the design 16.2 example document', () => {
+  it('migrates the design 16.2 example v2 document, writes v3 at once and leaves the v2 key untouched', () => {
     const s = new MemStorage();
-    s.map.set(SAVE_KEY, JSON.stringify(V2_DOC));
+    const rawV2 = JSON.stringify(V2_DOC);
+    s.map.set(SAVE_KEY_V2, rawV2);
     const store = RecordsStore.load(s);
-    expect(store.data).toEqual(V2_DOC);
+    expect(store.data).toEqual(V2_DOC_MIGRATED);
+    expect(stored(s)).toEqual(V2_DOC_MIGRATED);
+    expect(s.map.get(SAVE_KEY_V2)).toBe(rawV2);
+    // Round-trips through v3 validation unchanged, and migration runs once.
+    s.map.set(SAVE_KEY_V2, JSON.stringify({ ...V2_DOC, events: {} }));
+    expect(RecordsStore.load(s).data).toEqual(V2_DOC_MIGRATED);
     expect(store.bestMs('110mh', 'pip')).toBe(17920);
     expect(store.isEventUnlocked('110mh')).toBe(true);
     expect(store.isEventUnlocked('400m')).toBe(true); // Kofi beaten in the 100 m
@@ -196,17 +270,22 @@ describe('RecordsStore load v2 (design 16.2-16.4)', () => {
     expect(s.map.has(CORRUPT_KEY)).toBe(false);
   });
 
-  it('a valid v2 wins over v1: the v1 key is ignored', () => {
+  it('a valid v3 wins over v2 and v1; a valid v2 wins over v1', () => {
     const s = new MemStorage();
-    s.map.set(SAVE_KEY, JSON.stringify(V2_DOC));
+    s.map.set(SAVE_KEY, JSON.stringify(V2_DOC_MIGRATED));
+    s.map.set(SAVE_KEY_V2, JSON.stringify({ ...V2_DOC, events: {} }));
+    s.map.set(SAVE_KEY_V1, JSON.stringify({ ...V1_DOC, beaten: [] }));
+    expect(RecordsStore.load(s).data.events['100m'].beaten).toEqual(['pip', 'jess', 'marco', 'kofi']);
+    s.map.delete(SAVE_KEY);
+    s.map.set(SAVE_KEY_V2, JSON.stringify(V2_DOC));
     s.map.set(SAVE_KEY_V1, JSON.stringify({ ...V1_DOC, beaten: [] }));
     expect(RecordsStore.load(s).data.events['100m'].beaten).toEqual(['pip', 'jess', 'marco', 'kofi']);
   });
 
-  it('repairs a v2 document field by field (design 16.3)', () => {
+  it('repairs a v2 document field by field (design 16.3) before migrating it', () => {
     const s = new MemStorage();
     s.map.set(
-      SAVE_KEY,
+      SAVE_KEY_V2,
       JSON.stringify({
         version: 2,
         lastEvent: '400m', // locked after repair: falls back to 100m
@@ -354,7 +433,18 @@ describe('RecordsStore load v2 (design 16.2-16.4)', () => {
     expect(e100.champion).toBe(false);
     expect(e100.best).toEqual({ jess: { ms: 13000, at: ISO } }); // extras stripped outside their event
     expect(e100.history).toEqual([
-      { opp: 'pip', result: 'win', ms: 17000, oppMs: 18000, falseStarts: 0, seed: 1, at: ISO },
+      {
+        opp: 'pip',
+        result: 'win',
+        ms: 17000,
+        oppMs: 18000,
+        falseStarts: 0,
+        seed: 1,
+        at: ISO,
+        place: 1,
+        winMs: 17000,
+        ...MIGRATED,
+      },
     ]);
     const eh = d.events['110mh'];
     expect(eh.unlockedTier).toBe(2);
@@ -375,13 +465,20 @@ describe('RecordsStore load v2 (design 16.2-16.4)', () => {
     ]);
     expect(d.lastEvent).toBe('100m');
     expect(d.seenEvents).toEqual(['100m', '110mh']);
-    expect(d.hints).toEqual({ addToHomeScreen: false });
+    expect(d.hints).toEqual({ addToHomeScreen: false, revealSeen: false });
     expect(d.settings).toMatchObject({ volume: 3, haptics: true });
   });
 
   it('a missing or non-object events block becomes three fresh events', () => {
     const s = new MemStorage();
-    s.map.set(SAVE_KEY, JSON.stringify({ version: 2, events: [] }));
+    s.map.set(SAVE_KEY, JSON.stringify({ version: 3, events: [] }));
+    expect(RecordsStore.load(s).data.events).toEqual({
+      '100m': FRESH_EVENT,
+      '110mh': FRESH_EVENT,
+      '400m': FRESH_EVENT,
+    });
+    s.map.delete(SAVE_KEY);
+    s.map.set(SAVE_KEY_V2, JSON.stringify({ version: 2, events: [] }));
     expect(RecordsStore.load(s).data.events).toEqual({
       '100m': FRESH_EVENT,
       '110mh': FRESH_EVENT,
@@ -393,7 +490,7 @@ describe('RecordsStore load v2 (design 16.2-16.4)', () => {
     const s = new MemStorage();
     const entry = { opp: 'pip', result: 'lose', ms: 19000, oppMs: 18000, falseStarts: 0, seed: 1, at: ISO };
     s.map.set(
-      SAVE_KEY,
+      SAVE_KEY_V2,
       JSON.stringify({
         version: 2,
         events: {
@@ -405,28 +502,42 @@ describe('RecordsStore load v2 (design 16.2-16.4)', () => {
     const d = RecordsStore.load(s).data;
     expect(d.events['100m'].history).toHaveLength(50);
     expect(d.events['110mh'].history).toHaveLength(50);
+    const v3 = { ...entry, place: 2, fieldSize: 6, winMs: 18000, mode: 'l' };
+    s.map.set(SAVE_KEY, JSON.stringify({ version: 3, events: { '100m': { history: Array(70).fill(v3) } } }));
+    expect(RecordsStore.load(s).data.events['100m'].history).toHaveLength(50);
   });
 });
 
 describe('RecordsStore migration from v1 (design 16.4)', () => {
-  it('migrates a real v1 document, writes v2 at once and leaves the v1 key untouched', () => {
+  it('migrates a real v1 document via v2, writes v3 only and leaves the v1 key untouched', () => {
     const s = new MemStorage();
     const rawV1 = JSON.stringify(V1_DOC);
     s.map.set(SAVE_KEY_V1, rawV1);
     const store = RecordsStore.load(s);
     const { version: _v, settings, ...v1Records } = V1_DOC;
     expect(store.data).toEqual({
-      version: 2,
+      version: 3,
       lastEvent: '100m',
       seenEvents: ['100m'],
-      hints: { addToHomeScreen: false },
+      hints: { addToHomeScreen: false, revealSeen: false },
       settings: { ...settings, crt: false, haptics: true },
-      events: { '100m': v1Records, '110mh': FRESH_EVENT, '400m': FRESH_EVENT },
+      events: {
+        '100m': {
+          ...v1Records,
+          history: v1Records.history.map((h) => migratedEntry(h as unknown as HistoryEntry)),
+          revealed: false,
+          place: { pip: 1, jess: 1 },
+          gauntlet: FRESH_EVENT.gauntlet,
+        },
+        '110mh': FRESH_EVENT,
+        '400m': FRESH_EVENT,
+      },
     });
     expect(stored(s)).toEqual(store.data);
     expect(s.map.get(SAVE_KEY_V1)).toBe(rawV1);
+    expect(s.map.has(SAVE_KEY_V2)).toBe(false);
     expect(s.map.has(CORRUPT_KEY)).toBe(false);
-    // Migration runs once: the next load uses v2 even if v1 changes.
+    // Migration runs once: the next load uses v3 even if v1 changes.
     s.map.set(SAVE_KEY_V1, JSON.stringify({ ...V1_DOC, beaten: [] }));
     expect(RecordsStore.load(s).data.events['100m'].beaten).toEqual(['pip', 'jess']);
   });
@@ -451,12 +562,15 @@ describe('RecordsStore migration from v1 (design 16.4)', () => {
     expect(store.isUnlocked('110mh', 'jess')).toBe(false);
   });
 
-  it('a migrated champion keeps champion: true (no second 100 m S9)', () => {
+  it('a migrated champion keeps champion: true (no second 100 m S9) and skips the reveal', () => {
     const s = new MemStorage();
     const all = LADDERS['100m'].map((e) => e.id);
     s.map.set(SAVE_KEY_V1, JSON.stringify({ ...V1_DOC, unlockedTier: 7, beaten: all, champion: true }));
     const store = RecordsStore.load(s);
     expect(store.data.events['100m'].champion).toBe(true);
+    expect(store.isRevealed('100m')).toBe(true);
+    expect(store.revealSeen()).toBe(true);
+    expect(store.isUnlocked('100m', 'zyx')).toBe(true);
     store.record(outcome('zyx', 'win', 10300, 10400), AT);
     expect(store.record(outcome('zyx', 'win', 10200, 10400), AT).becameChampion).toBe(false);
   });
@@ -496,7 +610,11 @@ describe('RecordsStore migration from v1 (design 16.4)', () => {
     expect(e.beaten).toEqual(['pip', 'kofi']);
     expect(e.champion).toBe(false); // Zyx never beaten
     expect(Object.keys(e.best)).toEqual(['valentina']);
-    expect(e.history.map((h) => h.result)).toEqual(['win', 'dq', 'dnf']);
+    expect(e.history.map((h) => [h.result, h.place, h.winMs])).toEqual([
+      ['win', 1, 17000],
+      ['dq', null, null],
+      ['dnf', null, 18000],
+    ]);
     expect(d.settings).toEqual({
       volume: 8,
       muted: false,
@@ -507,28 +625,60 @@ describe('RecordsStore migration from v1 (design 16.4)', () => {
     });
   });
 
+  it.each(['not json', '{"version":2}', '[]', '42', 'null'])(
+    'corrupt v3 (%s) plus a valid v2: backs v3 up to the corrupt key and re-migrates from v2 (acceptance 38)',
+    (raw) => {
+      const s = new MemStorage();
+      s.map.set(SAVE_KEY, raw);
+      s.map.set(SAVE_KEY_V2, JSON.stringify(V2_DOC));
+      const store = RecordsStore.load(s);
+      expect(s.map.get(CORRUPT_KEY)).toBe(raw);
+      expect(store.data).toEqual(V2_DOC_MIGRATED);
+      expect(stored(s).version).toBe(3);
+      expect(s.map.get(SAVE_KEY_V2)).toBe(JSON.stringify(V2_DOC));
+    },
+  );
+
   it.each(['not json', '{"version":3}', '[]', '42', 'null'])(
     'corrupt v2 (%s) plus a valid v1: backs v2 up to the corrupt key and re-migrates from v1',
     (raw) => {
       const s = new MemStorage();
-      s.map.set(SAVE_KEY, raw);
+      s.map.set(SAVE_KEY_V2, raw);
       s.map.set(SAVE_KEY_V1, JSON.stringify(V1_TO_KOFI));
       const store = RecordsStore.load(s);
       expect(s.map.get(CORRUPT_KEY)).toBe(raw);
       expect(store.data.events['100m'].beaten).toEqual(['pip', 'jess', 'marco', 'kofi']);
-      expect(stored(s).version).toBe(2);
+      expect(stored(s).version).toBe(3);
+      expect(s.map.get(SAVE_KEY_V2)).toBe(raw);
       expect(s.map.get(SAVE_KEY_V1)).toBe(JSON.stringify(V1_TO_KOFI));
     },
   );
 
+  it('corrupt v3 and corrupt v2: the newest corrupt document is the one backed up', () => {
+    const s = new MemStorage();
+    s.map.set(SAVE_KEY, 'v3 junk');
+    s.map.set(SAVE_KEY_V2, 'v2 junk');
+    s.map.set(SAVE_KEY_V1, JSON.stringify(V1_DOC));
+    const store = RecordsStore.load(s);
+    expect(s.map.get(CORRUPT_KEY)).toBe('v3 junk');
+    expect(store.data.events['100m'].beaten).toEqual(['pip', 'jess']);
+  });
+
+  it('a v2 document under the v3 key is corrupt (version !== 3)', () => {
+    const s = new MemStorage();
+    s.map.set(SAVE_KEY, JSON.stringify(V2_DOC));
+    RecordsStore.load(s);
+    expect(s.map.get(CORRUPT_KEY)).toBe(JSON.stringify(V2_DOC));
+  });
+
   it('a v1 document under the v2 key is corrupt (version !== 2)', () => {
     const s = new MemStorage();
-    s.map.set(SAVE_KEY, JSON.stringify(V1_DOC));
+    s.map.set(SAVE_KEY_V2, JSON.stringify(V1_DOC));
     RecordsStore.load(s);
     expect(s.map.get(CORRUPT_KEY)).toBe(JSON.stringify(V1_DOC));
   });
 
-  it('corrupt v1 alone: backed up, fresh v2 written', () => {
+  it('corrupt v1 alone: backed up, fresh v3 written', () => {
     const s = new MemStorage();
     s.map.set(SAVE_KEY_V1, '{"unlockedTier":3}');
     const store = RecordsStore.load(s);
@@ -538,7 +688,7 @@ describe('RecordsStore migration from v1 (design 16.4)', () => {
     expect(s.map.get(SAVE_KEY_V1)).toBe('{"unlockedTier":3}');
   });
 
-  it('corrupt v2 and no v1: backed up, fresh v2 written', () => {
+  it('corrupt v3 and nothing older: backed up, fresh v3 written', () => {
     const s = new MemStorage();
     s.map.set(SAVE_KEY, 'not json');
     const store = RecordsStore.load(s);
@@ -547,7 +697,7 @@ describe('RecordsStore migration from v1 (design 16.4)', () => {
     expect(store.data.events['100m']).toEqual(FRESH_EVENT);
   });
 
-  it('a failed v2 write keeps the migration in memory; the next load migrates again (rule 4)', () => {
+  it('a failed v3 write keeps the migration in memory; the next load migrates again (34.4.3)', () => {
     const s = new MemStorage();
     s.map.set(SAVE_KEY_V1, JSON.stringify(V1_TO_KOFI));
     s.failWrites = true;
@@ -679,6 +829,15 @@ describe('RecordsStore.record (design 4.2, 1.3, 16.5)', () => {
       falseStarts: 0,
       seed: 1849302231,
       at: ISO,
+      place: 1,
+      fieldSize: 6,
+      winMs: 17000,
+      mode: 'l',
+      steps: 100,
+      fumbles: 2,
+      fumble2: 0,
+      trips: 0,
+      input: 'k',
     });
   });
 
@@ -725,9 +884,14 @@ describe('RecordsStore.record (design 4.2, 1.3, 16.5)', () => {
     const store = RecordsStore.load(new MemStorage());
     const ids: OpponentId[] = ['pip', 'jess', 'marco', 'kofi', 'valentina', 'unit7'];
     ids.forEach((id, i) => {
-      store.record(outcome(id, 'win', 10000 + i, 20000), AT);
+      const r = store.record(outcome(id, 'win', 10000 + i, 20000), AT);
+      expect(r.revealPending).toBe(id === 'unit7');
       expect(store.ladderTotalMs('100m')).toBeNull();
     });
+    // Tier 7 stays hidden until the reveal (design 30.1).
+    expect(store.isUnlocked('100m', 'zyx')).toBe(false);
+    expect(store.revealPending('100m')).toBe(true);
+    store.markRevealed('100m');
     expect(store.isUnlocked('100m', 'zyx')).toBe(true);
     const first = store.record(outcome('zyx', 'win', 10300, 10400), AT);
     expect(first).toMatchObject({ becameChampion: true, unlocked: null });
@@ -813,7 +977,7 @@ describe('RecordsStore UI flags, settings and reset', () => {
     const s = new MemStorage();
     const store = RecordsStore.load(s);
     store.setHint('addToHomeScreen', true);
-    expect(RecordsStore.load(s).data.hints).toEqual({ addToHomeScreen: true });
+    expect(RecordsStore.load(s).data.hints).toEqual({ addToHomeScreen: true, revealSeen: false });
   });
 
   it('validates and persists settings changes, including haptics', () => {
@@ -826,15 +990,17 @@ describe('RecordsStore UI flags, settings and reset', () => {
     expect(RecordsStore.load(s).data.settings).toEqual(store.data.settings);
   });
 
-  it('reset removes both keys, keeps settings and hints, relocks hurdles and 400 m', () => {
+  it('reset removes the v3, v2 and v1 keys, keeps settings and hints, relocks hurdles and 400 m', () => {
     const s = new MemStorage();
     s.map.set(SAVE_KEY_V1, JSON.stringify(V1_TO_KOFI));
+    s.map.set(SAVE_KEY_V2, 'not json');
     const store = RecordsStore.load(s);
     store.updateSettings({ volume: 3 });
     store.setHint('addToHomeScreen', true);
     store.markEventSeen('400m');
     store.reset();
     expect(s.map.has(SAVE_KEY_V1)).toBe(false);
+    expect(s.map.has(SAVE_KEY_V2)).toBe(false);
     expect(store.data.events).toEqual({ '100m': FRESH_EVENT, '110mh': FRESH_EVENT, '400m': FRESH_EVENT });
     expect(store.data.seenEvents).toEqual(['100m']);
     expect(store.data.lastEvent).toBe('100m');

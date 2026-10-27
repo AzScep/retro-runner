@@ -301,3 +301,65 @@ export class ButtonRow<Id extends string = string> {
     for (const l of this.#labels) l.destroy();
   }
 }
+
+/**
+ * Draws a pixel mask (one string per row, one char per pixel, '.' transparent) at (x, y) with each
+ * char mapped to a palette index. Code-drawn markers stay palette-exact in any colour (no tinting).
+ */
+export function drawMask(
+  g: Phaser.GameObjects.Graphics,
+  x: number,
+  y: number,
+  rows: readonly string[],
+  colors: Readonly<Record<string, number>>,
+  flipX = false,
+): void {
+  rows.forEach((row, ry) => {
+    const w = row.length;
+    let run = 0;
+    let runChar = '';
+    const flush = (end: number): void => {
+      const index = colors[runChar];
+      if (run > 0 && index !== undefined) {
+        const start = end - run;
+        const left = flipX ? w - end : start;
+        fillRect(g, x + left, y + ry, run, 1, index);
+      }
+    };
+    for (let rx = 0; rx <= w; rx++) {
+      const ch = rx < w ? (row[rx] ?? '.') : '';
+      if (ch === runChar) {
+        run++;
+        continue;
+      }
+      flush(rx);
+      runChar = ch;
+      run = 1;
+    }
+  });
+}
+
+/** 6x4 progress bar head (design 27.3), `c` in the runner's colour. */
+export const HEAD_6X4: readonly string[] = ['.kkkk.', 'kcwwck', 'kcccck', '.kkkk.'];
+/** 8x8 off-screen leader head (design 27.4). */
+export const HEAD_8X8: readonly string[] = [
+  '..kkkk..',
+  '.kcccck.',
+  'kcccccck',
+  'kcwccwck',
+  'kcccccck',
+  'kcccccck',
+  '.kcccck.',
+  '..kkkk..',
+];
+/** 8x8 off-screen arrow pointing right (design 27.4); flip it for the pack-behind arrow. */
+export const ARROW_8X8: readonly string[] = [
+  '..kk....',
+  '..kck...',
+  'kkkcck..',
+  'kcccccck',
+  'kcccccck',
+  'kkkcck..',
+  '..kck...',
+  '..kk....',
+];

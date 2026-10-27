@@ -37,6 +37,14 @@ export class StepFilter {
   /** Race ms of the last valid step, null before the first one. */
   lastStepMs: number | null = null;
 
+  /** Copy of the step state (held counts are irrelevant to off-screen copies and start empty). */
+  clone(): StepFilter {
+    const c = new StepFilter();
+    c.lastSide = this.lastSide;
+    c.lastStepMs = this.lastStepMs;
+    return c;
+  }
+
   isHeld(side: Side): boolean {
     return this.held[side].held;
   }

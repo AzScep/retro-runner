@@ -70,6 +70,12 @@ export class PlayerBody {
   /** Index of the next hurdle ahead. */
   nextHurdle = 0;
 
+  /**
+   * [v3] Trip (design 33.2): while set, the speed is forced to this value each tick (no drag, idle
+   * braking or fatigue), and a hurdle crossed is a HIT without speed loss or stumble.
+   */
+  forcedV: number | null = null;
+
   /** 400 m: stamina 0-1, else null. */
   stamina: number | null;
   readonly splits: number[] = [];
@@ -145,7 +151,9 @@ export class PlayerBody {
    */
   step(t0Ms: number, idleMs: number, out: RaceEvent[] | null): boolean {
     if (this.stamina !== null) this.stamina = Math.min(1, this.stamina + TUNING.REGEN * DT_S);
-    if (this.airTicks === null) {
+    if (this.forcedV !== null) {
+      this.v = this.forcedV;
+    } else if (this.airTicks === null) {
       // In the air speed is frozen: no drag, no idle braking (13.2).
       this.v -= TUNING.K_DRAG * this.v * DT_S;
       if (this.stamina !== null) {
@@ -174,7 +182,7 @@ export class PlayerBody {
         this.landedThisTick = true;
         this.v *= TUNING.LAND_KEEP;
         this.lockTicks = LOCK_TICKS;
-        out?.push({ type: 'land', lane: 'player' });
+        out?.push({ type: 'land', lane: 0 });
       }
     }
 
@@ -196,18 +204,23 @@ export class PlayerBody {
     this.nextHurdle += 1;
     const result = hurdleOutcome(this.airTicks, this.xPrev, this.x, h);
     if (result === 'clean') {
-      out?.push({ type: 'hurdleClear', lane: 'player', index: i });
+      out?.push({ type: 'hurdleClear', lane: 0, index: i });
       return;
     }
     this.knocked[i] = true;
+    if (this.forcedV !== null) {
+      // Down on the track (33.1): a HIT, but the trip already owns the speed; no extra stumble.
+      out?.push({ type: 'hurdleHit', lane: 0, index: i });
+      return;
+    }
     if (result === 'clip') {
       this.v *= TUNING.CLIP_KEEP;
-      out?.push({ type: 'hurdleClip', lane: 'player', index: i });
+      out?.push({ type: 'hurdleClip', lane: 0, index: i });
     } else {
       this.v *= TUNING.HIT_KEEP;
       this.stumbleTicks = STUMBLE_TICKS;
       this.lockTicks = Math.max(this.lockTicks, STUMBLE_TICKS);
-      out?.push({ type: 'hurdleHit', lane: 'player', index: i });
+      out?.push({ type: 'hurdleHit', lane: 0, index: i });
     }
   }
 
@@ -251,6 +264,7 @@ export class PlayerBody {
     c.stumbleTicks = this.stumbleTicks;
     c.knocked.splice(0, c.knocked.length, ...this.knocked);
     c.nextHurdle = this.nextHurdle;
+    c.forcedV = this.forcedV;
     c.stamina = this.stamina;
     c.splits.push(...this.splits);
     c.lowTicks = this.lowTicks;

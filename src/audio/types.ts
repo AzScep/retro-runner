@@ -26,13 +26,22 @@ export type SfxId =
   | 'split'
   | 'bell'
   | 'stamina_low'
-  | 'stamina_empty';
+  | 'stamina_empty'
+  // v3 (design 36.1)
+  | 'pistol'
+  | 'trip_thud'
+  | 'reveal_sting_1'
+  | 'reveal_sting_2'
+  | 'photo_click'
+  | 'bubble'
+  | 'gauntlet_clear';
 
 /**
  * `race` and `hurdles` are transposed per tier; tier 7 (Zyx) plays the boss track in every event.
  * `quarter` (400 m) is one untransposed song rendered twice: base and "final 100".
+ * `gauntlet` (v3, design 36.2) is one track for Gauntlet tiers 1-6 and the cards between them.
  */
-export type MusicId = 'title' | 'ladder' | 'race' | 'boss' | 'champion' | 'hurdles' | 'quarter';
+export type MusicId = 'title' | 'ladder' | 'race' | 'boss' | 'champion' | 'hurdles' | 'quarter' | 'gauntlet';
 
 export const SFX_IDS: readonly SfxId[] = [
   'step_l',
@@ -60,6 +69,13 @@ export const SFX_IDS: readonly SfxId[] = [
   'bell',
   'stamina_low',
   'stamina_empty',
+  'pistol',
+  'trip_thud',
+  'reveal_sting_1',
+  'reveal_sting_2',
+  'photo_click',
+  'bubble',
+  'gauntlet_clear',
 ];
 
 export const MUSIC_IDS: readonly MusicId[] = [
@@ -70,6 +86,7 @@ export const MUSIC_IDS: readonly MusicId[] = [
   'champion',
   'hurdles',
   'quarter',
+  'gauntlet',
 ];
 
 /** Mono or stereo PCM rendered at `sampleRate`. */

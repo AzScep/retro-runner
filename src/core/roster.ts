@@ -135,4 +135,55 @@ export const TUNING = {
   AI_VTOP_JITTER: 0.01,
   AI_QUIRK_JITTER_M: 3,
   AI_QUIRK_JITTER_400_M: 10,
+
+  // [v3] Multi-runner constants (design 11 [v3], sections 23-34). Per-tier field numbers live in
+  // field/specs.ts (design 25.2, 25.6).
+  FIELD_RUNNERS: 4,
+  /** Pace multiplier range per half (25.1). */
+  FIELD_PACE_LO: 0.9,
+  FIELD_PACE_HI: 1.0,
+  /** Switch point as a fraction of the event distance (25.1). */
+  FIELD_SWITCH_LO: 0.4,
+  FIELD_SWITCH_HI: 0.8,
+  /** 400 m field pace profile: [from m, multiplier] (25.1). */
+  FIELD_400_PROFILE: [
+    [0, 1.0],
+    [200, 0.97],
+    [300, 0.94],
+  ],
+  FIELD_SEED_XOR: 0x5bd1e995,
+  /** Field floor per event (25.4): no single field finish faster than T x (1 - pct). */
+  FIELD_FLOOR_PCT: { '100m': 0.02, '110mh': 0.04, '400m': 0.02 },
+  /** Named-rival win share of the AI field (25.5). */
+  RIVAL_WIN_SHARE_LO: 0.6,
+  RIVAL_WIN_SHARE_HI: 0.75,
+  /** Median winning time tolerance (25.5). */
+  WIN_MEDIAN_TOL_MS: 50,
+  PLAYER_LANE: 0,
+  RIVAL_LANE: 1,
+  /** Live position hold (27.2); applied by the UI. */
+  POSITION_HOLD_MS: 350,
+  /** 1st-2nd margin for the 'closeFinish' event (31.3). */
+  PHOTO_MARGIN_MS: 20,
+  /** Judges lean while any runner is within this distance of the line (31.3). */
+  JUDGE_LEAN_M: 10,
+  /** Meet card (31.1): first race of a tier in a session / retry. */
+  MEET_CARD_SHOW_MS: 1200,
+  MEET_CARD_SHOW_RETRY_MS: 800,
+  /** Reveal skip allowed after (30.3; the short version skips at once). */
+  REVEAL_SKIP_AFTER_MS: 1000,
+  /** Gauntlet between-race card auto-advance (32.2). */
+  GAUNTLET_NEXT_DELAY_MS: 3000,
+  /** Deterministic trip (33): rule C, keyboard only, flag default off until the user's call (33.4). */
+  TRIP_ENABLED: false as boolean,
+  /** Second fumble within this time of the first (33.1). */
+  TRIP_WINDOW_MS: 500,
+  /** Fall: speed to 0 linearly (33.2). */
+  TRIP_BLEED_MS: 250,
+  /** Lie at speed 0 (33.2). */
+  TRIP_LIE_MS: 400,
+  /** Get-up speed as a share of the speed at the trigger (33.2). */
+  TRIP_KEEP: 0.3,
+  /** Visual only: state.trip stays 'getup' this long after getting up (3 frames at 12 fps, 35.1). */
+  TRIP_GETUP_MS: 250,
 } as const;

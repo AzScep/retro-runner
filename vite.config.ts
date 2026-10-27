@@ -19,15 +19,13 @@ const PHASER_SRC = fileURLToPath(new URL('./node_modules/phaser/src/', import.me
  * `typeof X` is not an identifier, so Vite's `define` cannot replace it.
  */
 function phaserFlags(): Plugin {
-  return {
-    name: 'phaser-flags',
-    enforce: 'pre',
-    transform(code, id) {
-      if (!id.startsWith(PHASER_SRC) || !code.includes('typeof ')) return null;
-      const out = code.replace(FLAG_RE, (_, flag: string) => String(PHASER_FLAGS[flag]));
-      return out === code ? null : { code: out, map: null };
-    },
-  };
+  return { name: 'phaser-flags', enforce: 'pre', transform: resolvePhaserFlags };
+}
+
+function resolvePhaserFlags(code: string, id: string): { code: string; map: null } | null {
+  if (!id.startsWith(PHASER_SRC) || !code.includes('typeof ')) return null;
+  const out = code.replace(FLAG_RE, (_, flag: string) => String(PHASER_FLAGS[flag]));
+  return out === code ? null : { code: out, map: null };
 }
 
 export default defineConfig({
@@ -58,6 +56,12 @@ export default defineConfig({
       { find: /^phaser$/, replacement: fileURLToPath(new URL('./src/phaser-build.js', import.meta.url)) },
       { find: /^phaser-src\//, replacement: PHASER_SRC },
     ],
+  },
+  // The dev server pre-bundles phaser/src (CommonJS) with Rolldown, which does not run Vite plugins,
+  // so the flags must be resolved there too; otherwise the WEBGL_DEBUG branch keeps its
+  // require('phaser3spectorjs') and the dev page throws on load.
+  optimizeDeps: {
+    rolldownOptions: { plugins: [{ name: 'phaser-flags-deps', transform: resolvePhaserFlags }] },
   },
   // The main chunk is ~920 KB with the trimmed Phaser build (1.6 MB with the full dist file), so a
   // warning here means the bundle has regressed.

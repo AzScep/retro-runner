@@ -16,7 +16,10 @@ const CODE_TO_SLOT: Readonly<Record<string, Slot>> = {
 const SLOTS: readonly Slot[] = ['L', 'R', 'jump'];
 
 function make(slot: Slot, kind: 'down' | 'up', t: number, repeat: boolean): RaceInput {
-  return slot === 'jump' ? { kind, action: 'jump', t, repeat } : { kind, side: slot, t, repeat };
+  // [v3] Tagged as keyboard input (design 33.1: only keys can trip).
+  return slot === 'jump'
+    ? { kind, action: 'jump', t, repeat, source: 'k' }
+    : { kind, side: slot, t, repeat, source: 'k' };
 }
 
 /**

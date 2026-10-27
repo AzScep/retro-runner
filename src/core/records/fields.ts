@@ -2,7 +2,14 @@ import type { BestTime, EventId, HistoryEntry, OpponentId, RaceResult, Settings 
 import { EVENTS, hurdlePositions } from '../events.ts';
 import { LADDERS, TUNING } from '../roster.ts';
 
-// Field validators shared by the v1 parser (migration source) and the v2 validator (design 4.3, 16.3).
+// Field validators shared by the v1 and v2 parsers (migration sources) and the v3 validator
+// (design 4.3, 16.3, 34.3).
+
+/** A history entry as stored by v1 and v2 (no v3 fields). */
+export type HistoryEntryV2 = Omit<
+  HistoryEntry,
+  'place' | 'fieldSize' | 'winMs' | 'mode' | 'steps' | 'fumbles' | 'fumble2' | 'trips' | 'input'
+>;
 
 export const DEFAULT_SETTINGS: Settings = {
   volume: 8,
@@ -86,10 +93,10 @@ export function bestTime(event: EventId, v: unknown): BestTime | null {
 }
 
 /**
- * History entry (design 4.3 common fields, 16.3 extras). Hurdles entries require `hit`, 400 m
- * entries require `splits` (DQ: empty); other events never carry them.
+ * History entry, v2 fields (design 4.3 common fields, 16.3 extras). Hurdles entries require `hit`,
+ * 400 m entries require `splits` (DQ: empty); other events never carry them.
  */
-export function historyEntry(event: EventId, v: unknown): HistoryEntry | null {
+export function historyEntryV2(event: EventId, v: unknown): HistoryEntryV2 | null {
   if (!isObj(v) || !onLadder(event, v.opp)) return null;
   const result = v.result;
   if (typeof result !== 'string' || !(RESULTS as readonly string[]).includes(result)) return null;
@@ -101,7 +108,7 @@ export function historyEntry(event: EventId, v: unknown): HistoryEntry | null {
   if (r === 'dq' ? oppMs !== null : !(oppMs === null || isInt(oppMs, 0, OPP_MS_MAX))) return null;
   if (!isInt(v.falseStarts, 0, TUNING.FALSE_STARTS_TO_DQ)) return null;
   if (!isInt(v.seed, 0, 0xffffffff) || !isIsoUtc(v.at)) return null;
-  const entry: HistoryEntry = {
+  const entry: HistoryEntryV2 = {
     opp: v.opp,
     result: r,
     ms: timed ? (ms as number) : null,

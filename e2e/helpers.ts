@@ -28,6 +28,17 @@ export interface Outcome {
   photoFinish: boolean;
   falseStarts: number;
   seed: number;
+  // v3 (design 24.1)
+  mode: 'l' | 'g';
+  place: number | null;
+  fieldSize: number;
+  winMs: number | null;
+  standings: { lane: number; name: string; ms: number | null; place: number | null }[];
+  steps: number;
+  fumbles: number;
+  fumble2: number;
+  trips: number;
+  input: 'k' | 't' | 'm';
 }
 
 export interface GameState {
@@ -54,6 +65,11 @@ export interface GameState {
     player: RunnerSnap;
     rival: RunnerSnap;
     outcome: Outcome | null;
+    mode: 'l' | 'g';
+    livePlace: number | null;
+    leaderLane: number;
+    trip: 'none' | 'fall' | 'lie' | 'getup';
+    runners: { lane: number; name: string; kind: string; xM: number; finishMs: number | null }[];
   } | null;
   hud: {
     event: EventId;
@@ -65,6 +81,7 @@ export interface GameState {
     split: string | null;
     knockedTicks: number;
     speedMeter: { x: number; y: number };
+    stripBox: { x: number; y: number; w: number; h: number } | null;
     timer: string;
     kmh: number;
     lit: number;
@@ -74,14 +91,23 @@ export interface GameState {
     countdown: string | null;
     banner: string | null;
     offscreen: string | null;
+    place: string | null;
+    leader: string | null;
+    behind: string | null;
+    strip: string | null;
+    meet: string | null;
+    bubble: string | null;
+    trip: boolean;
   } | null;
   texts: string[];
-  records: SaveV2 | null;
+  records: SaveV3 | null;
   persistent: boolean | null;
   ladderCursor: string | null;
   event: EventId | null;
   modality: { modality: 'keyboard' | 'touch'; padsOverCanvas: boolean };
   taps: { scene: string; rect: { x: number; y: number; w: number; h: number } }[];
+  gauntlet: { event: EventId; tier: number; times: number[] } | null;
+  tripEnabled: boolean;
 }
 
 export type EventId = '100m' | '110mh' | '400m';
@@ -102,6 +128,40 @@ export interface EventRecordsV2 {
   champion: boolean;
   best: Record<string, { ms: number; at: string; hit?: number; splits?: number[] } | undefined>;
   history: HistoryV2[];
+}
+
+export interface GauntletRecordV3 {
+  runs: number;
+  clears: number;
+  furthest: number;
+  best: { ms: number; at: string; times: number[] } | null;
+}
+
+export interface EventRecordsV3 extends Omit<EventRecordsV2, 'history'> {
+  revealed: boolean;
+  place: Record<string, number | undefined>;
+  gauntlet: GauntletRecordV3;
+  history: (HistoryV2 & {
+    place: number | null;
+    fieldSize: number;
+    winMs: number | null;
+    mode: 'l' | 'g';
+    steps?: number;
+    fumbles?: number;
+    fumble2?: number;
+    trips?: number;
+    input?: string;
+  })[];
+}
+
+/** Structural copy of core's SaveData v3 (design 34.2). */
+export interface SaveV3 {
+  version: 3;
+  lastEvent: EventId;
+  seenEvents: EventId[];
+  hints: { addToHomeScreen: boolean; revealSeen: boolean };
+  settings: SaveV2['settings'];
+  events: Record<EventId, EventRecordsV3>;
 }
 
 /** Structural copy of core's SaveData v2 (design 16.2). */
@@ -128,6 +188,8 @@ interface Hook {
   clearRecords(): void;
   tap(x: number, y: number): boolean;
   setModality(patch: { modality?: 'keyboard' | 'touch'; padsOverCanvas?: boolean }): void;
+  setTrip(on: boolean | null): void;
+  startGauntletRace(tier: number, times: number[]): void;
   paletteCheck(): Promise<{ distinct: number; offPalette: string[] }>;
 }
 
@@ -137,7 +199,8 @@ declare global {
   }
 }
 
-export const SAVE_KEY = 'retroRunner.save.v2';
+export const SAVE_KEY = 'retroRunner.save.v3';
+export const SAVE_KEY_V2 = 'retroRunner.save.v2';
 export const SAVE_KEY_V1 = 'retroRunner.save.v1';
 export const EVENT_ORDER: readonly EventId[] = ['100m', '110mh', '400m'];
 
@@ -460,4 +523,70 @@ export async function mashInPage(page: Page, durationMs: number, gapMs: number):
       }),
     [durationMs, gapMs],
   );
+}
+
+const LADDER_100 = ['pip', 'jess', 'marco', 'kofi', 'valentina', 'unit7', 'zyx'];
+
+/**
+ * A valid v3 document (design 34.2). Every event starts fresh; `events` patches individual events
+ * (for example `{ '100m': { unlockedTier: 7, beaten: [...6 ids], revealed: false } }` for a pending
+ * reveal). Settings default to muted.
+ */
+export function v3Save(
+  opts: {
+    events?: Partial<Record<EventId, Partial<EventRecordsV3>>>;
+    revealSeen?: boolean;
+    lastEvent?: EventId;
+    seenEvents?: EventId[];
+    settings?: Partial<SaveV2['settings']>;
+  } = {},
+): string {
+  const fresh = (): EventRecordsV3 => ({
+    unlockedTier: 1,
+    beaten: [],
+    champion: false,
+    best: {},
+    history: [],
+    revealed: false,
+    place: {},
+    gauntlet: { runs: 0, clears: 0, furthest: 0, best: null },
+  });
+  const events = {} as Record<EventId, EventRecordsV3>;
+  for (const e of EVENT_ORDER) events[e] = { ...fresh(), ...opts.events?.[e] };
+  return JSON.stringify({
+    version: 3,
+    lastEvent: opts.lastEvent ?? '100m',
+    seenEvents: opts.seenEvents ?? ['100m', '110mh', '400m'],
+    hints: { addToHomeScreen: true, revealSeen: opts.revealSeen ?? false },
+    settings: {
+      volume: 8,
+      muted: true,
+      reducedFlashing: false,
+      screenShake: true,
+      crt: false,
+      haptics: true,
+      ...opts.settings,
+    },
+    events,
+  });
+}
+
+/**
+ * Event records with tiers 1-`beatenTiers` won (place 1 each). Hurdles and 400 m ladders differ
+ * from the 100 m only at tier 5 (Sol in the 400 m), which callers pass in `ids` when needed.
+ */
+export function beatenEvent(
+  beatenTiers: number,
+  revealed: boolean,
+  ids: readonly string[] = LADDER_100,
+): Partial<EventRecordsV3> {
+  const beaten = ids.slice(0, beatenTiers);
+  const place: Record<string, number> = {};
+  for (const id of beaten) place[id] = 1;
+  return { unlockedTier: Math.min(7, beatenTiers + 1), beaten, place, revealed };
+}
+
+/** Polls until the test hook reports `scene` among the running scenes. */
+export async function waitForScenes(page: Page, key: string, timeoutMs = 20_000): Promise<GameState> {
+  return waitForState(page, (s) => s.scenes.includes(key), `scene ${key} running`, timeoutMs);
 }

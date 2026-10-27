@@ -12,15 +12,50 @@ export const LAYERS = {
   sky: { y: 0, h: 48, factor: 0, w: 320 },
   far: { y: 24, h: 40, factor: 0.1, w: 256 },
   stands: { y: 48, h: 44, factor: 0.3, w: 128 },
-  near: { y: 88, h: 16, factor: 0.6, w: 256 },
-  track: { y: 104, h: 56, factor: 1, w: 64 },
-  fg: { y: 160, h: 20, factor: 1.3, w: 480 },
+  // v3 (design 26.1): the ad-board wall loses its bottom 3 rows to the 6-lane track band.
+  near: { y: 88, h: 13, factor: 0.6, w: 256 },
+  track: { y: 101, h: 64, factor: 1, w: 64 },
+  fg: { y: 165, h: 15, factor: 1.3, w: 480 },
 } as const;
 export type LayerName = keyof typeof LAYERS;
 
-/** Feet rows (design 5.7). */
-export const LANE_FEET_Y = { rival: 128, player: 152 } as const;
-export const LANE_LINE_Y = [108, 132, 156] as const;
+/**
+ * Lane geometry, prototype layout R (design 26.1-26.2). Index = lane, 0 = nearest (player).
+ * Config arrays, not formulas, so a later layout can move one row.
+ */
+export const LANE_FEET_Y: readonly number[] = Object.freeze([157, 143, 132, 123, 115, 108]);
+/** Lane lines: the line under each lane (index = lane), then the far line (index 6). */
+export const LANE_LINE_Y: readonly number[] = Object.freeze([161, 147, 136, 127, 119, 112, 105]);
+/** Each lane is drawn this many px further right than the one in front (visual only). */
+export const LANE_OBLIQUE_PX = 10;
+export const LANE_COUNT = 6;
+/** Far-side officials and boards stand with their feet on this row, in front of the wall (26.4). */
+export const FAR_SIDE_FEET_Y = 100;
+
+/** Screen x offset of a lane (runner, shadow, hurdles, line segments). */
+export function laneOffsetPx(lane: number): number {
+  return lane * LANE_OBLIQUE_PX;
+}
+
+/**
+ * Oblique offset (whole px) of the start / finish line at screen row y: piecewise linear through
+ * each lane's feet row, so the line passes exactly through every lane's offset where its runner
+ * stands and reads as one slanted diagonal across the lanes.
+ */
+export function rowOffsetPx(y: number): number {
+  const f = LANE_FEET_Y;
+  let k = 0;
+  while (k < f.length - 2 && y < (f[k + 1] as number)) k++;
+  const a = f[k] as number;
+  const b = f[k + 1] as number;
+  return Math.round((k + (a - y) / (a - b)) * LANE_OBLIQUE_PX);
+}
+
+/** Rows covered by the start and finish lines: far line to near line, inclusive. */
+export const MARKING_TOP = LANE_LINE_Y[6] as number;
+export const MARKING_BOTTOM = LANE_LINE_Y[0] as number;
+/** The line maps start this many px left of lane 0's line x (the near rows lean back past it). */
+export const MARKING_LEFT = -rowOffsetPx(MARKING_BOTTOM);
 
 interface Theme {
   readonly sky: readonly number[];
@@ -528,7 +563,7 @@ export function nearLayer(tier: number, event: SignEvent = '100m'): IndexMap {
 }
 
 // ---------------------------------------------------------------------------
-// L4 track tile (64 px, rows 104-160).
+// L4 track tile (64 px, rows 101-164): apron, 7 lane lines (design 26.1).
 // ---------------------------------------------------------------------------
 export function trackLayer(tier: number): IndexMap {
   const t = theme(tier);
@@ -545,72 +580,77 @@ export function trackLayer(tier: number): IndexMap {
   // Apron at the top edge (rows 104-107) and a shadow row under each line.
   rect(m, 0, 0, w, 3, t.apron[0]);
   rect(m, 0, 3, w, 1, t.apron[1]);
+  if (tier === 7) {
+    // Deck panel seams, between the lane lines.
+    for (let y = 5; y < h; y++) setPx(m, 0, y, 3);
+    for (let x = 0; x < w; x++) setPx(m, x, 141 - LAYERS.track.y, 3);
+  }
   for (const ly of LANE_LINE_Y) {
     const y = ly - LAYERS.track.y;
     rect(m, 0, y, w, 1, tr.line);
-    rect(m, 0, y + 1, w, 1, tier === 7 || tier === 6 ? tr.dark : tr.dark);
+    rect(m, 0, y + 1, w, 1, tr.dark);
   }
-  if (tier === 7) {
-    // Deck panel seams.
-    for (let y = 5; y < h; y++) setPx(m, 0, y, 3);
-    for (let x = 0; x < w; x++) setPx(m, x, 30, 3);
-  }
-  // Last rows 157-159 lead into the infield.
+  // Last rows 163-164 lead into the infield.
   rect(m, 0, h - 2, w, 2, tr.dark);
   return m;
 }
 
 // ---------------------------------------------------------------------------
-// L5 foreground (480 px, rows 160-180): infield grass + max 1 prop per 160 px.
+// L5 foreground (480 px, rows 165-179): infield grass + max 1 prop per 160 px, props <= 15 px.
 // ---------------------------------------------------------------------------
+// Props are drawn on a 15-row canvas (the whole L5 band) with their outline inside it (design 26.1).
+const FG_H = 15;
+
 function cameraOperator(m: IndexMap, x: number): void {
-  const p = createMap(24, 20);
+  const p = createMap(22, FG_H);
   // Tripod.
-  line(p, 12, 10, 8, 19, 4);
-  line(p, 12, 10, 16, 19, 4);
-  line(p, 12, 10, 12, 19, 5);
-  // Camera.
-  rect(p, 7, 5, 10, 5, 3);
-  rect(p, 17, 6, 3, 3, 5);
-  setPx(p, 19, 7, 31);
-  rect(p, 8, 4, 4, 1, 4);
-  // Operator: crouched behind, cap.
-  rect(p, 2, 8, 5, 7, 29);
-  rect(p, 2, 15, 5, 4, 2);
-  rect(p, 3, 4, 4, 4, 12);
-  rect(p, 2, 3, 5, 2, 17);
-  rect(p, 6, 3, 2, 1, 17);
+  line(p, 12, 7, 9, 14, 4);
+  line(p, 12, 7, 15, 14, 4);
+  line(p, 12, 7, 12, 14, 5);
+  // Camera with a lens and a top handle.
+  rect(p, 8, 3, 9, 4, 3);
+  rect(p, 17, 4, 2, 2, 5);
+  setPx(p, 18, 4, 31);
+  rect(p, 9, 2, 4, 1, 4);
+  // Operator crouched behind: cap, face, blue jacket, dark trousers.
+  rect(p, 2, 1, 4, 1, 17);
+  rect(p, 5, 2, 1, 1, 17);
+  rect(p, 2, 2, 3, 3, 12);
+  rect(p, 1, 5, 6, 5, 29);
+  rect(p, 6, 5, 2, 2, 12);
+  rect(p, 1, 10, 6, 4, 2);
   blitShape(m, outline(p), x, 0);
 }
 
 function hurdles(m: IndexMap, x: number): void {
-  const p = createMap(28, 20);
+  const p = createMap(26, FG_H);
+  // A stack of three hurdles seen side-on, each bar one row lower and 3 px further right.
   for (let k = 0; k < 3; k++) {
     const o = k * 3;
-    rect(p, 2 + o, 6 + k, 20, 3, k % 2 ? 8 : 17);
-    for (let s = 0; s < 20; s += 8) rect(p, 2 + o + s, 6 + k, 4, 3, k % 2 ? 17 : 8);
-    line(p, 3 + o, 9 + k, 3 + o, 18, 6);
-    line(p, 20 + o, 9 + k, 20 + o, 18, 6);
+    rect(p, 1 + o, 2 + k * 2, 18, 2, k % 2 ? 8 : 17);
+    for (let s = 0; s < 18; s += 6) rect(p, 1 + o + s, 2 + k * 2, 3, 2, k % 2 ? 17 : 8);
+    line(p, 2 + o, 4 + k * 2, 2 + o, 13, 6);
+    line(p, 17 + o, 4 + k * 2, 17 + o, 13, 6);
   }
-  rect(p, 1, 18, 26, 1, 4);
+  rect(p, 1, 13, 24, 1, 4);
   blitShape(m, outline(p), x, 0);
 }
 
 function cones(m: IndexMap, x: number): void {
-  const p = createMap(26, 20);
-  for (const cx of [4, 13, 20]) {
+  const p = createMap(24, FG_H);
+  for (const cx of [4, 12, 19]) {
     poly(
       p,
       [
-        [cx - 3, 18],
-        [cx, 9],
-        [cx + 3, 18],
+        [cx - 3, 13],
+        [cx, 5],
+        [cx + 3, 13],
       ],
       21,
     );
-    line(p, cx - 1, 13, cx + 1, 13, 8);
-    line(p, cx, 10, cx - 1, 17, 22);
-    rect(p, cx - 4, 18, 9, 1, 20);
+    line(p, cx - 1, 9, cx + 1, 9, 8);
+    line(p, cx, 6, cx - 1, 12, 22);
+    rect(p, cx - 4, 13, 9, 1, 20);
   }
   blitShape(m, outline(p), x, 0);
 }
@@ -649,17 +689,28 @@ export function fgLayer(tier: number): IndexMap {
 // Track markings (world space, factor 1).
 // ---------------------------------------------------------------------------
 
-/** Start line: 2 px wide white line across both lanes (rows 108-156). */
+/**
+ * Start line (design 26.4): 2 px wide, from the far line to the near line, slanted by the lane
+ * oblique so each lane's segment sits at its own offset. Place the map's left edge at
+ * (startX - MARKING_LEFT) and its top at MARKING_TOP.
+ */
 export function startLine(tier: number): IndexMap {
-  const m = createMap(2, 49);
-  rect(m, 0, 0, 2, 49, theme(tier).track.line);
-  return m;
+  return slanted(2, () => theme(tier).track.line);
 }
 
-/** Checkered finish line: 4 px wide, 2x2 checks (rows 108-156). */
+/** Checkered finish line: 4 px wide, 2x2 checks that follow the slant, placed as startLine(). */
 export function finishLine(): IndexMap {
-  const m = createMap(4, 49);
-  for (let y = 0; y < 49; y++) for (let x = 0; x < 4; x++) setPx(m, x, y, ((x >> 1) + (y >> 1)) % 2 ? 1 : 8);
+  return slanted(4, (x, y) => (((x >> 1) + (y >> 1)) % 2 ? 1 : 8));
+}
+
+function slanted(width: number, color: (x: number, y: number) => number): IndexMap {
+  const h = MARKING_BOTTOM - MARKING_TOP + 1;
+  const w = MARKING_LEFT + rowOffsetPx(MARKING_TOP) + width;
+  const m = createMap(w, h);
+  for (let y = 0; y < h; y++) {
+    const ox = MARKING_LEFT + rowOffsetPx(MARKING_TOP + y);
+    for (let x = 0; x < width; x++) setPx(m, ox + x, y, color(x, y));
+  }
   return m;
 }
 
