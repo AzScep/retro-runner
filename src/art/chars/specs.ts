@@ -123,6 +123,14 @@ const rio: CharacterSpec = {
         [8, 8, 's'],
         [9, 8, 'm'],
       ],
+      // 400 m fatigue (design 19.1): squinting, mouth hanging open.
+      tired: [
+        [7, 6, 'Z'],
+        [8, 6, 'Z'],
+        [7, 8, 'm'],
+        [8, 8, 'e'],
+        [8, 9, 'm'],
+      ],
     },
   ),
 };
@@ -644,6 +652,103 @@ const zyx: CharacterSpec = {
   ),
 };
 
-export const SPECS = { rio, pip, jess, marco, kofi, valentina, unit7, zyx } as const;
+// ---------------------------------------------------------------------------
+// Sol (design 15.5): veteran 400 m runner, tall and lean (~42 px). White singlet with an orange chest
+// band and a yellow sun emblem, long orange shorts, grey-streaked dark hair, calm half-closed eyes,
+// silver wristwatch on the near (left) wrist.
+// ---------------------------------------------------------------------------
+const sol: CharacterSpec = {
+  id: 'sol',
+  thigh: 8.6,
+  shin: 8.8,
+  upperArm: 6.4,
+  foreArm: 5.8,
+  foot: 3.7,
+  torso: 12.2,
+  neck: 1.6,
+  thighR: [2.4, 1.7],
+  shinR: [1.65, 1.2],
+  upperArmR: [1.45, 1.25],
+  foreArmR: [1.2, 1.55],
+  torsoR: [3.6, 4.3],
+  footR: 1.4,
+  raisedReachScale: 0.6,
+  materials: {
+    skin: [9, 10, 11, 11],
+    kit: R.white,
+    band: [20, 20, 21, 21],
+    sun: R.yellow,
+    shorts: [20, 20, 21, 21],
+    shoe: [20, 20, 21, 21],
+    sock: R.white,
+    watch: [4, 5, 5, 8],
+  },
+  torsoMat: (u, v) => {
+    if (u < 0.3) return 'shorts';
+    if (u > 0.6 && u < 0.78 && v > -0.45 && v < 0.35) return 'sun';
+    if (u > 0.58 && u < 0.78) return 'band';
+    if (u > 0.9 && v > -0.3) return 'band';
+    return 'kit';
+  },
+  thighMat: (t) => (t < 0.55 ? 'shorts' : 'skin'),
+  shinMat: (t) => (t > 0.84 ? 'sock' : 'skin'),
+  upperArmMat: kitFns.skin,
+  foreArmMat: (t) => (t > 0.66 && t < 0.86 ? 'watch' : 'skin'),
+  foreArmMatFar: kitFns.skin,
+  footMat: 'shoe',
+  neckMat: 'skin',
+  heads: makeHeads(
+    [
+      '..hhhhhh...',
+      '.hhhghhhh..',
+      'hhghhhhhhh.',
+      'hhhhhhhhhh.',
+      'hghhzsssss.',
+      'hhhzzssllls',
+      'hhzZzsssess',
+      '.hzzsssssss',
+      '.hzzssmmZs.',
+      '..zzzssss..',
+      '...zzzzz...',
+    ],
+    { h: 14, g: 7, s: 11, z: 10, Z: 9, l: 9, e: 1, m: 9 },
+    4,
+    10,
+    {
+      effort: [
+        [6, 8, 's'],
+        [7, 8, 'm'],
+        [8, 8, 'Z'],
+        [8, 9, 'Z'],
+      ],
+      happy: [
+        [6, 8, 'm'],
+        [7, 8, 's'],
+        [7, 9, 'm'],
+        [8, 9, 'm'],
+        [8, 8, 's'],
+        [9, 8, 'm'],
+      ],
+      sad: [
+        [9, 5, 's'],
+        [8, 6, 'l'],
+        [7, 8, 's'],
+        [7, 9, 'm'],
+        [8, 9, 'm'],
+      ],
+      // Glance down at the watch: heavy lid drops, eye low.
+      look: [
+        [7, 5, 's'],
+        [8, 5, 's'],
+        [9, 5, 's'],
+        [8, 6, 'l'],
+        [9, 6, 'l'],
+        [8, 7, 'e'],
+      ],
+    },
+  ),
+};
+
+export const SPECS = { rio, pip, jess, marco, kofi, valentina, unit7, zyx, sol } as const;
 export type SpecId = keyof typeof SPECS;
 export type { Pose };

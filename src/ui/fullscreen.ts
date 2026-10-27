@@ -16,6 +16,47 @@ interface WebkitElement {
 
 const IDLE_HIDE_MS = 2500;
 
+/** The corner button once installed (null where the Fullscreen API is missing, e.g. iPhone). */
+let cornerButton: HTMLButtonElement | null = null;
+
+/**
+ * iPad (design 17.6): a touch screen with the Fullscreen API. iPadOS Safari reports a Macintosh user
+ * agent, so the coarse pointer plus touch points tell it apart from a Mac; Android also has the API
+ * but enters fullscreen through tap to start instead, so it is excluded.
+ */
+export function isIpad(): boolean {
+  if (!fullscreenSupported() || typeof window.matchMedia !== 'function') return false;
+  const coarse = window.matchMedia('(pointer: coarse)').matches;
+  return coarse && navigator.maxTouchPoints > 1 && /iPad|Macintosh/.test(navigator.userAgent);
+}
+
+/** Inline styles beat the touch stylesheet rule that hides the mouse-only corner button. */
+const PINNED_STYLE: Readonly<Record<string, string>> = {
+  display: 'grid',
+  top: 'calc(env(safe-area-inset-top, 0px) + 8px)',
+  left: 'calc(env(safe-area-inset-left, 0px) + 8px)',
+  right: 'auto',
+  width: '44px',
+  height: '44px',
+  opacity: '0.85',
+  visibility: 'visible',
+};
+
+/**
+ * Design 17.6: on iPad the fullscreen button shows as a 44 CSS px button in the top-left safe area
+ * while the Title or Options screen is up. Scenes call this on create (true) and shutdown (false);
+ * elsewhere, and on every other device, it does nothing.
+ */
+export function pinFullscreenButton(on: boolean): void {
+  const b = cornerButton;
+  if (!b) return;
+  const pin = on && isIpad();
+  for (const [k, v] of Object.entries(PINNED_STYLE)) {
+    if (pin) b.style.setProperty(k, v);
+    else b.style.removeProperty(k);
+  }
+}
+
 export function fullscreenSupported(): boolean {
   const d = document as Document & WebkitDocument;
   return document.fullscreenEnabled || d.webkitFullscreenEnabled === true;
@@ -70,6 +111,7 @@ export function installFullscreen(refocus: () => void): void {
   button.tabIndex = -1;
   button.setAttribute('aria-label', 'Toggle fullscreen');
   document.body.append(button);
+  cornerButton = button;
 
   const render = (): void => {
     const on = isFullscreen();

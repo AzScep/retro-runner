@@ -15,7 +15,7 @@ import { RAMP_DARKEST } from '../palette.ts';
 /** [line (darkest), shadow, base, highlight] palette indices. */
 export type Ramp = readonly [number, number, number, number];
 
-export type HeadVariant = 'normal' | 'effort' | 'happy' | 'sad' | 'look';
+export type HeadVariant = 'normal' | 'effort' | 'happy' | 'sad' | 'look' | 'tired';
 
 export interface HeadStamp {
   readonly map: IndexMap;
@@ -62,6 +62,8 @@ export interface CharacterSpec {
   readonly shinMat: (t: number) => string;
   readonly upperArmMat: (t: number) => string;
   readonly foreArmMat: (t: number) => string;
+  /** Far-side forearm material, when it differs (Sol's watch is on the near, left wrist only). */
+  readonly foreArmMatFar?: (t: number) => string;
   readonly footMat: string;
   readonly neckMat: string;
   readonly heads: Readonly<Partial<Record<HeadVariant, HeadStamp>>> & { readonly normal: HeadStamp };
@@ -390,7 +392,7 @@ export function renderPose(spec: CharacterSpec, pose: Pose, size = 48, groundRow
       b: j.hand,
       r0: spec.foreArmR[0],
       r1: spec.foreArmR[1],
-      matAt: (t) => spec.foreArmMat(t),
+      matAt: (t) => (far && spec.foreArmMatFar ? spec.foreArmMatFar(t) : spec.foreArmMat(t)),
       far,
     });
     const upper = rasterCapsule(cv, spec, {

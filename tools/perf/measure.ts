@@ -223,12 +223,18 @@ async function toRace(page: Page): Promise<void> {
       w.__retroRunner.getState().records.settings.crt = true;
     });
   }
+  const active = (key: string) =>
+    page.waitForFunction(
+      (k) =>
+        (window as unknown as { __retroRunner: { game: Phaser.Game } }).__retroRunner.game.scene.isActive(k),
+      key,
+    );
+  // Title -> Event Select -> the 100 m (first card) -> its Ladder.
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() =>
-    (window as unknown as { __retroRunner: { game: Phaser.Game } }).__retroRunner.game.scene.isActive(
-      'Ladder',
-    ),
-  );
+  await active('Events');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Enter');
+  await active('Ladder');
   await page.evaluate(() =>
     (window as unknown as { __retroRunner: { seed(n: number): void } }).__retroRunner.seed(7),
   );

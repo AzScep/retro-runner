@@ -33,6 +33,8 @@
     instruments are rendered without frequency randomness (deterministic songs).
   - Output buffers are preallocated Float32Arrays of the song length instead of growing arrays.
     Reads of unset slots behave like upstream's `|| 0`. The render loop is otherwise unchanged.
+  - Optional `out` buffers: the render is added into them instead of fresh buffers, so a caller
+    rendering channel by channel needs no per-channel temporaries (the loop already accumulates).
 */
 
 import { zzfxBuildSamples, ZZFX_SAMPLE_RATE, type ZzfxParams } from './zzfx.ts';
@@ -65,7 +67,8 @@ export function zzfxmSongLength(
  * @param patterns - Array of pattern data.
  * @param sequence - Array of pattern indexes.
  * @param BPM - Playback speed of the song (in BPM).
- * @returns Left and right channel sample data.
+ * @param out - Optional [left, right] buffers of the song length to add the render into.
+ * @returns Left and right channel sample data (`out` when given).
  */
 export function zzfxM(
   instruments: readonly ZzfxParams[],
@@ -73,6 +76,7 @@ export function zzfxM(
   sequence: readonly number[],
   BPM = 125,
   sampleRate: number = ZZFX_SAMPLE_RATE,
+  out?: readonly [Float32Array, Float32Array],
 ): [Float32Array, Float32Array] {
   let instrumentParameters: (number | undefined)[];
   let i: number;
@@ -91,8 +95,11 @@ export function zzfxM(
   let nextSampleOffset: number;
   let sampleBuffer: ArrayLike<number> = [];
   const songLength = zzfxmSongLength(patterns, sequence, BPM, sampleRate);
-  const leftChannelBuffer = new Float32Array(songLength);
-  const rightChannelBuffer = new Float32Array(songLength);
+  if (out && (out[0].length !== songLength || out[1].length !== songLength)) {
+    throw new Error(`zzfxM: out buffers must be ${songLength} samples`);
+  }
+  const leftChannelBuffer = out?.[0] ?? new Float32Array(songLength);
+  const rightChannelBuffer = out?.[1] ?? new Float32Array(songLength);
   let channelIndex = 0;
   let panning = 0;
   let hasMore = 1;

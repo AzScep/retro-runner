@@ -17,10 +17,22 @@ export type SfxId =
   | 'menu_back'
   | 'warp'
   | 'overheat'
-  | 'flashbulb';
+  | 'flashbulb'
+  // v2 (design 20.1)
+  | 'jump'
+  | 'land'
+  | 'hurdle_clip'
+  | 'hurdle_hit'
+  | 'split'
+  | 'bell'
+  | 'stamina_low'
+  | 'stamina_empty';
 
-/** `race` is transposed per tier; tier 7 uses the boss track. */
-export type MusicId = 'title' | 'ladder' | 'race' | 'boss' | 'champion';
+/**
+ * `race` and `hurdles` are transposed per tier; tier 7 (Zyx) plays the boss track in every event.
+ * `quarter` (400 m) is one untransposed song rendered twice: base and "final 100".
+ */
+export type MusicId = 'title' | 'ladder' | 'race' | 'boss' | 'champion' | 'hurdles' | 'quarter';
 
 export const SFX_IDS: readonly SfxId[] = [
   'step_l',
@@ -40,12 +52,33 @@ export const SFX_IDS: readonly SfxId[] = [
   'warp',
   'overheat',
   'flashbulb',
+  'jump',
+  'land',
+  'hurdle_clip',
+  'hurdle_hit',
+  'split',
+  'bell',
+  'stamina_low',
+  'stamina_empty',
 ];
 
-export const MUSIC_IDS: readonly MusicId[] = ['title', 'ladder', 'race', 'boss', 'champion'];
+export const MUSIC_IDS: readonly MusicId[] = [
+  'title',
+  'ladder',
+  'race',
+  'boss',
+  'champion',
+  'hurdles',
+  'quarter',
+];
 
 /** Mono or stereo PCM rendered at `sampleRate`. */
 export interface Pcm {
   readonly sampleRate: number;
   readonly channels: readonly Float32Array[];
+  /**
+   * Same-length alternate mix of the same song (the quarter track's "final 100": base plus added
+   * lead and drums), normalised with the same gain so a crossfade between the two is seamless.
+   */
+  readonly final?: readonly Float32Array[];
 }

@@ -4,9 +4,14 @@ import {
   expectText,
   getState,
   mash,
+  mashInPage,
   mashToFinish,
+  runBot,
   offPaletteColours,
   SAVE_KEY,
+  SAVE_KEY_V1,
+  seedStorage,
+  v1Save,
   startRace,
   tap,
   titleToLadder,
@@ -28,7 +33,7 @@ test('boots to the title screen with a fresh save', async ({ page }) => {
   expect(s.ready).toBe(true);
   // PRESS ENTER blinks at 1 Hz.
   await waitForState(page, (st) => st.texts.includes('PRESS ENTER'), 'PRESS ENTER', 2000);
-  expect(s.records?.unlockedTier).toBe(1);
+  expect(s.records?.events['100m'].unlockedTier).toBe(1);
   // Audio pre-rendering runs in the background after the Title is up and still completes.
   await waitForState(page, (st) => st.audioPreloaded, 'audio preloaded', 30_000);
   const ladder = await titleToLadder(page);
@@ -48,7 +53,8 @@ test('beat Pip: win, recorded time, Jess unlocked, PB persists after reload, rec
   expect(started.race?.seed).toBe(SEED);
 
   await waitForPhase(page, 'running');
-  const crossed = await mashToFinish(page);
+  // The in-page cadence bot keeps 11 alt/s even on a loaded machine (Pip needs ~6.3).
+  const crossed = (await runBot(page, { rate: 11 })).state;
   const playerMs = crossed.race?.player.finishMs;
   expect(playerMs).toBeGreaterThan(5000);
   expect(playerMs).toBeLessThan(18000);
@@ -62,13 +68,16 @@ test('beat Pip: win, recorded time, Jess unlocked, PB persists after reload, rec
   expectText(res, 'JESS UNLOCKED!');
   // NEW PB! flashes at 2 Hz, so wait for an "on" frame.
   await waitForState(page, (s) => s.texts.includes('NEW PB!'), 'NEW PB! flash', 2000);
-  expect(res.records?.best['pip']?.ms).toBe(playerMs);
-  expect(res.records?.beaten).toContain('pip');
-  expect(res.records?.unlockedTier).toBeGreaterThanOrEqual(2);
-  expect(res.records?.history[0]).toMatchObject({ opp: 'pip', result: 'win', ms: playerMs });
+  expect(res.records?.events['100m'].best['pip']?.ms).toBe(playerMs);
+  expect(res.records?.events['100m'].beaten).toContain('pip');
+  expect(res.records?.events['100m'].unlockedTier).toBeGreaterThanOrEqual(2);
+  expect(res.records?.events['100m'].history[0]).toMatchObject({ opp: 'pip', result: 'win', ms: playerMs });
   // localStorage holds the design 4.3 document.
   const raw = await page.evaluate((k) => localStorage.getItem(k), SAVE_KEY);
-  expect(JSON.parse(raw ?? 'null')).toMatchObject({ version: 1, best: { pip: { ms: playerMs } } });
+  expect(JSON.parse(raw ?? 'null')).toMatchObject({
+    version: 2,
+    events: { '100m': { best: { pip: { ms: playerMs } } } },
+  });
 
   // NEXT (default focus after a win) starts the Jess race.
   await page.keyboard.press('Enter');
@@ -78,8 +87,8 @@ test('beat Pip: win, recorded time, Jess unlocked, PB persists after reload, rec
   // Reload: unlocks and PB survive.
   await page.reload();
   const after = await waitForScene(page, 'Title', 30_000);
-  expect(after.records?.best['pip']?.ms).toBe(playerMs);
-  expect(after.records?.beaten).toContain('pip');
+  expect(after.records?.events['100m'].best['pip']?.ms).toBe(playerMs);
+  expect(after.records?.events['100m'].beaten).toContain('pip');
   const ladder = await titleToLadder(page);
   expect(ladder.ladderCursor).toBe('jess');
   expectText(ladder, 'JESS');
@@ -99,18 +108,11 @@ test('mashing through the finish does not move the results button focus', async 
   await titleToLadder(page);
   await startRace(page, SEED);
   await waitForPhase(page, 'running');
-  await mashToFinish(page);
-  // Keep mashing like a player who has not noticed the line, until the card has been up a while.
-  let cardSeenAt: number | null = null;
-  await mash(page, (s) => {
-    if (s.scenes.includes('Results')) cardSeenAt ??= Date.now();
-    return cardSeenAt !== null && Date.now() - cardSeenAt > 600;
-  });
-  // Alternating presses cancel out in pairs, so end on an odd number of them (net one step right).
-  for (const k of ['ArrowRight', 'ArrowLeft', 'ArrowRight']) {
-    await tap(page, k);
-    await page.waitForTimeout(40);
-  }
+  await runBot(page, { rate: 11 });
+  // Keep mashing like a player who has not noticed the line, in page so the presses stay ~70 ms
+  // apart however loaded the machine is, until the card (1.5 s after the line) has been up ~1 s.
+  await mashInPage(page, 2600, 70);
+  await waitForResults(page);
   // Stop, then confirm: the default button after a win (NEXT) must still be focused.
   await page.waitForTimeout(400);
   await page.keyboard.press('Enter');
@@ -122,12 +124,12 @@ test('same-key spam gives no speed and shows fumble feedback', async ({ page }) 
   await titleToLadder(page);
   await startRace(page, SEED);
   await waitForPhase(page, 'running');
-  const end = Date.now() + 3000;
-  while (Date.now() < end) {
+  // Count presses, not wall time, so a slow machine still sends them all.
+  for (let i = 0; i < 30; i++) {
     await tap(page, 'ArrowRight');
     await page.waitForTimeout(60);
   }
-  const s = await getState(page);
+  const s = await waitForState(page, (st) => (st.hud?.fumbles ?? 0) > 10, 'fumbles counted', 5000);
   expect(s.race?.player.kmh).toBe(0);
   expect(s.race?.player.xM ?? 99).toBeLessThan(1);
   expect(s.hud?.fumbles ?? 0).toBeGreaterThan(10);
@@ -140,8 +142,7 @@ test('holding a key (auto-repeat) gives no speed', async ({ page }) => {
   await startRace(page, SEED);
   await waitForPhase(page, 'running');
   await page.keyboard.down('ArrowRight');
-  const end = Date.now() + 3000;
-  while (Date.now() < end) {
+  for (let i = 0; i < 90; i++) {
     // A second down without an up is dispatched with repeat: true.
     await page.keyboard.down('ArrowRight');
     await page.waitForTimeout(33);
@@ -173,9 +174,9 @@ test('two false starts disqualify, record DQ and no time', async ({ page }) => {
   expect(res.race?.outcome?.result).toBe('dq');
   expect(res.race?.outcome?.ms).toBeNull();
   expectText(res, 'DISQUALIFIED');
-  expect(res.records?.history[0]).toMatchObject({ opp: 'pip', result: 'dq', ms: null });
-  expect(res.records?.best['pip']).toBeUndefined();
-  expect(res.records?.unlockedTier).toBe(1);
+  expect(res.records?.events['100m'].history[0]).toMatchObject({ opp: 'pip', result: 'dq', ms: null });
+  expect(res.records?.events['100m'].best['pip']).toBeUndefined();
+  expect(res.records?.events['100m'].unlockedTier).toBe(1);
 
   // RETRY (default after a loss) restarts the same race from the countdown with a clean count.
   await page.keyboard.press('Enter');
@@ -304,23 +305,14 @@ test('F and the corner button toggle true fullscreen', async ({ page }) => {
   await expect(button).toBeHidden({ timeout: 5000 });
 });
 
-/** A valid save document (design 4.3) with every rival unlocked and a PB against each. */
+/** A valid v1 save (design 4.3) with every rival unlocked and a PB against each; migrated on load (16.4). */
 function fullLadderSave(champion: boolean): string {
   const ids = ['pip', 'jess', 'marco', 'kofi', 'valentina', 'unit7', 'zyx'];
-  const at = '2026-10-26T20:15:03.120Z';
-  const best: Record<string, { ms: number; at: string }> = {};
+  const best: Record<string, number> = {};
   ids.forEach((id, i) => {
-    best[id] = { ms: 15000 - i * 100, at };
+    best[id] = 15000 - i * 100;
   });
-  return JSON.stringify({
-    version: 1,
-    unlockedTier: 7,
-    beaten: champion ? ids : ids.slice(0, 6),
-    champion,
-    best,
-    history: [],
-    settings: { volume: 8, muted: true, reducedFlashing: false, screenShake: true, crt: false },
-  });
+  return v1Save(champion ? ids : ids.slice(0, 6), { best, champion, settings: { muted: true } });
 }
 
 test('locked rivals cannot be raced', async ({ page }) => {
@@ -341,16 +333,20 @@ test('A and ArrowRight alternate, speed never exceeds 45 km/h, and stopping drop
   await titleToLadder(page);
   await startRace(page, SEED);
   await waitForPhase(page, 'running');
-  const t0 = Date.now();
-  const { maxKmh } = await mash(page, () => Date.now() - t0 > 3500, ['KeyA', 'ArrowRight']);
-  const moving = await getState(page);
+  // Mash (driven by the race's expected side) until clearly moving, however long that takes.
+  const { state: moving, maxKmh } = await mash(
+    page,
+    (st) => (st.race?.player.kmh ?? 0) > 20 && (st.hud?.lit ?? 0) > 4,
+    ['KeyA', 'ArrowRight'],
+  );
   expect(moving.race?.player.kmh).toBeGreaterThan(20);
   expect(maxKmh).toBeLessThanOrEqual(45);
-  expect(moving.hud?.lit).toBeGreaterThan(4);
-  await page.waitForTimeout(3200);
-  const stopped = await getState(page);
+  // Design 10: stopping at speed drops the meter to zero within about 3 s.
+  const t0 = Date.now();
+  // km/h rounds to 0 just before v reaches 0; the meter (ceil) goes dark only at a standstill.
+  const stopped = await waitForState(page, (st) => st.hud?.lit === 0, 'stopped', 6000);
   expect(stopped.race?.player.kmh).toBe(0);
-  expect(stopped.hud?.lit).toBe(0);
+  expect(Date.now() - t0).toBeLessThan(6000);
 });
 
 test('window blur auto-pauses the race', async ({ page }) => {
@@ -370,7 +366,7 @@ test('window blur auto-pauses the race', async ({ page }) => {
   expect(map.scenes).toEqual(['Ladder']);
 });
 
-test('a corrupt save starts fresh and is backed up', async ({ page }) => {
+test('a corrupt v2 save with no v1 save starts fresh and is backed up', async ({ page }) => {
   await page.addInitScript((key) => {
     if (!sessionStorage.getItem('rr-seeded')) {
       sessionStorage.setItem('rr-seeded', '1');
@@ -378,41 +374,25 @@ test('a corrupt save starts fresh and is backed up', async ({ page }) => {
     }
   }, SAVE_KEY);
   const s = await bootToTitle(page);
-  expect(s.records?.unlockedTier).toBe(1);
+  expect(s.records?.events['100m'].unlockedTier).toBe(1);
   expect(await page.evaluate(() => localStorage.getItem('retroRunner.save.corrupt'))).toBe('not json');
 });
 
 test('records screen shows the ladder total once all 7 rivals have a PB', async ({ page }) => {
-  await page.addInitScript(
-    ([key, doc]) => {
-      if (!sessionStorage.getItem('rr-seeded')) {
-        sessionStorage.setItem('rr-seeded', '1');
-        localStorage.setItem(key as string, doc as string);
-      }
-    },
-    [SAVE_KEY, fullLadderSave(true)],
-  );
+  await seedStorage(page, SAVE_KEY_V1, fullLadderSave(true));
   await bootToTitle(page);
   await titleToLadder(page);
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
   const rec = await waitForScene(page, 'Records');
-  // 15000 + 14900 + ... + 14400 = 102900 ms.
-  expectText(rec, 'LADDER TOTAL 102.90');
+  // 15000 + 14900 + ... + 14400 = 102900 ms, shown as M:SS.hh (design 16.5).
+  expectText(rec, 'LADDER TOTAL 1:42.90');
   expectText(rec, 'VALENTINA');
   expect(rec.texts).not.toContain('???');
 });
 
 test('first win against Zyx shows the Champion screen exactly once', async ({ page }) => {
-  await page.addInitScript(
-    ([key, doc]) => {
-      if (!sessionStorage.getItem('rr-seeded')) {
-        sessionStorage.setItem('rr-seeded', '1');
-        localStorage.setItem(key as string, doc as string);
-      }
-    },
-    [SAVE_KEY, fullLadderSave(false)],
-  );
+  await seedStorage(page, SAVE_KEY_V1, fullLadderSave(false));
   await bootToTitle(page);
   const ladder = await titleToLadder(page);
   expect(ladder.ladderCursor).toBe('zyx');
@@ -425,7 +405,7 @@ test('first win against Zyx shows the Champion screen exactly once', async ({ pa
     res.race?.outcome?.result !== 'win',
     'mashing through Playwright was not fast enough to beat Zyx',
   );
-  expect(res.records?.champion).toBe(true);
+  expect(res.records?.events['100m'].champion).toBe(true);
   expectText(res, 'LADDER CHAMPION!');
   await page.keyboard.press('Enter'); // NEXT -> Champion
   await waitForScene(page, 'Champion');
@@ -433,7 +413,7 @@ test('first win against Zyx shows the Champion screen exactly once', async ({ pa
   await page.waitForTimeout(1500);
   const champ = await getState(page);
   expect(champ.scene).toBe('Champion');
-  expectText(champ, 'CHAMPION!');
+  expectText(champ, '100M CHAMPION');
   expectText(champ, 'RETRO RUNNER');
   await page.keyboard.press('Enter'); // skip
   await waitForScene(page, 'Ladder');
@@ -472,17 +452,7 @@ test('every screen uses only palette colours (CRT off)', async ({ page }) => {
 test('with the CRT filter on, every screen renders without errors', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const save = JSON.parse(fullLadderSave(false)) as { settings: { crt: boolean } };
-  save.settings.crt = true;
-  await page.addInitScript(
-    ([key, doc]) => {
-      if (!sessionStorage.getItem('rr-seeded')) {
-        sessionStorage.setItem('rr-seeded', '1');
-        localStorage.setItem(key as string, doc as string);
-      }
-    },
-    [SAVE_KEY, JSON.stringify(save)],
-  );
+  await seedStorage(page, SAVE_KEY_V1, v1Save([], { settings: { muted: true, crt: true } }));
   const title = await bootToTitle(page);
   expect(title.records?.settings.crt).toBe(true);
   await titleToLadder(page);

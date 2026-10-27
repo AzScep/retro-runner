@@ -1,107 +1,128 @@
-import type { OpponentId, RaceEvent, RunnerEffect } from '../index.ts';
+import type { EventId, OpponentId, QuirkName, RaceEvent, RunnerEffect } from '../index.ts';
 import { DT_S, ticks } from '../clock/clock.ts';
+import { EVENTS, hurdlePositions } from '../events.ts';
 import { uniform } from '../rng/mulberry32.ts';
 import { TUNING, WORLD } from '../roster.ts';
-import { crossingMs, MAX_X_M } from '../runner/player.ts';
+import { airTicksTotal, crossingMs, hurdleOutcome, JUMP_AIR_S } from '../runner/player.ts';
+import { rivalSpec, type HurdleAction, type RivalSpec, type ZoneSpec } from './specs.ts';
 
-type QuirkName = Extract<RaceEvent, { type: 'quirk' }>['name'];
-
-export interface RivalProfile {
-  readonly reactionMs: number;
-  /** Speed approach time constant in s. */
-  readonly tau: number;
-  /** Cruise speed in m/s, tuned headlessly (see vtop.test.ts). */
-  readonly vTop: number;
-}
-
-/**
- * Design 3.2 REACTION and TAU, plus V_TOP tuned by a headless sweep of 1000 seeded races per rival
- * (opponents/vtop.test.ts) so the mean finish matches the target within +/-0.05 s.
- * Design starting values, for reference: 6.55, 7.70, 8.77, 8.99, 9.63, 11.74, 10.18.
- */
-export const RIVAL_PROFILES: Readonly<Record<OpponentId, RivalProfile>> = {
-  // Tuned 2026-10-27 by bisection; measured mean over the test's 1000 seeds in the comment.
-  pip: { reactionMs: 300, tau: 1.5, vTop: 6.383 }, // 17999.6 ms
-  jess: { reactionMs: 250, tau: 1.2, vTop: 7.628 }, // 15000.7 ms
-  marco: { reactionMs: 220, tau: 1.8, vTop: 8.757 }, // 13600.0 ms
-  kofi: { reactionMs: 180, tau: 1.4, vTop: 9.025 }, // 12599.5 ms
-  valentina: { reactionMs: 140, tau: 1.2, vTop: 9.666 }, // 11599.5 ms
-  unit7: { reactionMs: 100, tau: 2.4, vTop: 11.604 }, // 11000.1 ms
-  zyx: { reactionMs: 50, tau: 1.0, vTop: 10.158 }, // 10400.0 ms (pressure excluded)
-};
-
-/** Quirk trigger distances in m before the seeded +/-3 m shift, in draw order. */
-const BASE_TRIGGERS: Readonly<Record<OpponentId, readonly number[]>> = {
-  pip: [45, 80], // trip, wave
-  jess: [60], // fade
-  marco: [30], // coast start (window is 20 m long)
-  kofi: [80], // kick
-  valentina: [70], // kick + flashbulb
-  unit7: [50, 85], // overclock start, overheat start (overheat lasts 7 m)
-  zyx: [30, 65, 50], // warp 1, warp 2, pressure allowed from
-};
-
-const VTOP_JITTER = 0.01;
-const TRIGGER_JITTER_M = 3;
-const TRIP_TICKS = ticks(600);
-const WAVE_TICKS = ticks(1000);
 const VANISH_TICKS = ticks(250);
 /** Warp-in overlay length: 6 frames at 20 fps (design 5.6). */
 const WARP_IN_TICKS = ticks(300);
-const WARP_JUMP_M = 5;
-const COAST_LEN_M = 20;
-const OVERHEAT_LEN_M = 7;
-const PRESSURE_LEAD_M = 1.5;
+const LOCK_TICKS = ticks(TUNING.JUMP_LOCK_MS);
+const AIR_TICKS = airTicksTotal();
+const HIT_STUMBLE: Active = {
+  ticks: ticks(TUNING.AI_HIT_MS),
+  mult: TUNING.AI_HIT_MULT,
+  effect: null,
+  stumble: true,
+};
 
-/** Per-race random draws: V_TOP factor and shifted trigger distances. */
+/** Per-race random draws: V_TOP factor, shifted mark distances and hurdle outcomes. */
 export interface RivalPlan {
   readonly vTop: number;
+  /** Resolved mark distances, index-aligned with the spec's marks. */
   readonly at: readonly number[];
+  /** Per hurdle (110mh), else []. */
+  readonly hurdles: readonly HurdleAction[];
 }
 
-export function planRival(id: OpponentId, rng: () => number, vTopOverride?: number): RivalPlan {
-  const base = vTopOverride ?? RIVAL_PROFILES[id].vTop;
-  const vTop = base * uniform(rng, 1 - VTOP_JITTER, 1 + VTOP_JITTER);
-  const at = BASE_TRIGGERS[id].map((d) => d + uniform(rng, -TRIGGER_JITTER_M, TRIGGER_JITTER_M));
-  return { vTop, at };
+export function quirkJitterM(event: EventId): number {
+  return event === '400m' ? TUNING.AI_QUIRK_JITTER_400_M : TUNING.AI_QUIRK_JITTER_M;
 }
 
 /**
- * AI runner (design 3.1): exponential approach to V_TOP x quirk multiplier.
- * Deterministic given its plan and the player positions it is shown (Zyx pressure only).
+ * Draw order (stable, so a seed always means the same race): V_TOP factor, then each jittered mark
+ * in spec order, then one draw per hurdle (110mh) whether or not a script overrides it.
+ */
+export function planRival(
+  event: EventId,
+  id: OpponentId,
+  rng: () => number,
+  vTopOverride?: number,
+): RivalPlan {
+  const spec = rivalSpec(event, id);
+  const base = vTopOverride ?? spec.vTop;
+  const vTop = base * uniform(rng, 1 - TUNING.AI_VTOP_JITTER, 1 + TUNING.AI_VTOP_JITTER);
+  const j = quirkJitterM(event);
+  const at = spec.marks.map((m) => (m.jitter ? m.at + uniform(rng, -j, j) : m.at));
+  const hs = spec.hurdles;
+  const hurdles =
+    hs === undefined
+      ? []
+      : hurdlePositions(event).map((_, i): HurdleAction => {
+          const draw = rng();
+          return hs.script[i] ?? (draw < hs.pClip ? 'clip' : 'clean');
+        });
+  return { vTop, at, hurdles };
+}
+
+interface Active {
+  ticks: number;
+  readonly mult: number;
+  readonly effect: RunnerEffect | null;
+  readonly stumble: boolean;
+}
+
+/**
+ * AI runner (design 3.1, 15.2): exponential approach to V_TOP x multiplier, where the multiplier is
+ * the product of the active distance zones, the strongest active timed quirk and Zyx's pressure.
+ * Hurdles use the player's jump physics. Deterministic given its plan and the player positions it
+ * is shown (Zyx pressure only).
  */
 export class RivalSim {
   x = 0;
   xPrev = 0;
   v = 0;
   finishMs: number | null = null;
+  /** Ticks since takeoff while airborne, else null. */
+  airTicks: number | null = null;
+  /** True for the tick that landed, so rendering (one tick behind) can finish the arc. */
+  landedThisTick = false;
+  readonly knocked: boolean[];
+  private lockTicks = 0;
+  private nextHurdle = 0;
   private fired: boolean[];
-  private tripTicks = 0;
-  private waveTicks = 0;
+  private active: Active[] = [];
   private vanishTicks = 0;
+  private warpJumpM = 0;
   private warpInTicks = 0;
   private pressure = false;
-  private readonly profile: RivalProfile;
+  private readonly spec: RivalSpec;
+  private readonly hurdleX: readonly number[];
+  private readonly distanceM: number;
+  private readonly maxX: number;
+  readonly event: EventId;
   readonly id: OpponentId;
   readonly plan: RivalPlan;
 
-  constructor(id: OpponentId, plan: RivalPlan) {
+  constructor(event: EventId, id: OpponentId, plan: RivalPlan) {
+    this.event = event;
     this.id = id;
     this.plan = plan;
-    this.profile = RIVAL_PROFILES[id];
+    this.spec = rivalSpec(event, id);
+    this.hurdleX = hurdlePositions(event);
+    this.knocked = this.hurdleX.map(() => false);
+    this.distanceM = EVENTS[event].distanceM;
+    this.maxX = this.distanceM + WORLD.RUN_OUT_M;
     this.fired = plan.at.map(() => false);
   }
 
   clone(): RivalSim {
-    const c = new RivalSim(this.id, this.plan);
+    const c = new RivalSim(this.event, this.id, this.plan);
     c.x = this.x;
     c.xPrev = this.xPrev;
     c.v = this.v;
     c.finishMs = this.finishMs;
+    c.airTicks = this.airTicks;
+    c.landedThisTick = this.landedThisTick;
+    c.knocked.splice(0, c.knocked.length, ...this.knocked);
+    c.lockTicks = this.lockTicks;
+    c.nextHurdle = this.nextHurdle;
     c.fired = [...this.fired];
-    c.tripTicks = this.tripTicks;
-    c.waveTicks = this.waveTicks;
+    c.active = this.active.map((a) => ({ ...a }));
     c.vanishTicks = this.vanishTicks;
+    c.warpJumpM = this.warpJumpM;
     c.warpInTicks = this.warpInTicks;
     c.pressure = this.pressure;
     return c;
@@ -111,55 +132,46 @@ export class RivalSim {
     return this.vanishTicks === 0;
   }
 
+  /** Stumble anim: trip, or a hurdle HIT. */
   get tripping(): boolean {
-    return this.tripTicks > 0;
+    return this.active.some((a) => a.stumble);
   }
 
   get effect(): RunnerEffect {
     if (this.vanishTicks > 0) return 'warpOut';
     if (this.warpInTicks > 0) return 'warpIn';
-    if (this.waveTicks > 0) return 'wave';
-    if (this.id === 'unit7' && this.finishMs === null) {
-      const [oc = 0, heat = 0] = this.plan.at;
-      if (this.x >= heat && this.x < heat + OVERHEAT_LEN_M) return 'overheat';
-      if (this.x >= oc && this.x < heat) return 'overclock';
+    for (const a of this.active) if (a.effect !== null && a.effect !== 'watch') return a.effect;
+    for (const a of this.active) if (a.effect === 'watch') return 'watch';
+    if (this.finishMs === null) {
+      for (const z of this.spec.zones) if (z.effect !== undefined && this.inZone(z)) return z.effect;
     }
     return 'none';
   }
 
-  /** Quirk multiplier on V_TOP for the current state. */
+  private zoneStart(z: ZoneSpec): number {
+    return z.from === undefined ? Number.NEGATIVE_INFINITY : (this.plan.at[z.from] ?? 0);
+  }
+
+  private inZone(z: ZoneSpec): boolean {
+    const start = this.zoneStart(z);
+    if (this.x < start) return false;
+    if (z.to !== undefined) return this.x < (this.plan.at[z.to] ?? 0);
+    if (z.len !== undefined) return this.x < start + z.len;
+    return true;
+  }
+
+  /** Multiplier on V_TOP for the current state. */
   private multiplier(): number {
-    const x = this.x;
-    const at = this.plan.at;
-    switch (this.id) {
-      case 'pip':
-        if (this.tripTicks > 0) return 0.3;
-        if (this.waveTicks > 0) return 0.85;
-        return 1;
-      case 'jess':
-        return x >= (at[0] ?? 0) ? 0.9 : 1;
-      case 'marco': {
-        const start = at[0] ?? 0;
-        return x >= start && x < start + COAST_LEN_M ? 0.93 : 1;
-      }
-      case 'kofi':
-        return x >= (at[0] ?? 0) ? 1.05 : 1;
-      case 'valentina':
-        return x >= (at[0] ?? 0) ? 1.04 : 1;
-      case 'unit7': {
-        const [oc = 0, heat = 0] = at;
-        if (x >= heat && x < heat + OVERHEAT_LEN_M) return 0.8;
-        if (x >= oc && x < heat) return 1.06;
-        return 1;
-      }
-      case 'zyx':
-        return this.pressure ? 1.03 : 1;
-    }
+    let m = 1;
+    for (const z of this.spec.zones) if (this.inZone(z)) m *= z.mult;
+    let timed = 1;
+    for (const a of this.active) timed = Math.min(timed, a.mult);
+    return m * timed * (this.pressure ? 1.03 : 1);
   }
 
   /**
    * One 1/120 s step starting at race time `t0Ms`. `playerX` is the player's position at the start
-   * of the step, or null to ignore the player (headless tuning). Quirk and finish events go to `out`.
+   * of the step, or null to ignore the player (headless tuning). Events go to `out`.
    */
   step(t0Ms: number, playerX: number | null, out: RaceEvent[] | null): void {
     this.xPrev = this.x;
@@ -167,18 +179,21 @@ export class RivalSim {
       // Mid-warp: no movement, speed kept.
       this.vanishTicks -= 1;
       if (this.vanishTicks === 0) {
-        this.x += WARP_JUMP_M;
+        this.x += this.warpJumpM;
         this.xPrev = this.x;
         this.warpInTicks = WARP_IN_TICKS;
+        // Warped-through hurdles stay standing and are simply behind him now.
+        while ((this.hurdleX[this.nextHurdle] ?? Infinity) <= this.x) this.nextHurdle += 1;
         out?.push({ type: 'quirk', name: 'warpIn' });
       }
       return;
     }
-    if (t0Ms < this.profile.reactionMs) return;
+    if (t0Ms < this.spec.reactionMs) return;
 
-    if (this.id === 'zyx' && this.finishMs === null && playerX !== null) {
+    const pressure = this.spec.pressure;
+    if (pressure !== undefined && this.finishMs === null && playerX !== null) {
       const lead = playerX - this.x;
-      if (!this.pressure && this.x > (this.plan.at[2] ?? 0) && lead > PRESSURE_LEAD_M) {
+      if (!this.pressure && this.x > (this.plan.at[pressure.from] ?? 0) && lead > pressure.leadM) {
         this.pressure = true;
         out?.push({ type: 'quirk', name: 'pressure' });
       } else if (this.pressure && lead <= 0) {
@@ -187,26 +202,77 @@ export class RivalSim {
     }
 
     const finished = this.finishMs !== null;
-    const target = finished ? 0 : this.plan.vTop * this.multiplier();
-    this.v += ((target - this.v) * DT_S) / this.profile.tau;
-    // Run-out: besides target 0 with its tau, brake like an idle player so every rival stops
-    // inside the 20 m run-out (UNIT-7's 2.4 s tau alone would need ~29 m).
-    if (finished) this.v = Math.max(0, this.v - TUNING.IDLE_DECEL * DT_S);
+    if (this.airTicks === null) this.maybeTakeOff(finished, out);
+    if (this.airTicks === null) {
+      // Grounded: approach the target. Airborne speed is frozen (13.2).
+      const target = finished ? 0 : this.plan.vTop * this.multiplier();
+      this.v += ((target - this.v) * DT_S) / this.spec.tau;
+      // Run-out: besides target 0 with its tau, brake like an idle player so every rival stops
+      // inside the 20 m run-out (UNIT-7's 2.4 s tau alone would need ~29 m).
+      if (finished) this.v = Math.max(0, this.v - TUNING.IDLE_DECEL * DT_S);
+    }
     this.x += this.v * DT_S;
-    if (this.x >= MAX_X_M) {
-      this.x = MAX_X_M;
+    if (this.x >= this.maxX) {
+      this.x = this.maxX;
       this.v = 0;
     }
 
-    if (this.tripTicks > 0) this.tripTicks -= 1;
-    if (this.waveTicks > 0) this.waveTicks -= 1;
+    for (const a of this.active) a.ticks -= 1;
+    this.active = this.active.filter((a) => a.ticks > 0);
     if (this.warpInTicks > 0) this.warpInTicks -= 1;
+    if (this.lockTicks > 0) this.lockTicks -= 1;
 
-    if (!finished && this.x >= WORLD.RACE_DISTANCE_M) {
-      this.finishMs = crossingMs(t0Ms, this.xPrev, this.x);
+    this.checkHurdle(out);
+    this.landedThisTick = false;
+    if (this.airTicks !== null) {
+      this.airTicks += 1;
+      if (this.airTicks >= AIR_TICKS) {
+        this.airTicks = null;
+        this.landedThisTick = true;
+        this.v *= this.spec.hurdles?.landKeep ?? TUNING.LAND_KEEP;
+        this.lockTicks = LOCK_TICKS;
+        out?.push({ type: 'land', lane: 'rival' });
+      }
+    }
+
+    if (!finished && this.x >= this.distanceM) {
+      this.finishMs = crossingMs(t0Ms, this.xPrev, this.x, this.distanceM);
       out?.push({ type: 'rivalFinish', ms: this.finishMs });
     }
     if (!finished) this.checkTriggers(out);
+  }
+
+  /** Takeoff when (h - x) / v <= TAKEOFF_S * JUMP_AIR for a hurdle he means to jump (15.2). */
+  private maybeTakeOff(finished: boolean, out: RaceEvent[] | null): void {
+    const h = this.hurdleX[this.nextHurdle];
+    const action = this.plan.hurdles[this.nextHurdle];
+    if (h === undefined || finished || this.lockTicks > 0 || this.v <= 0) return;
+    if (action !== 'clean' && action !== 'clip') return;
+    const takeoffS = action === 'clip' ? TUNING.AI_TAKEOFF_CLIP : TUNING.AI_TAKEOFF_CLEAN;
+    if ((h - this.x) / this.v > takeoffS * JUMP_AIR_S) return;
+    this.airTicks = 0;
+    out?.push({ type: 'jump', lane: 'rival' });
+  }
+
+  private checkHurdle(out: RaceEvent[] | null): void {
+    const i = this.nextHurdle;
+    const h = this.hurdleX[i];
+    if (h === undefined || !(this.xPrev < h && h <= this.x)) return;
+    this.nextHurdle += 1;
+    const result = hurdleOutcome(this.airTicks, this.xPrev, this.x, h);
+    if (result === 'clean') {
+      out?.push({ type: 'hurdleClear', lane: 'rival', index: i });
+      return;
+    }
+    this.knocked[i] = true;
+    if (result === 'clip') {
+      this.v *= TUNING.CLIP_KEEP;
+      out?.push({ type: 'hurdleClip', lane: 'rival', index: i });
+    } else {
+      this.v *= TUNING.HIT_KEEP;
+      this.active.push({ ...HIT_STUMBLE });
+      out?.push({ type: 'hurdleHit', lane: 'rival', index: i });
+    }
   }
 
   private checkTriggers(out: RaceEvent[] | null): void {
@@ -218,36 +284,33 @@ export class RivalSim {
     }
   }
 
-  /** Starts quirk `i` and returns the events it announces. */
-  private fire(i: number): QuirkName[] {
-    switch (this.id) {
-      case 'pip':
-        if (i === 0) {
-          this.tripTicks = TRIP_TICKS;
-          return ['trip'];
-        }
-        this.waveTicks = WAVE_TICKS;
-        return ['wave'];
-      case 'jess':
-        return ['fade'];
-      case 'marco':
-        return ['coast'];
-      case 'kofi':
-        return ['kick'];
-      case 'valentina':
-        return ['kick', 'flashbulb'];
-      case 'unit7':
-        return i === 0 ? ['overclock'] : ['overheat'];
-      case 'zyx':
-        if (i === 2) return []; // pressure threshold, announced when it bites
+  /** Starts mark `i`'s action and returns the events it announces. */
+  private fire(i: number): readonly QuirkName[] {
+    const f = this.spec.marks[i]?.fire;
+    switch (f?.kind) {
+      case undefined:
+      case 'none':
+        return [];
+      case 'announce':
+        return f.names;
+      case 'timed':
+        this.active.push({
+          ticks: ticks(f.ms),
+          mult: f.mult,
+          effect: f.effect ?? null,
+          stumble: f.stumble === true,
+        });
+        return f.names;
+      case 'warp':
         this.vanishTicks = VANISH_TICKS;
+        this.warpJumpM = f.jumpM;
         return ['warpOut'];
     }
   }
 }
 
 /** Headless: run a rival alone from GO until it crosses; returns its finish ms. */
-export function simulateRivalFinish(sim: RivalSim, maxMs = 60000): number | null {
+export function simulateRivalFinish(sim: RivalSim, maxMs = 120000): number | null {
   const limit = ticks(maxMs);
   for (let k = 0; k < limit && sim.finishMs === null; k++) sim.step((k * 1000) / WORLD.SIM_HZ, null, null);
   return sim.finishMs;

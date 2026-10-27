@@ -30,7 +30,11 @@ describe('bakeArt (one atlas page for all art)', () => {
     const frames = new Map(art.textures.map((t) => [t.key, new Set(t.frames.map((f) => f.name))]));
     expect(art.anims.length).toBeGreaterThan(0);
     for (const a of art.anims) {
-      for (const f of a.frames) expect(frames.get(a.texture)?.has(f), `${a.key}: ${f}`).toBe(true);
+      for (const f of a.frames) {
+        // No frame name means the texture's own __BASE frame.
+        if (f.frame === undefined) expect(frames.has(f.key), `${a.key}: ${f.key}`).toBe(true);
+        else expect(frames.get(f.key)?.has(f.frame), `${a.key}: ${f.key}/${f.frame}`).toBe(true);
+      }
     }
   });
 

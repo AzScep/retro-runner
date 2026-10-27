@@ -2,16 +2,19 @@ import Phaser from 'phaser';
 import { createCharacterSprite, createStadium, paletteColor, type Stadium } from '../art/index.ts';
 import { playMusic, playSfx } from '../audio/index.ts';
 import { FONT_MINI } from '../ui/fonts.ts';
-import { formatLadderTotal, PAL } from '../ui/hudMath.ts';
+import { formatLadderTotal, type EventId } from '../core/index.ts';
+import { PAL } from '../ui/hudMath.ts';
+import { championTitle } from '../ui/screenText.ts';
+import { registerTapTarget } from '../ui/tapTargets.ts';
 import { MINI_LINE_HEIGHT } from '../ui/miniFont.ts';
 import { Label } from '../ui/text.ts';
 import { addPanel, UI_DEPTH } from '../ui/widgets.ts';
-import { applyCrt, getApp, goTo, onMenuKeys, SceneKey } from './app.ts';
+import { applyCrt, getApp, goTo, isTouch, onMenuKeys, SceneKey } from './app.ts';
 
 export const CREDITS: readonly string[] = [
   'RETRO RUNNER',
   '',
-  'SEVEN RIVALS. ONE HUNDRED METRES.',
+  'SEVEN RIVALS. THREE EVENTS.',
   '',
   'DESIGN',
   'THE GAME DIRECTOR',
@@ -35,7 +38,11 @@ export const CREDITS: readonly string[] = [
 const VIEW = { x: 40, y: 72, w: 240, h: 72 } as const;
 const SCROLL_PX_PER_S = 16;
 
-/** S9 Champion: shown once after the first win against Zyx (design 1.3.6). */
+export interface ChampionData {
+  readonly event: EventId;
+}
+
+/** S9 Champion: shown once per event after its first tier 7 win (design 1.3.6, 12.3). */
 export class ChampionScene extends Phaser.Scene {
   private stadium: Stadium | null = null;
   private lines: { label: Label; y0: number }[] = [];
@@ -46,14 +53,16 @@ export class ChampionScene extends Phaser.Scene {
     super(SceneKey.Champion);
   }
 
-  create(): void {
+  create(data: ChampionData): void {
     const app = getApp();
-    app.championPending = false;
+    const event = data.event;
+    app.championPending = null;
+    app.event = event;
     this.done = false;
     this.lines = [];
     this.cameras.main.setBackgroundColor(paletteColor(PAL.ink));
     applyCrt(this);
-    this.stadium = createStadium(this, 7);
+    this.stadium = createStadium(this, 7, event);
     this.stadium.scrollTo(0);
     createCharacterSprite(this, 'rio', 18, 176).setDepth(50).play('rio.celebrate');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -61,8 +70,14 @@ export class ChampionScene extends Phaser.Scene {
       this.stadium = null;
     });
 
-    new Label(this, 160, 8, 'CHAMPION!', { scale: 4, color: PAL.gold, outline: true, align: 'center' });
-    new Label(this, 160, 48, `LADDER TOTAL ${formatLadderTotal(app.records.ladderTotalMs())}`, {
+    new Label(this, 160, 16, championTitle(event), {
+      scale: 2,
+      color: PAL.gold,
+      outline: true,
+      align: 'center',
+    });
+    const total = app.records.ladderTotalMs(event);
+    new Label(this, 160, 48, `LADDER TOTAL ${total === null ? '--' : formatLadderTotal(total)}`, {
       align: 'center',
       outline: true,
     });
@@ -79,7 +94,15 @@ export class ChampionScene extends Phaser.Scene {
         y0,
       });
     });
-    new Label(this, 160, 170, 'ENTER: SKIP', { font: FONT_MINI, align: 'center', color: PAL.lightGrey });
+    new Label(this, 160, 170, isTouch() ? 'TAP: SKIP' : 'ENTER: SKIP', {
+      font: FONT_MINI,
+      align: 'center',
+      color: PAL.lightGrey,
+    });
+    registerTapTarget(this, { x: 0, y: 0, w: 320, h: 180 }, () => {
+      playSfx('menu_select');
+      this.finish();
+    });
 
     this.t0 = this.game.loop.time; // Clock.now is stale until the first preUpdate.
     playMusic('champion');

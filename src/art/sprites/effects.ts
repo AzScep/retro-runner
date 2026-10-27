@@ -5,7 +5,7 @@
 import { createMap, outline, setPx, type IndexMap } from '../bake/index.ts';
 import { ellipse, line, rect } from '../paint.ts';
 
-export type FxName = 'dust' | 'spark' | 'exhaust' | 'warpRing' | 'flash' | 'sweat' | 'gum';
+export type FxName = 'dust' | 'spark' | 'exhaust' | 'warpRing' | 'flash' | 'sweat' | 'gum' | 'clip';
 
 export interface FxDef {
   readonly name: FxName;
@@ -158,6 +158,43 @@ function gum(i: number): IndexMap {
   return m;
 }
 
+/**
+ * Clip burst (design 19.2): splinters of the striped bar and a puff of dust thrown forward from the
+ * bar, centred at (8, 9). Spawn by its bottom-centre 7 px below the bar top.
+ */
+function clip(i: number): IndexMap {
+  const m = createMap(S, S);
+  if (i === 0) {
+    rect(m, 6, 8, 4, 2, 23);
+    setPx(m, 7, 8, 8);
+    setPx(m, 8, 9, 8);
+    setPx(m, 5, 7, 22);
+    setPx(m, 10, 7, 22);
+    return m;
+  }
+  const k = i; // 1..3: chips fly out and fall
+  const chips: readonly (readonly [number, number, number, number])[] = [
+    // x, y velocity (px per frame), colour
+    [1.6, -1.4, 8, 0],
+    [2.4, -0.4, 1, 0],
+    [0.6, -2, 8, 1],
+    [-1.4, -1.2, 1, 1],
+    [2, 0.8, 8, 0],
+    [-0.8, -0.6, 7, 0],
+  ];
+  for (const [vx, vy, v, long] of chips) {
+    const x = Math.round(8 + vx * k);
+    const y = Math.round(9 + vy * k + 0.5 * k * k * 0.6);
+    setPx(m, x, y, v);
+    if (long) setPx(m, x + (vx > 0 ? 1 : -1), y, v === 8 ? 7 : 3);
+  }
+  // Dust puff at the bar, growing then breaking up.
+  const r = [0, 2, 2.6, 2][k] ?? 2;
+  ellipse(m, 7, 10, r, r * 0.8, DUST, 0.35, -0.35);
+  if (k === 3) for (let q = 0; q < m.data.length; q++) if (m.data[q] === 7 && q % 2) m.data[q] = 0;
+  return k < 3 ? outline(m, { color: 6 }) : m;
+}
+
 const FRAMES = (n: number, fn: (i: number) => IndexMap) => Array.from({ length: n }, (_, i) => fn(i));
 
 export function buildEffects(): readonly FxDef[] {
@@ -169,5 +206,6 @@ export function buildEffects(): readonly FxDef[] {
     { name: 'flash', fps: 12, repeat: 0, frames: FRAMES(3, flash) },
     { name: 'sweat', fps: 8, repeat: 0, frames: FRAMES(3, sweat) },
     { name: 'gum', fps: 6, repeat: -1, frames: FRAMES(4, gum) },
+    { name: 'clip', fps: 16, repeat: 0, frames: FRAMES(4, clip) },
   ];
 }

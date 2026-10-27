@@ -17,7 +17,7 @@ export interface SfxBank {
 }
 
 type Reply =
-  | { key: string; sampleRate: number; left: Float32Array; right: Float32Array }
+  | { key: string; sampleRate: number; channels: Float32Array[]; final?: Float32Array[] }
   | { key: string; sfx: Record<string, Float32Array>; crowd: Float32Array }
   | { key: string; error: string };
 
@@ -83,7 +83,10 @@ function ask(req: TrackRef | { key: typeof SFX_BANK_KEY }): Promise<Reply> {
 export async function renderTrack(ref: TrackRef): Promise<Pcm> {
   try {
     const r = await ask(ref);
-    if ('left' in r) return { sampleRate: r.sampleRate, channels: [r.left, r.right] };
+    if ('channels' in r) {
+      const { sampleRate, channels, final } = r;
+      return final ? { sampleRate, channels, final } : { sampleRate, channels };
+    }
   } catch {
     // fall through to the main-thread renderer
   }

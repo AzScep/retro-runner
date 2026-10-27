@@ -1,7 +1,10 @@
 import type {
   CountdownBeat,
+  EventId,
+  JumpEvent,
   OpponentId,
   RaceEvent,
+  RaceInput,
   RaceOptions,
   RaceOutcome,
   RacePhase,
@@ -11,19 +14,25 @@ import type {
   RunnerEffect,
   RunnerState,
 } from '../index.ts';
+import { isJump } from '../bus/bus.ts';
 import { boundaryTick, DT_MS, SimClock, ticks } from '../clock/clock.ts';
-import { opposite, StepFilter } from '../input/steps.ts';
+import { EVENT_COURSE, EVENTS, type EventCourse } from '../events.ts';
+import { Held, opposite, StepFilter } from '../input/steps.ts';
 import { planRival, RivalSim } from '../opponents/ai.ts';
 import { mulberry32 } from '../rng/mulberry32.ts';
 import { TUNING, WORLD } from '../roster.ts';
-import { PlayerBody } from '../runner/player.ts';
+import { airTicksTotal, arcHeight, PlayerBody } from '../runner/player.ts';
 
 const INTRO_TICKS = ticks(TUNING.INTRO_MS);
 const BEAT_TICKS = ticks(TUNING.COUNT_STEP_MS);
 const GO_TEXT_TICKS = ticks(TUNING.GO_TEXT_MS);
 const BANNER_TICKS = ticks(TUNING.FALSE_START_BANNER_MS);
 const RESULTS_TICKS = ticks(TUNING.RESULTS_DELAY_MS);
-const DNF_TICKS = ticks(WORLD.DNF_MS);
+const AIR_TICKS = airTicksTotal();
+/** Valid steps remembered for the stamina arrow's rate estimate (7 intervals). */
+const RATE_WINDOW = 8;
+/** Longer than this without a valid step means the current rate is below SUSTAIN_RATE. */
+const SUSTAIN_GAP_MS = 1000 / TUNING.SUSTAIN_RATE;
 /** Player shows the false start "jolt" (stumble frames) for the start of the banner. */
 const JOLT_TICKS = ticks(250);
 /** Off-screen opponent completion gives up after this much race time (never reached in practice). */
@@ -44,17 +53,23 @@ const EDGE_EPS_MS = 1e-6;
  * Order at each boundary: phase transitions, then queued inputs, then one integration step.
  */
 export class Race {
+  private readonly event: EventId;
+  private readonly course: EventCourse;
+  private readonly dnfTicks: number;
   private readonly opponent: OpponentId;
   private readonly seed: number;
   private readonly clock: SimClock;
   private readonly countRng: () => number;
   private readonly filter = new StepFilter();
-  private readonly player = new PlayerBody();
+  private readonly jumpHeld = new Held();
+  private readonly player: PlayerBody;
   private readonly rival: RivalSim;
+  /** Race ms of the last RATE_WINDOW valid steps (stamina arrow). */
+  private recentSteps: number[] = [];
 
   private tick = 0;
   private lastNow: number;
-  private queue: RunKeyEvent[] = [];
+  private queue: RaceInput[] = [];
   private pending: RaceEvent[] = [];
 
   private phase: RacePhase = 'intro';
@@ -70,16 +85,21 @@ export class Race {
   private dnf = false;
 
   constructor(opts: RaceOptions) {
+    this.event = opts.event;
+    this.course = EVENT_COURSE[opts.event];
+    this.dnfTicks = ticks(EVENTS[opts.event].dnfMs);
     this.opponent = opts.opponent;
     this.seed = opts.seed >>> 0;
     this.clock = new SimClock(opts.startT);
     this.lastNow = opts.startT;
+    this.player = new PlayerBody(opts.event);
     // Separate streams so the number of countdown attempts never changes the rival's draws.
-    this.rival = new RivalSim(opts.opponent, planRival(opts.opponent, mulberry32(this.seed)));
+    const plan = planRival(opts.event, opts.opponent, mulberry32(this.seed));
+    this.rival = new RivalSim(opts.event, opts.opponent, plan);
     this.countRng = mulberry32((this.seed ^ 0x9e3779b9) >>> 0);
   }
 
-  input(e: RunKeyEvent): void {
+  input(e: RaceInput): void {
     if (this.clock.isFrozenAt(e.t)) {
       // Paused or in the GET SET freeze: never a step or a false start, only held tracking.
       this.trackHeld(e);
@@ -124,7 +144,10 @@ export class Race {
     const alpha = this.clock.alpha(this.lastNow, this.tick);
     const running = this.tick >= this.goTick;
     const raceMs = running ? (this.tick - this.goTick) * DT_MS : 0;
+    const p = this.player;
+    const h = p.hurdleX[p.nextHurdle];
     return {
+      event: this.event,
       opponent: this.opponent,
       seed: this.seed,
       phase: this.phase,
@@ -139,6 +162,10 @@ export class Race {
       player: this.playerState(alpha),
       rival: this.rivalState(alpha),
       outcome: this.outcome,
+      nextHurdleS: h === undefined || p.v < 1 ? null : (h - p.x) / p.v,
+      nextHurdleIndex: h === undefined ? null : p.nextHurdle,
+      splits: [...p.splits],
+      staminaDraining: this.staminaDraining(raceMs),
     };
   }
 
@@ -170,7 +197,7 @@ export class Race {
         if (k >= this.phaseTick + BANNER_TICKS) this.startCountdown(out);
         break;
       case 'running':
-        if (k - this.goTick >= DNF_TICKS) this.finishDnf(out);
+        if (k - this.goTick >= this.dnfTicks) this.finishDnf(out);
         break;
       case 'finished':
         break;
@@ -199,35 +226,70 @@ export class Race {
       // Late arrivals (boundary already passed) apply now; future ones wait.
       if (boundaryTick(s) > this.tick) break;
       this.queue.shift();
-      if (e.kind === 'up') this.filter.release(e.side);
+      if (isJump(e)) this.jumpInput(e, s, out);
+      else if (e.kind === 'up') this.filter.release(e.side);
       else this.keyDown(e, s, out);
     }
+  }
+
+  /** Inside the countdown window or the running race, before the player finished or DNF'd. */
+  private live(s: number): boolean {
+    const countStartMs = this.countTick * DT_MS - EDGE_EPS_MS;
+    return (
+      (this.phase === 'countdown' || this.phase === 'running') &&
+      s >= countStartMs &&
+      this.player.finishMs === null &&
+      !this.dnf
+    );
+  }
+
+  /** Before GO (the false start window, given live()). */
+  private beforeGo(s: number): boolean {
+    return s < this.goTick * DT_MS - EDGE_EPS_MS;
+  }
+
+  /**
+   * Design 13.2 / 13.4: jumps exist only in the hurdles. A fresh press in the countdown window is a
+   * false start; after GO it takes off when grounded and unlocked, otherwise it is silently ignored.
+   */
+  private jumpInput(e: JumpEvent, s: number, out: RaceEvent[]): void {
+    if (e.kind === 'up') {
+      this.jumpHeld.up();
+      return;
+    }
+    if (e.repeat) return;
+    const wasHeld = this.jumpHeld.held;
+    this.jumpHeld.down();
+    if (this.event !== '110mh' || !this.live(s)) return;
+    if (this.beforeGo(s)) {
+      this.falseStart(out);
+      return;
+    }
+    if (wasHeld || !this.player.canJump()) return;
+    this.player.jump();
+    out.push({ type: 'jump', lane: 'player' });
   }
 
   private keyDown(e: RunKeyEvent, s: number, out: RaceEvent[]): void {
     // Director decision: auto-repeat never does anything in any phase (not a step, not a false start).
     if (e.repeat) return;
-    const countStartMs = this.countTick * DT_MS - EDGE_EPS_MS;
-    const goMs = this.goTick * DT_MS - EDGE_EPS_MS;
-    const live =
-      (this.phase === 'countdown' || this.phase === 'running') &&
-      s >= countStartMs &&
-      this.player.finishMs === null &&
-      !this.dnf;
-    if (!live) {
+    if (!this.live(s)) {
       this.filter.noteDown(e.side);
       return;
     }
-    if (s < goMs) {
+    if (this.beforeGo(s)) {
       // A fresh keydown in the window is a false start; a key held since before "3" is not.
       this.filter.noteDown(e.side);
       this.falseStart(out);
       return;
     }
-    const verdict = this.filter.down(e.side, Math.max(0, s - this.goTick * DT_MS), e.repeat);
+    const ms = Math.max(0, s - this.goTick * DT_MS);
+    const verdict = this.filter.down(e.side, ms, e.repeat);
     if (verdict === 'step') {
-      this.player.impulse();
-      out.push({ type: 'step', side: e.side });
+      const airborne = this.player.airborne;
+      this.player.impulse(ms, out);
+      this.recentSteps = [...this.recentSteps.slice(1 - RATE_WINDOW), ms];
+      out.push(airborne ? { type: 'step', side: e.side, airborne: true } : { type: 'step', side: e.side });
     } else if (verdict === 'fumble') {
       out.push({ type: 'fumble', side: e.side });
     }
@@ -240,20 +302,9 @@ export class Race {
     out.push({ type: 'falseStart', count: this.falseStarts });
     if (this.falseStarts >= TUNING.FALSE_STARTS_TO_DQ) {
       this.dq = true;
-      this.phase = 'finished';
-      this.phaseTick = this.tick;
-      this.outcome = {
-        opponent: this.opponent,
-        result: 'dq',
-        ms: null,
-        oppMs: null,
-        marginMs: null,
-        photoFinish: false,
-        falseStarts: this.falseStarts,
-        seed: this.seed,
-      };
+      const outcome = this.setOutcome('dq', null, null);
       out.push({ type: 'disqualified' });
-      out.push({ type: 'resultReady', outcome: this.outcome });
+      out.push({ type: 'resultReady', outcome });
       return;
     }
     this.phase = 'falseStart';
@@ -265,7 +316,7 @@ export class Race {
     if (this.tick < this.goTick || this.dq) return;
     const t0 = (this.tick - this.goTick) * DT_MS;
     const playerX = this.player.x;
-    const crossed = this.player.step(t0, this.playerIdle(t0));
+    const crossed = this.player.step(t0, this.playerIdle(t0), out);
     this.rival.step(t0, playerX, out);
     if (crossed) this.finishPlayer(out);
   }
@@ -292,10 +343,11 @@ export class Race {
     this.resultTick = this.tick;
   }
 
-  private setOutcome(result: RaceOutcome['result'], ms: number | null, oppMs: number | null): void {
+  private setOutcome(result: RaceOutcome['result'], ms: number | null, oppMs: number | null): RaceOutcome {
     this.phase = 'finished';
     this.phaseTick = this.tick;
     this.outcome = {
+      event: this.event,
       opponent: this.opponent,
       result,
       ms,
@@ -304,7 +356,10 @@ export class Race {
       photoFinish: ms !== null && ms === oppMs,
       falseStarts: this.falseStarts,
       seed: this.seed,
+      hit: this.event === '110mh' ? this.player.hit : null,
+      splits: [...this.player.splits],
     };
+    return this.outcome;
   }
 
   /**
@@ -317,7 +372,7 @@ export class Race {
     for (let k = fromTick; k - this.goTick < OFFSCREEN_LIMIT_TICKS && r.finishMs === null; k++) {
       const t0 = (k - this.goTick) * DT_MS;
       const px = p.x;
-      p.step(t0, this.playerIdle(t0));
+      p.step(t0, this.playerIdle(t0), null);
       r.step(t0, px, null);
     }
     return r.finishMs;
@@ -327,9 +382,27 @@ export class Race {
   // View state
   // -------------------------------------------------------------------------
 
-  private trackHeld(e: RunKeyEvent): void {
-    if (e.kind === 'up') this.filter.release(e.side);
+  private trackHeld(e: RaceInput): void {
+    if (isJump(e)) {
+      if (e.kind === 'up') this.jumpHeld.up();
+      else if (!e.repeat) this.jumpHeld.down();
+    } else if (e.kind === 'up') this.filter.release(e.side);
     else if (!e.repeat) this.filter.noteDown(e.side);
+  }
+
+  /**
+   * 400 m stamina arrow: net draining while the current step rate is above SUSTAIN_RATE, measured
+   * over the last 7 step intervals, and the last step is recent enough for that rate to hold.
+   */
+  private staminaDraining(raceMs: number): boolean {
+    const p = this.player;
+    if (p.stamina === null || this.phase !== 'running' || p.finishMs !== null) return false;
+    const n = this.recentSteps.length;
+    const first = this.recentSteps[0];
+    const last = this.recentSteps[n - 1];
+    if (n < 2 || first === undefined || last === undefined || last <= first) return false;
+    if (raceMs - last > SUSTAIN_GAP_MS) return false;
+    return ((n - 1) * 1000) / (last - first) > TUNING.SUSTAIN_RATE;
   }
 
   private beat(): CountdownBeat {
@@ -343,7 +416,7 @@ export class Race {
 
   private timerMs(alpha: number): number {
     if (this.player.finishMs !== null) return this.player.finishMs;
-    if (this.dnf) return WORLD.DNF_MS;
+    if (this.dnf) return EVENTS[this.event].dnfMs;
     if (this.tick < this.goTick || this.dq) return 0;
     return Math.max(0, (this.tick - 1 + alpha - this.goTick) * DT_MS);
   }
@@ -373,24 +446,33 @@ export class Race {
     return WALK_FROM_M * (1 - f);
   }
 
-  private moving(x: number, v: number, crossed: boolean, settled: RunnerAnim): RunnerAnim {
-    if (x >= TUNING.LEAN_FROM_M && x < TUNING.LEAN_TO_M) return 'lean';
-    if (crossed) return v < SETTLE_BELOW_MPS ? settled : 'run';
-    return v < TUNING.READY_BELOW_MPS ? 'ready2' : 'run';
+  private moving(x: number, v: number, crossed: boolean, settled: RunnerAnim, run: RunnerAnim): RunnerAnim {
+    if (x >= this.course.leanFromM && x < this.course.leanToM) return 'lean';
+    if (crossed) return v < SETTLE_BELOW_MPS ? settled : run;
+    return v < TUNING.READY_BELOW_MPS ? 'ready2' : run;
   }
 
   private playerState(alpha: number): RunnerState {
     const b = this.player;
     const pre = this.preRaceAnim(true);
     const xM = this.phase === 'intro' ? this.walkX(alpha) : b.xPrev + (b.x - b.xPrev) * alpha;
+    const tired = b.stamina !== null && b.stamina < TUNING.S_FATIGUE;
     let anim: RunnerAnim;
     if (pre !== null) anim = pre;
+    else if (b.airborne || b.landedThisTick) anim = 'hurdle';
+    else if (b.stumbleTicks > 0) anim = 'stumble';
     else if (this.dnf) anim = 'lose';
     else {
       const won = this.outcome?.result === 'win';
-      anim = this.moving(b.x, b.v, b.finishMs !== null, won ? 'celebrate' : 'lose');
+      anim = this.moving(b.x, b.v, b.finishMs !== null, won ? 'celebrate' : 'lose', tired ? 'tired' : 'run');
     }
-    return runner(xM, this.phase === 'intro' ? 0 : b.v, anim, 'none', true, b.finishMs);
+    const sweat = tired && this.phase === 'running' && b.finishMs === null;
+    return {
+      ...runner(xM, this.phase === 'intro' ? 0 : b.v, anim, sweat ? 'sweat' : 'none', true, b.finishMs),
+      ...air(b, alpha),
+      hurdlesKnocked: [...b.knocked],
+      stamina: b.stamina,
+    };
   }
 
   private rivalState(alpha: number): RunnerState {
@@ -399,15 +481,35 @@ export class Race {
     const xM = this.phase === 'intro' ? this.walkX(alpha) : r.xPrev + (r.x - r.xPrev) * alpha;
     let anim: RunnerAnim;
     if (pre !== null) anim = pre;
+    else if (r.airTicks !== null || r.landedThisTick) anim = 'hurdle';
     else if (r.tripping) anim = 'stumble';
     else {
       // Rival celebrates unless the player won; before the outcome exists the rival crossed first.
       const rivalLost = this.outcome?.result === 'win';
-      anim = this.moving(r.x, r.v, r.finishMs !== null, rivalLost ? 'lose' : 'celebrate');
+      anim = this.moving(r.x, r.v, r.finishMs !== null, rivalLost ? 'lose' : 'celebrate', 'run');
     }
     const effect: RunnerEffect = this.phase === 'running' || this.phase === 'finished' ? r.effect : 'none';
-    return runner(xM, this.phase === 'intro' ? 0 : r.v, anim, effect, r.visible, r.finishMs);
+    return {
+      ...runner(xM, this.phase === 'intro' ? 0 : r.v, anim, effect, r.visible, r.finishMs),
+      ...air(r, alpha),
+      hurdlesKnocked: [...r.knocked],
+      stamina: null,
+    };
   }
+}
+
+/**
+ * Arc state for rendering, one tick behind the sim like xM: the first airborne tick renders from
+ * s = 0, and the tick that landed still renders the last 1/48 of the arc.
+ */
+function air(
+  body: { readonly airTicks: number | null; readonly landedThisTick: boolean },
+  alpha: number,
+): { airM: number; airPhase: number | null } {
+  const done = body.airTicks ?? (body.landedThisTick ? AIR_TICKS : null);
+  if (done === null) return { airM: 0, airPhase: null };
+  const s = Math.min(1, Math.max(0, (done - 1 + alpha) / AIR_TICKS));
+  return { airM: arcHeight(s), airPhase: s };
 }
 
 function runner(
@@ -417,7 +519,7 @@ function runner(
   effect: RunnerEffect,
   visible: boolean,
   finishMs: number | null,
-): RunnerState {
+): Omit<RunnerState, 'airM' | 'airPhase' | 'hurdlesKnocked' | 'stamina'> {
   return {
     xM,
     vMps,

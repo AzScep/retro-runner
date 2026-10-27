@@ -10,10 +10,10 @@
  * inline when that result is not there (worker unsupported, failed or not awaited).
  */
 import type Phaser from 'phaser';
-import { bakeArt, KEYS, type BakedArt } from '../baked.ts';
+import { bakeArt, BOARD50_M, KEYS, SPLIT_BOARD_M, type BakedArt } from '../baked.ts';
 import type { Anchors } from '../chars/rig.ts';
 
-export { KEYS };
+export { BOARD50_M, KEYS, SPLIT_BOARD_M };
 
 const anchors = new Map<string, Anchors>();
 
@@ -91,9 +91,10 @@ export function registerAll(scene: Phaser.Scene): void {
     if (scene.anims.exists(a.key)) continue;
     scene.anims.create({
       key: a.key,
-      frames: a.frames.map((frame) => ({ key: a.texture, frame })),
+      frames: a.frames.map((f) => ({ ...f })),
       frameRate: a.fps,
       repeat: a.repeat,
+      ...(a.repeatDelay === undefined ? {} : { repeatDelay: a.repeatDelay }),
     });
   }
 }

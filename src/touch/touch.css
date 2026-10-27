@@ -1,0 +1,137 @@
+/*
+ * Touch overlay (design 17.4, 17.6). Palette only, no transparency on drawn pixels.
+ * Index 1 #0b0b14, 2 #1d1b2e, 6 #9b98b3, 8 #f4f2ff, 22 #ffd23f.
+ * --gp is CSS px per game px, set by the touch layer on <html>.
+ */
+.touch-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.touch-zone,
+.touch-pad,
+.touch-pause {
+  position: absolute;
+  display: none;
+}
+
+/* Zones are invisible hit areas; live only during a race in touch modality. */
+html[data-input='touch'] .touch-root.live .touch-zone {
+  display: block;
+  pointer-events: auto;
+}
+html[data-input='touch'] .touch-root.live .touch-pad {
+  display: block;
+}
+.touch-root:not(.hurdles) [data-touch='jump'],
+.touch-root:not(.hurdles) [data-pad='jump'] {
+  display: none !important;
+}
+
+.touch-pad {
+  pointer-events: none;
+  object-fit: contain;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+html[data-input='touch'] .touch-root.show-pause .touch-pause {
+  display: grid;
+  pointer-events: auto;
+}
+.touch-pause {
+  place-items: center;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-pause img {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  pointer-events: none;
+}
+.touch-pause.pressed img {
+  transform: translateY(calc(var(--gp, 1px) * 1));
+}
+
+/* Rotate prompt: full screen, fill index 2, text index 8. */
+.touch-rotate {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  background: #1d1b2e;
+  color: #f4f2ff;
+  font-family: RetroRunnerPressStart2P, monospace;
+  font-size: 16px;
+  line-height: 1;
+  text-align: center;
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch-rotate.visible {
+  display: flex;
+}
+.touch-rotate img {
+  width: 128px;
+  height: 128px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* Add to Home Screen hint: panel 200 x 64 game px at (60, 100), fill index 2, border index 8. */
+.touch-hint-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  display: none;
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch-hint-backdrop.visible {
+  display: block;
+}
+.touch-hint {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--gp, 1px) * 3);
+  padding: calc(var(--gp, 1px) * 4);
+  background: #1d1b2e;
+  border: calc(var(--gp, 1px) * 1) solid #f4f2ff;
+  outline: calc(var(--gp, 1px) * 1) solid #0b0b14;
+  color: #f4f2ff;
+  font-family: RetroRunnerPressStart2P, monospace;
+  font-size: calc(var(--gp, 1px) * 8);
+  line-height: 1;
+  text-align: center;
+}
+.touch-hint p {
+  margin: 0;
+}
+.touch-hint button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 calc(var(--gp, 1px) * 8);
+  border: calc(var(--gp, 1px) * 1) solid #ffd23f;
+  background: #0b0b14;
+  color: #ffd23f;
+  font: inherit;
+  cursor: pointer;
+}

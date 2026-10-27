@@ -4,7 +4,17 @@
  */
 import { createMap, outline, remap, setPx, getPx, type IndexMap } from '../bake/index.ts';
 import { PALETTE } from '../palette.ts';
-import { ANIMS, RUN_POSES, animPoses, runPosesWith } from './poses.ts';
+import {
+  ANIMS,
+  HURDLE_POSES,
+  RUN_POSES,
+  TIRED_POSES,
+  UNIT7_LANDING,
+  WATCH_OVERLAY_POSES,
+  watchPoses,
+  animPoses,
+  runPosesWith,
+} from './poses.ts';
 import { renderPose, type Anchors, type Pose } from './rig.ts';
 import { SPECS, type SpecId } from './specs.ts';
 
@@ -17,7 +27,23 @@ export const CHARACTER_IDS: readonly SpecId[] = [
   'valentina',
   'unit7',
   'zyx',
+  'sol',
 ];
+
+/** Characters with a `hurdle` anim (design 19.1): everyone in the hurdles ladder, i.e. all but Sol. */
+export const HURDLERS: readonly SpecId[] = [
+  'rio',
+  'pip',
+  'jess',
+  'marco',
+  'kofi',
+  'valentina',
+  'unit7',
+  'zyx',
+];
+
+/** Frames of the `hurdle` anim; the view picks frame floor(HURDLE_FRAMES * airPhase). */
+export const HURDLE_FRAMES = 4;
 
 export const FRAME_SIZE = 48;
 /** Design pivot: bottom-centre (24, 47). */
@@ -128,6 +154,22 @@ export function buildCharacter(id: SpecId): CharacterArt {
   const frames: CharFrame[] = [];
   const anims: CharAnim[] = [];
   for (const a of ANIMS) addPoses(frames, anims, id, a.name, animPoses(id, a), a.fps, a.repeat);
+
+  // v2 (design 19.1): hurdle clearance, frame chosen by arc phase (fps is nominal, never auto-played).
+  if (HURDLERS.includes(id)) {
+    const poses = id === 'unit7' ? [...HURDLE_POSES.slice(0, 3), UNIT7_LANDING] : HURDLE_POSES;
+    addPoses(frames, anims, id, 'hurdle', poses, 10, 0);
+  }
+  if (id === 'rio') addPoses(frames, anims, id, 'tired', TIRED_POSES, 12, -1);
+  if (id === 'sol') {
+    // Watch glance overlay baked over every run leg frame (see poses.ts watchPoses); no auto-played anim.
+    for (let k = 0; k < WATCH_OVERLAY_POSES; k++) {
+      watchPoses(k).forEach((p, i) => {
+        const r = renderPose(SPECS.sol, p);
+        frames.push({ name: `watch${k}_${i}`, map: r.map, anchors: r.anchors });
+      });
+    }
+  }
 
   // Character extras (design 5.6).
   if (id === 'pip') {

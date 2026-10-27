@@ -19,7 +19,7 @@ function run(
   plan?: RivalPlan,
   playerSpeed: number | null = null,
 ): { events: RaceEvent[]; samples: Sample[]; sim: RivalSim } {
-  const sim = new RivalSim(id, plan ?? planRival(id, mulberry32(42)));
+  const sim = new RivalSim('100m', id, plan ?? planRival('100m', id, mulberry32(42)));
   const events: RaceEvent[] = [];
   const samples: Sample[] = [];
   for (let k = 0; k < 3600; k++) {
@@ -41,11 +41,11 @@ function run(
 const quirks = (events: RaceEvent[]): string[] => events.flatMap((e) => (e.type === 'quirk' ? [e.name] : []));
 
 /** Unshifted plan with an exact V_TOP, for checking quirk geometry. */
-const exact = (vTop: number, at: number[]): RivalPlan => ({ vTop, at });
+const exact = (vTop: number, at: number[]): RivalPlan => ({ vTop, at, hurdles: [] });
 
 describe('RivalSim (design 3.1)', () => {
   it('does not move before its reaction time, then approaches V_TOP exponentially', () => {
-    const sim = new RivalSim('kofi', exact(9, [200]));
+    const sim = new RivalSim('100m', 'kofi', exact(9, [200]));
     sim.step(0, null, null);
     sim.step(170, null, null);
     expect(sim.v).toBe(0);
@@ -55,14 +55,14 @@ describe('RivalSim (design 3.1)', () => {
 
   it('per-race variance stays inside +/-1% V_TOP and +/-3 m triggers, and is seed-deterministic', () => {
     for (let seed = 1; seed < 200; seed++) {
-      const plan = planRival('unit7', mulberry32(seed));
+      const plan = planRival('100m', 'unit7', mulberry32(seed));
       expect(plan.vTop / 11.604).toBeGreaterThanOrEqual(0.99);
       expect(plan.vTop / 11.604).toBeLessThanOrEqual(1.01);
       expect(Math.abs((plan.at[0] ?? 0) - 50)).toBeLessThanOrEqual(3);
       expect(Math.abs((plan.at[1] ?? 0) - 85)).toBeLessThanOrEqual(3);
     }
-    expect(planRival('zyx', mulberry32(9))).toEqual(planRival('zyx', mulberry32(9)));
-    expect(planRival('zyx', mulberry32(9))).not.toEqual(planRival('zyx', mulberry32(10)));
+    expect(planRival('100m', 'zyx', mulberry32(9))).toEqual(planRival('100m', 'zyx', mulberry32(9)));
+    expect(planRival('100m', 'zyx', mulberry32(9))).not.toEqual(planRival('100m', 'zyx', mulberry32(10)));
   });
 
   it('crosses with the interpolated finish rule and stops inside the run-out', () => {

@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 /** Phaser's build-time feature flags (its own webpack config sets them with DefinePlugin). */
 const PHASER_FLAGS: Readonly<Record<string, boolean>> = {
@@ -31,7 +32,26 @@ function phaserFlags(): Plugin {
 
 export default defineConfig({
   base: './',
-  plugins: [phaserFlags()],
+  plugins: [
+    phaserFlags(),
+    // Precaching service worker for offline play from the Home Screen (research-mobile 5).
+    // The manifest is the hand-written public/manifest.webmanifest, linked from index.html.
+    // main.ts registers the worker (never in test builds); `prompt` means no skipWaiting, so a new
+    // version takes over on the next cold launch and never reloads the page mid-race.
+    VitePWA({
+      strategies: 'generateSW',
+      registerType: 'prompt',
+      injectRegister: false,
+      manifest: false,
+      devOptions: { enabled: false },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,png,svg,woff2,webmanifest}'],
+        navigateFallback: 'index.html',
+        cleanupOutdatedCaches: true,
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+      },
+    }),
+  ],
   resolve: {
     alias: [
       // The game imports `phaser`; the bundle gets the trimmed build in src/phaser-build.js.
@@ -39,7 +59,7 @@ export default defineConfig({
       { find: /^phaser-src\//, replacement: PHASER_SRC },
     ],
   },
-  // The main chunk is ~830 KB with the trimmed Phaser build (1.5 MB with the full dist file), so a
+  // The main chunk is ~920 KB with the trimmed Phaser build (1.6 MB with the full dist file), so a
   // warning here means the bundle has regressed.
-  build: { target: 'es2023', chunkSizeWarningLimit: 900 },
+  build: { target: 'es2023', chunkSizeWarningLimit: 1000 },
 });

@@ -1,12 +1,33 @@
 # Performance pass (October 2026)
 
-Status: work report for branch `claude/perf-polish-5edafe`.
-Baseline is `68d06f0` on main; "after" is the head of the branch.
+Status: work report for branch `claude/perf-polish-5edafe`, which now includes the v2 expansion merged from main (`6acf6b1`).
+"Results with v2" compares main at `6acf6b1` with the merged branch; "Results on v1" is the original pass (baseline `68d06f0`).
 Measurements come from `tools/perf/measure.ts` against production builds made with `VITE_TEST_HOOKS=1`, on an Apple-silicon MacBook.
 Headless Chromium renders WebGL with SwiftShader (software), so shader and GPU costs there are larger than on real hardware; `--headed` runs on the real GPU.
 Cold-load rows are medians of 9 loads, baseline and branch interleaved so both saw the same machine load (another session was busy on the machine).
 
-## Results
+## Results with v2
+
+Same probe, the 100 m against Pip; 400 m and hurdles share the same renderer, textures and shaders.
+
+| Metric | main (`6acf6b1`) | Merged branch |
+| --- | --- | --- |
+| Main JS bundle | 1,592 KB (435 KB gzip) | 919 KB (260 KB gzip), plus a 55 KB bake worker |
+| Cold load to Title, Chromium headless | 363 ms | 254 ms |
+| Same, Chromium with 4x CPU throttle | 964 ms | 351 ms |
+| Same, WebKit | 389 ms | 153 ms |
+| Same, Chromium on the real GPU (headed) | 293 ms | 154 ms |
+| Dropped frames while running, headless (2 races) | 1-2 per race (70-72 ms at the countdown and mid-race) | 0 |
+| Same, 4x CPU throttle (2 races) | 1 per race (52-60 ms) | 0 |
+| Same, real GPU (2 races) | 0-1 (72 ms) | 0 |
+| Shader programs linked after boot | not logged on main | 0 (only the 4 on the loading frame) |
+| Texture binds / draw calls per race frame | 21 / 9 | 4 / 9 |
+| Art | ~200 separate textures | one 2047x1005 atlas page, 198 keys, 97 animations |
+| JS heap after forced GC, race + RETRY cycle 1 -> 20 | not measured | 6.48 -> 7.30 MB (flat from cycle 10); textures, objects, listeners constant |
+
+The worst single step during a v2 race is 8-9 ms on the real GPU in both builds (v2 race code); it stays inside the 16.7 ms budget.
+
+## Results on v1
 
 | Metric | Before | After |
 | --- | --- | --- |
@@ -62,11 +83,18 @@ WebKit shows no dropped frames in either build (headless WebKit paces rAF at 30 
   Copying a song into an `AudioBuffer` when it starts costs ~4 ms on the main thread and stays inside the frame budget.
 - **Leaks.** Across 20 race/RETRY cycles textures (130), display objects (72), scene update listeners, timers and window listeners (16) stay constant.
 
+## Merging v2
+
+- v2's new textures and animations (Sol, hurdle and its knock animation, bell official, 50 m and split boards, air shadows, event pictograms, `key.U`, rotate-phone frames and animation, per-event sign layers) are baked in `bakeArt()`; animations can now name a texture per frame and a `repeatDelay` (rotate-phone).
+- Touch art stays DOM data URLs (`src/art/touchUrl.ts`), so it never touches the GL atlas.
+- The audio worker renders v2's `hurdles` and `quarter` songs (including the quarter's final-100 mix) as well as the SFX bank, which now holds v2's extra SFX.
+- v2 disables all Phaser input; the trimmed build needed no additions (every game object v2 creates is an image, sprite, tile sprite, container, graphics or bitmap text).
+
 ## Open findings
 
-- The fullscreen corner button sits on top of the Title's mute icon when the window is exactly 16:9 (it shows for 2.5 s after load and on mouse movement).
-  This predates this branch; moving either element is a layout decision.
-- Headed Chromium shows one ~30 ms rAF gap two frames into every race start, in both builds.
+- On v1 the fullscreen corner button sat on top of the Title's mute icon when the window is exactly 16:9 (it shows for 2.5 s after load and on mouse movement); not rechecked on v2's Title.
+  It predates this branch; moving either element is a layout decision.
+- Headed Chromium shows one rAF gap just after every race start in both builds (~30 ms on v1, ~22 ms on v2).
   The main thread is idle during it (no task over 4 ms, no GC), so it is compositor-side, not game code.
 - Headless Chromium with CRT on occasionally stalls ~100 ms in the compositor's `ReadPixels` of the WebGL canvas.
   That readback exists only under software compositing; it does not occur on the real GPU.

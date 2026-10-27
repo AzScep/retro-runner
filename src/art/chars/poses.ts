@@ -319,13 +319,138 @@ export const ANIMS: readonly AnimDef[] = [
   { name: 'stumble', fps: 12, repeat: 0, poses: STUMBLE_POSES },
 ];
 
-/** Poses of an animation for one character (Pip has his own celebration). */
+/**
+ * Sol's celebration (design 15.5): no jump, he stands tall, lifts a calm fist and nods once.
+ */
+const SOL_CELEBRATE_POSES: Pose[] = [0, 0, 1, 2, 1, 0].map((nod) => ({
+  lean: nod === 2 ? 4 : 0,
+  legN: [6, 2] as const,
+  legF: [-6, 2] as const,
+  footN: 90,
+  footF: 88,
+  armN: [36, 112] as const,
+  armF: [-8, 14] as const,
+  headDx: nod === 2 ? 1 : 0,
+  headDy: nod,
+  head: nod === 0 ? ('happy' as const) : ('look' as const),
+  tag: 'celebrate',
+}));
+
+/** Poses of an animation for one character (Pip and Sol have their own celebrations). */
 export function animPoses(id: string, anim: AnimDef): readonly Pose[] {
   if (id === 'pip' && anim.name === 'celebrate') return PIP_CELEBRATE_POSES;
+  if (id === 'sol' && anim.name === 'celebrate') return SOL_CELEBRATE_POSES;
+  // Sol's long limbs reach 1 px further: shift the blocks back so he still waits behind the line.
+  if (id === 'sol' && anim.name === 'ready') return anim.poses.map((p) => ({ ...p, dx: (p.dx ?? 0) - 1 }));
   return anim.poses;
 }
 
-/** Frame counts required by design 5.6 (33 per character). */
+/**
+ * Hurdle clearance (design 19.1), 4 frames chosen by arc phase: 1 takeoff, 2 lead leg over (peak),
+ * 3 trail leg snap, 4 landing. The near leg leads; the far arm reaches for the lead foot. Frames are
+ * drawn with their lowest pixel on the ground row: the view raises the sprite by round(airM * 24).
+ */
+export const HURDLE_POSES: readonly Pose[] = [
+  // Takeoff: drive the lead knee up, push off the trail toe.
+  {
+    lean: 26,
+    legN: [78, 104],
+    legF: [-34, 8],
+    footN: 70,
+    footF: 26,
+    armN: [-56, 60],
+    armF: [64, 40],
+    head: 'effort',
+    dx: -1,
+  },
+  // Peak: lead leg straight out over the bar, chest dipped, far arm reaching forward.
+  {
+    lean: 44,
+    legN: [92, 6],
+    legF: [-62, 112],
+    footN: 150,
+    footF: -40,
+    armN: [-46, 70],
+    armF: [96, 14],
+    head: 'effort',
+    dx: -4,
+  },
+  // Trail leg snaps through: lead leg cuts down past the bar, the trail knee whips round at hip
+  // height with the foot still trailing behind it (the classic hurdle split).
+  {
+    lean: 40,
+    legN: [26, 4],
+    legF: [74, 128],
+    footN: 98,
+    footF: -50,
+    armN: [24, 64],
+    armF: [-62, 40],
+    head: 'effort',
+    dx: -2,
+  },
+  // Landing: forward-leaning touchdown on the lead foot under the hips, trail knee driving through
+  // and arms in opposition, so the next run frames carry straight on.
+  {
+    lean: 30,
+    legN: [16, 18],
+    legF: [48, 104],
+    footN: 94,
+    armN: [-58, 62],
+    armF: [44, 92],
+    head: 'effort',
+    dx: -1,
+  },
+];
+
+/** UNIT-7 lands with both pistons extended (design 19.1). */
+export const UNIT7_LANDING: Pose = {
+  lean: 26,
+  legN: [16, 0],
+  legF: [-8, 0],
+  footN: 92,
+  footF: 84,
+  armN: [-58, 62],
+  armF: [44, 92],
+  head: 'effort',
+  dx: -1,
+};
+
+/**
+ * Rio's tired run (design 19.1, 400 m below S_FATIGUE): same cycle, head tilted back, shoulders
+ * 1 px higher, arms swinging lower and looser.
+ */
+export const TIRED_POSES: readonly Pose[] = Array.from({ length: 8 }, (_, i) => {
+  const an = ARM_CYCLE[i % 8]!;
+  const af = ARM_CYCLE[(i + 4) % 8]!;
+  const low = (a: readonly [number, number]) => [Math.round(a[0] * 0.55), Math.round(a[1] * 0.6)] as const;
+  return runPose(i, {
+    lean: 10,
+    armN: low(an),
+    armF: low(af),
+    shoulderUp: 1,
+    headDx: -1,
+    head: 'tired',
+  });
+});
+
+/**
+ * Sol's watch glance (design 15.5, 19.1): an upper-body overlay of 2 poses at 6 fps (wrist coming up,
+ * then reading the watch, eyes down) on top of the normal run cycle. Baked as full frames
+ * `watch{k}_{i}`: upper-body pose k (0-1) over run leg frame i (0-7), so the legs never break stride.
+ */
+export const WATCH_OVERLAY_POSES = 2;
+export const WATCH_FPS = 6;
+const WATCH_ARMS: readonly (readonly [number, number])[] = [
+  [52, 104],
+  [72, 92],
+];
+export function watchPoses(k: number): Pose[] {
+  return Array.from({ length: 8 }, (_, i) =>
+    runPose(i, { lean: 14, armN: WATCH_ARMS[k] as readonly [number, number], head: 'look' }),
+  );
+}
+
+/** Frame counts required by design 5.6 (35 per character). */
 export const ANIM_FRAME_COUNTS: Readonly<Record<AnimName, number>> = {
   idle: 4,
   walk: 6,

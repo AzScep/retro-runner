@@ -3,7 +3,7 @@
  * offsets are rounded to whole pixels, so every layer moves in whole-pixel steps.
  */
 import type Phaser from 'phaser';
-import { LAYERS, type LayerName } from '../stadium/layers.ts';
+import { LAYERS, type LayerName, type SignEvent } from '../stadium/layers.ts';
 import { layerScroll } from '../view/camera.ts';
 import { KEYS } from './textures.ts';
 
@@ -17,8 +17,12 @@ export const DEPTH = {
   track: 5,
   markings: 6,
   shadow: 10,
+  /** Rival-lane hurdles: behind the rival and everything in the player lane (design 19.2). */
+  rivalHurdle: 15,
   rival: 20,
   rivalFx: 21,
+  /** Player-lane hurdles: in front of the rival lane, behind the player. */
+  playerHurdle: 25,
   player: 30,
   playerFx: 31,
   dust: 40,
@@ -37,12 +41,15 @@ export class StadiumView {
   private standFrame = 0;
   private readonly onUpdate: (time: number) => void;
 
-  constructor(scene: Phaser.Scene, tier: number) {
+  constructor(scene: Phaser.Scene, tier: number, event: SignEvent = '100m') {
     this.scene = scene;
     this.tier = Math.min(7, Math.max(1, Math.round(tier)));
     for (const name of ORDER) {
       const def = LAYERS[name];
-      const tex = KEYS.layer(this.tier, name === 'stands' ? 'stands0' : name);
+      const tex =
+        name === 'far' || name === 'near'
+          ? KEYS.signLayer(this.tier, name, event)
+          : KEYS.layer(this.tier, name === 'stands' ? 'stands0' : name);
       const ts = scene.add
         .tileSprite(0, def.y, 320, def.h, tex)
         .setOrigin(0, 0)
