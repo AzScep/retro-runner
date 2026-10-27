@@ -16,7 +16,7 @@ import { renderSfx, SFX } from './sfx.ts';
 import { renderCrowdLoop } from './crowd.ts';
 import { SAMPLE_RATE } from './synth.ts';
 import { resolveTrack, type TrackRef } from './music/index.ts';
-import { renderTrack } from './renderer.ts';
+import { renderSfxBank, renderTrack } from './renderer.ts';
 
 // Mix levels (linear gain) ---------------------------------------------------------------------
 const MUSIC_LEVEL = 0.5;
@@ -180,15 +180,20 @@ function watchVisibility(): void {
 // ---------------------------------------------------------------------------------------------
 // Preload
 
-/** Render all SFX plus the title, ladder and tier-1 race songs. Never rejects. */
+/**
+ * Render all SFX plus the title, ladder and tier-1 race songs, off the main thread when a worker
+ * is available. Never rejects.
+ */
 export function preloadAudio(): Promise<void> {
   preloading ??= (async () => {
     try {
+      const bank = await renderSfxBank();
       for (const id of SFX_IDS) {
-        if (!sfxPcm.has(id)) sfxPcm.set(id, renderSfx(id));
+        const pcm = bank.sfx.get(id);
+        if (pcm && !sfxPcm.has(id)) sfxPcm.set(id, pcm);
         if (graph) sfxBuffer(id);
       }
-      crowdPcm ??= renderCrowdLoop();
+      crowdPcm ??= bank.crowd;
       for (const ref of [resolveTrack('title'), resolveTrack('ladder'), resolveTrack('race', 1)]) {
         await ensureTrack(ref);
       }

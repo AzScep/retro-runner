@@ -34,6 +34,9 @@ export interface TrackRef {
   readonly transpose: number;
 }
 
+/** Worker request key for the SFX bank (every SFX plus the crowd loop); never a track key. */
+export const SFX_BANK_KEY = '#sfx';
+
 /** Resolve playMusic(id, tier) to a track. race + tier 7 => boss; race tiers clamp to 1-6. */
 export function resolveTrack(id: MusicId, tier?: number): TrackRef {
   if (id === 'race') {
