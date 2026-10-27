@@ -11,7 +11,7 @@ import { PALETTE as MASTER, paletteColor as masterColor } from './palette.ts';
 import { setCrtImpl } from './phaser/crt.ts';
 import { RaceViewImpl } from './phaser/raceView.ts';
 import { DEPTH, StadiumView } from './phaser/stadium.ts';
-import { KEYS, registerAll } from './phaser/textures.ts';
+import { KEYS, prepareBake, registerAll } from './phaser/textures.ts';
 import type { KeyState } from './sprites/icons.ts';
 
 export const GAME_WIDTH = 320;
@@ -28,6 +28,15 @@ export function paletteColor(index: number): number {
 /** Bake every texture and register every animation. Call once from BootScene.create(). Idempotent. */
 export function registerArt(scene: Phaser.Scene): void {
   registerAll(scene);
+}
+
+/**
+ * Addition: starts baking every texture in a background worker. Call as early as possible (before
+ * the Phaser game boots) and await it before registerArt(), which then only uploads the result.
+ * Never rejects; without a worker (or if it fails) registerArt() bakes inline as before.
+ */
+export function prepareArt(): Promise<void> {
+  return prepareBake();
 }
 
 export type PortraitSize = 16 | 48;

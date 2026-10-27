@@ -3,7 +3,7 @@
  * toggle, global keyboard rules (design 8) and the test hook in test builds (research 2).
  */
 import Phaser from 'phaser';
-import { GAME_HEIGHT, GAME_WIDTH } from './art/index.ts';
+import { GAME_HEIGHT, GAME_WIDTH, prepareArt } from './art/index.ts';
 import { unlockAudio } from './audio/index.ts';
 import { hasApp, toggleMute } from './scenes/app.ts';
 import { BootScene } from './scenes/BootScene.ts';
@@ -20,6 +20,9 @@ import { TitleScene } from './scenes/TitleScene.ts';
 import { installFullscreen } from './ui/fullscreen.ts';
 import { fitZoom } from './ui/hudMath.ts';
 import { PREVENT_DEFAULT_CODES } from './ui/keys.ts';
+
+// Art bakes in a worker while Phaser boots and the font loads (BootScene awaits it).
+void prepareArt();
 
 const parent = document.getElementById('app');
 if (!parent) throw new Error('#app missing from index.html');
