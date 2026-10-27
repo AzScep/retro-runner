@@ -296,7 +296,38 @@ function startRecording(): void {
   }, 21);
 }
 
+/**
+ * A v1 save (design 4.3; every build migrates it) with the 100 m beaten up to Kofi, which unlocks
+ * the hurdles and the 400 m (both start at Pip). The 100 m runs on a fresh save, also against Pip.
+ */
+function unlockEvents(): void {
+  if (localStorage.getItem('retroRunner.save.v1') !== null) return;
+  const at = '2026-10-26T20:15:03.120Z';
+  const beaten = ['pip', 'jess', 'marco', 'kofi'];
+  localStorage.setItem(
+    'retroRunner.save.v1',
+    JSON.stringify({
+      version: 1,
+      unlockedTier: beaten.length + 1,
+      beaten,
+      champion: false,
+      best: {},
+      history: beaten.map((opp) => ({
+        opp,
+        result: 'win',
+        ms: 15000,
+        oppMs: 18000,
+        falseStarts: 0,
+        seed: 7,
+        at,
+      })),
+      settings: { volume: 8, muted: false, reducedFlashing: false, screenShake: true, crt: false },
+    }),
+  );
+}
+
 async function toRace(page: Page): Promise<void> {
+  if (event !== '100m') await page.addInitScript(unlockEvents);
   await page.goto(url);
   await page.waitForFunction(() => (window as unknown as { __titleAt?: number }).__titleAt, null, {
     timeout: 60_000,
