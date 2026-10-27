@@ -1,10 +1,63 @@
 # Performance pass (October 2026)
 
-Status: work report for branch `claude/perf-polish-5edafe`, which now includes the v2 expansion merged from main (`6acf6b1`).
-"Results with v2" compares main at `6acf6b1` with the merged branch; "Results on v1" is the original pass (baseline `68d06f0`).
+Status: work report for branch `claude/perf-polish-5edafe`, which is now main's v3 (`0d42dc0`) plus the commits listed under "Checking v3".
+"Results with v3" compares v3 with the v2 merge (`2c0027c`, the same tree as this branch's v2 merge); "Results with v2" compares main at `6acf6b1` with that merge; "Results on v1" is the original pass (baseline `68d06f0`).
 Measurements come from `tools/perf/measure.ts` against production builds made with `VITE_TEST_HOOKS=1`, on an Apple-silicon MacBook.
-Headless Chromium renders WebGL with SwiftShader (software), so shader and GPU costs there are larger than on real hardware; `--headed` runs on the real GPU.
-Cold-load rows are medians of 9 loads, baseline and branch interleaved so both saw the same machine load (another session was busy on the machine).
+Headless Chromium renders WebGL with SwiftShader (software), so shader and GPU costs there are larger than on real hardware.
+The v1 and v2 real-GPU rows used `--headed`; the v3 rows use `--gpu`, which renders on the real GPU while staying headless.
+Cold-load rows are medians of 9 loads, baseline and branch interleaved so both saw the same machine load.
+Every probe run is silent: Chromium runs with `--mute-audio`, and every `AudioContext` outputs through a zero gain (the wrapper from `e2e/fixtures.ts`).
+
+## Results with v3
+
+Each race is 6 runners against Pip (the hurdles and the 400 m on a save that unlocked them).
+Race rows are 2 races per build and mode, interleaved; "running" is from GO to the player's finish.
+
+| Metric | v2 (`2c0027c`) | v3 as merged (`0d42dc0`) | v3 on this branch |
+| --- | --- | --- | --- |
+| Main JS bundle | 919 KB (260 KB gzip), plus a 55 KB bake worker | 993 KB (280 KB gzip), plus 76 + 31 KB bake workers | 993 KB (284 KB gzip), plus 76 + 31 KB bake workers |
+| Cold load to Title, Chromium headless | 354 ms | 438 ms | 388 ms |
+| Same, Chromium with 4x CPU throttle | 505 ms | not measured | 595 ms |
+| Same, WebKit | 241 ms | not measured | 240 ms |
+| Same, Chromium on the real GPU | 172 ms | not measured | 188 ms |
+| Longest boot task (the loading frame), Chromium | 209-259 ms | 316-319 ms | 214-261 ms |
+| Shader programs linked at boot / after the Title | 4 / 0 | 5 / 0 | 4 / 0 |
+| GL texture uploads after the Title | 0 | 0 | 0 |
+| Dropped frames while running, real GPU (100 m, hurdles, 400 m) | 0 in 13 races | not measured | 0 in 13 races |
+| Step CPU while running, real GPU, p50 / p99 / max | 0.4-0.7 / 1.1-1.4 / 10.6 ms | not measured | 0.6-1.0 / 1.2-1.6 / 9.7 ms |
+| Dropped frames while running, WebKit | 0 in 6 races | not measured | 1 in 6 races (61 ms, mid-400 m) |
+| Dropped frames while running, Chromium headless | 1 in 6 races | 5 in 10 races (100 m only) | 5 in 6 races, one 63-68 ms gap each (see below) |
+| Same, 4x CPU throttle | 3 in 6 races | not measured | 5 in 6 races, one 59-61 ms gap each |
+| Worst single step (the GO frame), 4x throttle | 15.9-18.4 ms | not measured | 18.5-21.5 ms |
+| Texture binds / draw calls per race frame (100 m, hurdles, 400 m) | 4 / 9, 12.5, 14 | 6 / 15, 15, 20 | 6 / 15, 15, 20 |
+| JS heap after forced GC, race + RETRY 1 -> 20 | 6.48 -> 7.25 MB | not measured | 7.68 -> 8.54 MB (flat from race 9) |
+| Same, after each of 3 whole Gauntlet runs | no Gauntlet in v2 | not measured | 8.91, 9.11, 8.73 MB |
+| Textures / display objects / window listeners over all cycles | 204 / 82 / 21, constant | not measured | 286 / 126-127 / 21, constant |
+
+The dropped frames in headless Chromium are one GPU-process stall per page, not v3 race code:
+- It lands about 7.7 s after page load whatever the race is doing (delaying the race by 3 s moves it into the countdown).
+- The main thread waits in `ReadPixels` (software compositing reads the canvas back) while the GPU thread spends 59-65 ms in one WebGL flush.
+- No new GL state, program, upload or blend mode appears around it; the step before it takes under 2 ms.
+- v2 shows it too (26-68 ms, in fewer runs); it never appeared while running in 26 real-GPU races of both builds (one 88 ms gap fell in a v3 countdown), and once in 12 WebKit races.
+- It does not follow audio (it stays with the game muted) and does not occur idling on the Title.
+
+Why v3 hits it more often in SwiftShader is not known.
+
+## Checking v3
+
+- **One atlas page again** (`src/art/baked.ts`, `src/art/phaser/textures.ts`, `src/scenes/BootScene.ts`).
+  v3 added a second atlas page for the field runners, so a race batch held three textures (both pages and the fonts) and boot linked a fifth shader program for that count.
+  The main page (2047x1020) and the field page (2016x1014; design 35.1 caps it at 1024 rows) fit one 2047x2035 page, so `stackPages` stacks the main bake and the two field parts from their workers into one page, and the warm-up is back to 4 programs.
+  A unit test checks that the main page leaves room for a field page at its 1024-row cap.
+  Boot's long task went from 316 ms to 214 ms (v2: 212 ms) and cold load from 438 ms to 388 ms.
+- **What is left of the boot difference** is v3's art: the page doubled (8 MB to 16 MB of RGBA), and uploading it costs 74 ms instead of 38 ms with a 4x CPU throttle, plus ~15 ms registering 868 field frames and 224 animations.
+  Uploading the field rows after the Title would save roughly 10 ms on a normal machine, but would add a window where a field sprite could draw before its pixels exist; not done.
+- **The GO frame** is the one step over budget with a 4x CPU throttle (18.5-21.5 ms against v2's 15.9-18.4 ms); it is a single step and no frame is dropped there.
+- **Binds and draw calls** grew from 4 / 9 to 6 / 15-20 per race frame with more runners, officials and HUD markers interleaved with untextured fills; step CPU stays under 2 ms at p99.
+  Design 26.5 budgets 2 binds per race frame; the 6 binds are Phaser rebinding the same two textures (atlas and fonts) per batch.
+- **Memory** levels off after about 9 races; 3 whole Gauntlet runs (7 meets each) leave textures, objects and listeners constant.
+- **Probe** (`tools/perf/measure.ts`): `--event`, a jump per hurdle, Gauntlet runs in `memory`, shader-link and upload logging, `--gpu`, and silent audio.
+
 
 ## Results with v2
 
@@ -92,6 +145,11 @@ WebKit shows no dropped frames in either build (headless WebKit paces rAF at 30 
 
 ## Open findings
 
+- v3: the first-race tip ("UP TO JUMP") shows only between the meet card and the end of the intro walk, 300 ms nominally (`MEET_CARD_SHOW_MS` 1,200 ms against `INTRO_MS` 1,500 ms).
+  The meet card's deadline is wall clock from the HUD's `create` (`src/scenes/HudScene.ts`), while the intro runs on the race clock, so when the HUD starts late the window shrinks to nothing.
+  It made `e2e/events.spec.ts` "hurdles: clean jumps beat no jumps" fail once in a full parallel run (tip never seen); the test passed 6 of 6 times on its own.
+  Timing the card on the race clock, and how long the tip should stay readable, are v3 design calls; not changed here.
+
 - On v1 the fullscreen corner button sat on top of the Title's mute icon when the window is exactly 16:9 (it shows for 2.5 s after load and on mouse movement); not rechecked on v2's Title.
   It predates this branch; moving either element is a layout decision.
 - Headed Chromium shows one rAF gap just after every race start in both builds (~30 ms on v1, ~22 ms on v2).
@@ -117,4 +175,12 @@ node tools/perf/measure.ts race --alloc
 node tools/perf/measure.ts memory --cycles 20
 ```
 
-Flags: `--browser webkit`, `--throttle 4` (Chromium), `--crt`, `--headed`, `--url`.
+```bash
+node tools/perf/measure.ts race --event 110mh --gpu
+```
+
+```bash
+node tools/perf/measure.ts memory --cycles 20 --gauntlets 3
+```
+
+Flags: `--browser webkit`, `--throttle 4` (Chromium), `--gpu` (real GPU, still headless), `--event 100m|110mh|400m`, `--crt`, `--alloc`, `--url`; `--headed` opens a visible window.
