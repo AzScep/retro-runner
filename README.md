@@ -35,6 +35,7 @@ Then open http://localhost:5173.
 | `npm run build`              | Static build in `dist/`, playable from any static host             |
 | `node tools/art/sheet.ts`    | Render sprite contact sheets to `tools/art/out/`                   |
 | `node tools/audio/render.ts` | Render every sound and song to WAV in `tools/audio/out/`           |
+| `node tools/perf/measure.ts` | Boot, frame-time and memory probe (see `docs/work/performance.md`) |
 
 ## Layout
 
