@@ -114,7 +114,7 @@ export function formatLadderTotal(ms: number | null): string {
 // ---------------------------------------------------------------------------
 
 export interface ZoomLayout {
-  /** Device pixels per game pixel (integer >= 1). */
+  /** Device pixels per game pixel; fractional when the window is not a whole multiple. */
   readonly factor: number;
   /** Phaser zoom to apply (CSS px per game px). */
   readonly zoom: number;
@@ -125,11 +125,12 @@ export interface ZoomLayout {
 }
 
 /**
- * Largest integer scale in DEVICE pixels that fits the viewport, so every game pixel maps to an
- * exact N x N block of physical pixels even at fractional devicePixelRatio (for example 1.25).
- * The canvas is centred on whole device pixels.
+ * Largest size with the game's aspect ratio that fits the viewport (design 5.1), so the game fills
+ * the window with bars only on the two sides that do not match 16:9. Sizes and offsets snap to
+ * whole DEVICE pixels, so nearest-neighbour upscaling stays sharp at any devicePixelRatio; at
+ * fractional factors some game pixels are one device pixel wider than others.
  */
-export function integerZoom(
+export function fitZoom(
   viewportCssW: number,
   viewportCssH: number,
   dpr: number,
@@ -137,16 +138,18 @@ export function integerZoom(
   gameH: number,
 ): ZoomLayout {
   const ratio = dpr > 0 && Number.isFinite(dpr) ? dpr : 1;
-  const devW = Math.floor(viewportCssW * ratio);
-  const devH = Math.floor(viewportCssH * ratio);
-  const factor = Math.max(1, Math.min(Math.floor(devW / gameW), Math.floor(devH / gameH)));
-  const leftDev = Math.max(0, Math.floor((devW - gameW * factor) / 2));
-  const topDev = Math.max(0, Math.floor((devH - gameH * factor) / 2));
+  const devW = Math.max(1, Math.floor(viewportCssW * ratio));
+  const devH = Math.max(1, Math.floor(viewportCssH * ratio));
+  const factor = Math.min(devW / gameW, devH / gameH);
+  const outW = Math.max(1, Math.floor(gameW * factor));
+  const outH = Math.max(1, Math.floor(gameH * factor));
+  const leftDev = Math.floor((devW - outW) / 2);
+  const topDev = Math.floor((devH - outH) / 2);
   return {
     factor,
     zoom: factor / ratio,
-    cssWidth: (gameW * factor) / ratio,
-    cssHeight: (gameH * factor) / ratio,
+    cssWidth: outW / ratio,
+    cssHeight: outH / ratio,
     cssLeft: leftDev / ratio,
     cssTop: topDev / ratio,
   };

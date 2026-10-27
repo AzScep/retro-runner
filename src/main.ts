@@ -1,6 +1,6 @@
 /**
- * Entry point: Phaser game at 320x180 with integer device-pixel scaling (design 5.1),
- * global keyboard rules (design 8) and the test hook in test builds (research 2).
+ * Entry point: Phaser game at 320x180 scaled to fill the window at 16:9 (design 5.1), fullscreen
+ * toggle, global keyboard rules (design 8) and the test hook in test builds (research 2).
  */
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from './art/index.ts';
@@ -17,7 +17,8 @@ import { RecordsScene } from './scenes/RecordsScene.ts';
 import { ResultsScene } from './scenes/ResultsScene.ts';
 import { installTestHook } from './scenes/testHook.ts';
 import { TitleScene } from './scenes/TitleScene.ts';
-import { integerZoom } from './ui/hudMath.ts';
+import { installFullscreen } from './ui/fullscreen.ts';
+import { fitZoom } from './ui/hudMath.ts';
 import { PREVENT_DEFAULT_CODES } from './ui/keys.ts';
 
 const parent = document.getElementById('app');
@@ -61,17 +62,11 @@ const game = new Phaser.Game({
   ],
 });
 
-/** Largest integer scale in device pixels, centred on whole device pixels (design 5.1). */
+/** Largest 16:9 size that fits, snapped and centred on whole device pixels (design 5.1). */
 function fitCanvas(): void {
   const canvas = game.canvas;
   if (!canvas) return;
-  const z = integerZoom(
-    window.innerWidth,
-    window.innerHeight,
-    window.devicePixelRatio,
-    GAME_WIDTH,
-    GAME_HEIGHT,
-  );
+  const z = fitZoom(window.innerWidth, window.innerHeight, window.devicePixelRatio, GAME_WIDTH, GAME_HEIGHT);
   game.scale.setZoom(z.zoom);
   canvas.style.width = `${z.cssWidth}px`;
   canvas.style.height = `${z.cssHeight}px`;
@@ -100,6 +95,9 @@ const onDprChange = (): void => {
 };
 watchDpr();
 window.addEventListener('pointerdown', () => game.canvas?.focus());
+installFullscreen(() => game.canvas?.focus());
+// Entering or leaving fullscreen resizes the window, but refit explicitly in case resize lags.
+document.addEventListener('fullscreenchange', fitCanvas);
 
 // Global keys (design 8): never scroll the page, unlock audio on the first key, M mutes everywhere.
 window.addEventListener(

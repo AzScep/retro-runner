@@ -5,7 +5,7 @@ import {
   flashOn,
   formatLadderTotal,
   gapLabel,
-  integerZoom,
+  fitZoom,
   ladderNodeY,
   litSegments,
   offscreenSide,
@@ -142,25 +142,38 @@ describe('time text', () => {
   });
 });
 
-describe('integer zoom', () => {
-  it('picks the largest whole device-pixel factor and centres the canvas', () => {
-    const z = integerZoom(1300, 760, 1, 320, 180);
+describe('fit zoom', () => {
+  it('fills the limiting dimension at a fractional factor and centres the canvas', () => {
+    // 1366x657: height limits, 657 / 180 = 3.65x.
+    const z = fitZoom(1366, 657, 1, 320, 180);
+    expect(z.factor).toBeCloseTo(3.65, 5);
+    expect(z.cssWidth).toBe(1168);
+    expect(z.cssHeight).toBe(657);
+    expect(z.cssLeft).toBe(99);
+    expect(z.cssTop).toBe(0);
+  });
+
+  it('fills the width in a tall window', () => {
+    const z = fitZoom(1000, 700, 1, 320, 180);
+    expect(z.cssWidth).toBe(1000);
+    expect(z.cssHeight).toBe(562);
+    expect(z.cssTop).toBe(69);
+  });
+
+  it('snaps size and offset to whole device pixels at fractional DPR', () => {
+    const z = fitZoom(1283, 731, 1.25, 320, 180);
+    for (const v of [z.cssWidth, z.cssHeight, z.cssLeft, z.cssTop]) {
+      expect(Number.isInteger(Math.round(v * 1.25 * 1e6) / 1e6)).toBe(true);
+    }
+    expect(z.cssWidth * 1.25).toBeLessThanOrEqual(Math.floor(1283 * 1.25));
+    expect(z.cssHeight * 1.25).toBeLessThanOrEqual(Math.floor(731 * 1.25));
+  });
+
+  it('keeps an exact whole multiple when the window allows it', () => {
+    const z = fitZoom(1280, 720, 1, 320, 180);
     expect(z.factor).toBe(4);
     expect(z.cssWidth).toBe(1280);
-    expect(z.cssHeight).toBe(720);
-    expect(z.cssLeft).toBe(10);
-    expect(z.cssTop).toBe(20);
-  });
-
-  it('works in device pixels at fractional DPR', () => {
-    const z = integerZoom(1280, 720, 1.25, 320, 180);
-    expect(z.factor).toBe(5); // 1600x900 device px
-    expect(z.cssWidth * 1.25).toBe(1600);
-    expect(Number.isInteger(z.cssLeft * 1.25)).toBe(true);
-  });
-
-  it('never goes below 1x', () => {
-    expect(integerZoom(100, 50, 1, 320, 180).factor).toBe(1);
+    expect(z.cssLeft).toBe(0);
   });
 });
 

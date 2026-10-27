@@ -23,6 +23,7 @@ Then open http://localhost:5173.
 | Esc                                  | Back / pause              |
 | R                                    | Retry on the results card |
 | M                                    | Mute                      |
+| F                                    | Fullscreen                |
 
 ## Develop
 

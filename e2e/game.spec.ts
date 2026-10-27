@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   bootToTitle,
   expectText,
@@ -246,22 +246,62 @@ test('arrow keys, Space and Backspace never scroll or navigate the page', async 
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
-test('canvas is integer scaled with letterboxing', async ({ page }) => {
-  await page.setViewportSize({ width: 1000, height: 700 });
-  await bootToTitle(page);
-  const box = await page.evaluate(() => {
+/** The canvas box in CSS px plus its backing size. */
+async function canvasBox(page: Page) {
+  return page.evaluate(() => {
     const c = document.querySelector('canvas');
     if (!c) throw new Error('no canvas');
     const r = c.getBoundingClientRect();
-    return { w: r.width, h: r.height, x: r.left, y: r.top, cw: c.width, ch: c.height, dpr: devicePixelRatio };
+    return { w: r.width, h: r.height, x: r.left, y: r.top, cw: c.width, ch: c.height };
   });
-  expect(box.cw).toBe(320);
-  expect(box.ch).toBe(180);
-  const factor = (box.w * box.dpr) / 320;
-  expect(Number.isInteger(Math.round(factor * 1000) / 1000)).toBe(true);
-  expect(box.h / box.w).toBeCloseTo(180 / 320, 5);
-  expect(box.w).toBeLessThanOrEqual(1000);
-  expect(box.x).toBeGreaterThanOrEqual(0);
+}
+
+test('canvas fills the window at 16:9, centred, at any window shape', async ({ page }) => {
+  // Wide window: height limits, so the game fills the full height with bars left and right.
+  // Tall window: width limits. Odd sizes that are not a whole multiple of 320x180 must still fill.
+  for (const [vw, vh] of [
+    [1366, 657],
+    [1000, 700],
+    [1512, 865],
+  ] as const) {
+    await page.setViewportSize({ width: vw, height: vh });
+    if (vw === 1366) await bootToTitle(page);
+    await expect.poll(async () => (await canvasBox(page)).w, { timeout: 3000 }).not.toBe(0);
+    const fitW = Math.min(vw, (vh * 16) / 9);
+    await expect
+      .poll(async () => Math.abs((await canvasBox(page)).w - fitW), { timeout: 3000 })
+      .toBeLessThanOrEqual(1);
+    const box = await canvasBox(page);
+    expect(box.cw).toBe(320);
+    expect(box.ch).toBe(180);
+    expect(Math.abs(box.h - (box.w * 9) / 16)).toBeLessThanOrEqual(1);
+    expect(Math.abs(box.x - (vw - box.w) / 2)).toBeLessThanOrEqual(1);
+    expect(Math.abs(box.y - (vh - box.h) / 2)).toBeLessThanOrEqual(1);
+  }
+});
+
+test('F and the corner button toggle true fullscreen', async ({ page }) => {
+  await bootToTitle(page);
+  const isFullscreen = () => page.evaluate(() => document.fullscreenElement !== null);
+  expect(await isFullscreen()).toBe(false);
+
+  await tap(page, 'KeyF');
+  await expect.poll(isFullscreen).toBe(true);
+  await tap(page, 'KeyF');
+  await expect.poll(isFullscreen).toBe(false);
+
+  const button = page.getByRole('button', { name: 'Toggle fullscreen' });
+  await page.mouse.move(200, 200);
+  await expect(button).toBeVisible();
+  await button.click();
+  await expect.poll(isFullscreen).toBe(true);
+  // The click must not leave keyboard focus on the button (Space/Enter would re-toggle it).
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('CANVAS');
+  await button.click();
+  await expect.poll(isFullscreen).toBe(false);
+
+  // The button fades out once the mouse is idle, so it never sits over the game while racing.
+  await expect(button).toBeHidden({ timeout: 5000 });
 });
 
 /** A valid save document (design 4.3) with every rival unlocked and a PB against each. */

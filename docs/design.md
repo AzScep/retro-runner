@@ -14,7 +14,7 @@ The player mashes Left and Right alternately to sprint against a ladder of seven
 |---|---|
 | Honest mashing | Speed comes only from alternating key presses. Holding, auto-repeat and same-key spam give nothing. |
 | Every hundredth counts | Every race records a time. Personal bests per rival persist and are always visible. |
-| 16-bit authenticity | 320x180 internal canvas, fixed 42-colour palette, 1 px dark outlines, nearest-neighbour integer scaling. |
+| 16-bit authenticity | 320x180 internal canvas, fixed 42-colour palette, 1 px dark outlines, nearest-neighbour scaling that fills the window at 16:9. |
 | Short, replayable races | A race lasts 10-20 s. Retry is one key press away. |
 
 ## 1. Core loop and screen flow
@@ -328,7 +328,7 @@ Footer: "LADDER TOTAL" (sum of 7 PBs, shown as `SSS.hh`) or "BEAT ALL 7 TO SET A
 | Rule | Value |
 |---|---|
 | Internal resolution | 320 x 180 (16:9) |
-| Scaling | Integer only, the largest factor that fits the window (4x = 1280x720, 6x = 1920x1080). Remaining space is letterboxed with `#0b0b14`. |
+| Scaling | The largest 16:9 size that fits the window, nearest-neighbour, snapped to whole device pixels (exact 4x at 1280x720, 6x at 1920x1080; fractional in between, where some game pixels are one device pixel wider). Bars in `#0b0b14` fill only the sides that do not match 16:9. Whole-number-only scaling was dropped because it left up to 40% of common windows empty. |
 | Filtering | Nearest-neighbour everywhere. No smoothing, no sub-pixel positioning on screen: sprite and layer positions are rounded to whole internal pixels at draw time. |
 | Frame rate | Target 60 fps render, 120 Hz simulation. |
 
@@ -596,6 +596,7 @@ Audio starts only after the first user input (browser autoplay policy); the Titl
 | Menu navigation | Arrow keys | W/A/S/D |
 | Retry (results) | R | - |
 | Mute toggle | M (any screen) | - |
+| Fullscreen toggle | F (any screen) | Corner button (shown while the mouse moves) |
 
 Rules:
 
@@ -685,7 +686,8 @@ A tester verifies each item by playing in the browser.
 
 ### Visuals
 
-- [ ] At any window size, pixels are crisp squares with no blur and no uneven pixel widths; spare space is letterboxed.
+- [ ] At any window size, the game fills the window at 16:9 with crisp, unblurred pixels; bars appear only on the two sides that do not match 16:9.
+- [ ] F or the corner button toggles true fullscreen; the button fades out while the mouse is idle.
 - [ ] Sampling screenshots shows no colours outside the 42-colour palette (excluding the browser outside the canvas).
 - [ ] All characters have 1 px dark outlines and light from the top-left.
 - [ ] Run animation speeds up and slows down with the runner's speed.
