@@ -3,14 +3,27 @@
  * test-hook seed override. Created once by BootScene.
  */
 import Phaser from 'phaser';
-import { OPPONENT_IDS, type OpponentId, type Race, type RecordsStore, type Settings } from '../core/index.ts';
+import {
+  EVENT_IDS,
+  LADDERS,
+  ladderEntry,
+  modality,
+  nextRival,
+  type EventId,
+  type ModalityState,
+  type OpponentId,
+  type Race,
+  type RecordsStore,
+  type Settings,
+} from '../core/index.ts';
 import { setCrt } from '../art/index.ts';
-import { setMuted, setVolume } from '../audio/index.ts';
+import { setMuted, setVolume, type MusicId } from '../audio/index.ts';
 import { menuAction, type MenuAction } from '../ui/keys.ts';
 
 export const SceneKey = {
   Boot: 'Boot',
   Title: 'Title',
+  Events: 'Events',
   Ladder: 'Ladder',
   Records: 'Records',
   Options: 'Options',
@@ -27,10 +40,12 @@ export const RACE_OVERLAYS: readonly SceneKey[] = [SceneKey.Hud, SceneKey.Result
 
 export interface App {
   readonly records: RecordsStore;
-  /** Rival selected on the Ladder Map. */
-  ladderCursor: OpponentId;
-  /** Set by the first Zyx win; Ladder shows the Champion screen once when it is set. */
-  championPending: boolean;
+  /** Event of the ladder, race and results on screen (S2-S5, S9). */
+  event: EventId;
+  /** Rival selected on each event's Ladder Map. */
+  ladderCursor: Record<EventId, OpponentId>;
+  /** Set by the first tier 7 win of an event; that event's Ladder shows its Champion screen once. */
+  championPending: EventId | null;
   /** "RECORDS WILL NOT BE SAVED" is shown once per session. */
   saveWarningShown: boolean;
   /** Test hook override for the next race seed. */
@@ -41,12 +56,23 @@ export interface App {
 
 let app: App | null = null;
 
+/** Highest unlocked rival of an event's ladder. */
+function highestUnlocked(records: RecordsStore, event: EventId): OpponentId {
+  return [...ladderIds(event)].reverse().find((id) => records.isUnlocked(event, id)) ?? 'pip';
+}
+
+function initialCursors(records: RecordsStore): Record<EventId, OpponentId> {
+  const out = {} as Record<EventId, OpponentId>;
+  for (const e of EVENT_IDS) out[e] = highestUnlocked(records, e);
+  return out;
+}
+
 export function initApp(records: RecordsStore): App {
-  const highest = [...OPPONENT_IDS].reverse().find((id) => records.isUnlocked(id)) ?? 'pip';
   app = {
     records,
-    ladderCursor: highest,
-    championPending: false,
+    event: records.data.lastEvent,
+    ladderCursor: initialCursors(records),
+    championPending: null,
     saveWarningShown: false,
     pendingSeed: null,
     race: null,
@@ -62,6 +88,17 @@ export function getApp(): App {
 
 export function hasApp(): boolean {
   return app !== null;
+}
+
+/** After "reset records": every cursor back to Pip, nothing pending (design 16.4 rule 5). */
+export function resetRecords(game: Phaser.Game): void {
+  const a = getApp();
+  a.records.reset();
+  a.event = '100m';
+  a.ladderCursor = initialCursors(a.records);
+  a.championPending = null;
+  applyAudioSettings();
+  game.events.emit(SETTINGS_CHANGED);
 }
 
 export function settings(): Settings {
@@ -114,6 +151,8 @@ export function goTo(from: Phaser.Scene, key: SceneKey, data?: object): void {
  * replays its per-frame queue to scenes started in the same frame. Plain DOM listeners avoid both.
  */
 export function onKeyDown(scene: Phaser.Scene, handler: (e: KeyboardEvent) => void): void {
+  // The touch pause button dispatches a synthetic Escape keydown on window (contract), so this
+  // listener also serves touch.
   const listener = (e: KeyboardEvent): void => {
     if (scene.sys.isActive()) handler(e);
   };
@@ -127,17 +166,69 @@ export function onMenuKeys(
   handler: (action: MenuAction, e: KeyboardEvent) => void,
 ): void {
   onKeyDown(scene, (e) => {
-    const action = menuAction(e.code, e.repeat);
+    const action = menuAction(e.code || (e.key === 'Escape' ? 'Escape' : ''), e.repeat);
     if (action) handler(action, e);
   });
 }
 
-export function nextOpponent(id: OpponentId): OpponentId | null {
-  const i = OPPONENT_IDS.indexOf(id);
-  return OPPONENT_IDS[i + 1] ?? null;
+/** Current input modality (design 17.8). */
+export function currentModality(): ModalityState {
+  return modality.get();
 }
 
-export function previousOpponent(id: OpponentId): OpponentId | null {
-  const i = OPPONENT_IDS.indexOf(id);
-  return i > 0 ? (OPPONENT_IDS[i - 1] ?? null) : null;
+export function isTouch(): boolean {
+  return modality.get().modality === 'touch';
+}
+
+/**
+ * Calls `fn` whenever the modality or the pad placement changes, for the lifetime of the scene.
+ * Menu scenes restart on a modality change (copy, BACK items and tap layouts differ); their cursor
+ * state lives in App, so a restart is invisible apart from the new layout.
+ */
+export function onModalityChange(scene: Phaser.Scene, fn: (s: ModalityState) => void): void {
+  let last = modality.get();
+  const off = modality.subscribe((s) => {
+    if (s.modality === last.modality && s.padsOverCanvas === last.padsOverCanvas) return;
+    last = s;
+    if (scene.sys.isActive() || scene.sys.isPaused()) fn(s);
+  });
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, off);
+}
+
+/** Restart a menu scene with the same data when the modality changes. */
+export function restartOnModalityChange(scene: Phaser.Scene, data?: object): void {
+  onModalityChange(scene, () => scene.scene.restart(data));
+}
+
+/** HAPTICS is listed only where navigator.vibrate exists (design 17.7). */
+export function hapticsSupported(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
+}
+
+/** Rival ids of an event's ladder in tier order. */
+export function ladderIds(event: EventId): readonly OpponentId[] {
+  return LADDERS[event].map((e) => e.id);
+}
+
+export function tierOf(event: EventId, id: OpponentId): number {
+  return ladderEntry(event, id)?.tier ?? 1;
+}
+
+export function nextOpponent(event: EventId, id: OpponentId): OpponentId | null {
+  return nextRival(event, id);
+}
+
+export function previousOpponent(event: EventId, id: OpponentId): OpponentId | null {
+  const ids = ladderIds(event);
+  const i = ids.indexOf(id);
+  return i > 0 ? (ids[i - 1] ?? null) : null;
+}
+
+/**
+ * Race music for a rival (design 7.1, 20.2): `race` (100 m), `hurdles` or `quarter` (400 m) with the
+ * rival's tier. Audio itself switches tier 7 to `boss` in every event, so the event track is passed.
+ */
+export function raceMusic(event: EventId, id: OpponentId): { readonly id: MusicId; readonly tier: number } {
+  const tier = tierOf(event, id);
+  return { id: event === '110mh' ? 'hurdles' : event === '400m' ? 'quarter' : 'race', tier };
 }

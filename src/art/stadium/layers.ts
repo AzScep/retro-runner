@@ -281,7 +281,22 @@ function floodlight(m: IndexMap, x: number, top: number, on: boolean): void {
  */
 export const FAR_SAFE_ROW = 11;
 
-export function farLayer(tier: number): IndexMap {
+/** Event whose name the signage shows (design 18; additive, default 100 m). */
+export type SignEvent = '100m' | '110mh' | '400m';
+export const SIGN_EVENTS: readonly SignEvent[] = ['100m', '110mh', '400m'];
+/** Ad board text (near stands) and big-screen text (tier 4) per event. */
+const BOARD_EVENT_TEXT: Readonly<Record<SignEvent, string>> = {
+  '100m': '100M',
+  '110mh': 'HURDLES',
+  '400m': '400M',
+};
+const SCREEN_EVENT_TEXT: Readonly<Record<SignEvent, string>> = {
+  '100m': '100M',
+  '110mh': '110M',
+  '400m': '400M',
+};
+
+export function farLayer(tier: number, event: SignEvent = '100m'): IndexMap {
   const t = theme(tier);
   const { w, h } = LAYERS.far;
   const m = createMap(w, h);
@@ -373,7 +388,7 @@ export function farLayer(tier: number): IndexMap {
       rect(m, 92, S + 1, 72, 11, 28);
       for (let y = S + 1; y < S + 12; y += 2) line(m, 92, y, 163, y, 29);
       text(m, 112, S + 4, 'GO!', 22);
-      text(m, 128, S + 4, '100M', 8);
+      text(m, 128, S + 4, SCREEN_EVENT_TEXT[event], 8);
       break;
     }
     case 5: {
@@ -482,7 +497,7 @@ export function standsLayer(tier: number, frame: 0 | 1): IndexMap {
 // ---------------------------------------------------------------------------
 const BOARD_TEXT = ['RUN', '100M', 'GO!', 'FAST'];
 
-export function nearLayer(tier: number): IndexMap {
+export function nearLayer(tier: number, event: SignEvent = '100m'): IndexMap {
   const t = theme(tier);
   const { w, h } = LAYERS.near;
   const m = createMap(w, h);
@@ -495,7 +510,7 @@ export function nearLayer(tier: number): IndexMap {
     // Board frame top highlight and bottom shadow.
     line(m, x0 + 2, 2, x0 + 61, 2, tier === 6 ? fg : bg === 8 ? 7 : bg);
     line(m, x0 + 2, 12, x0 + 61, 12, 2);
-    const s = BOARD_TEXT[b] as string;
+    const s = b === 1 ? BOARD_EVENT_TEXT[event] : (BOARD_TEXT[b] as string);
     text(m, x0 + 32 - Math.floor(textWidth(s) / 2), 5, s, fg);
     // Simple stripe motif.
     for (let k = 0; k < 3; k++) {

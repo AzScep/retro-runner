@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { RunKeyEvent } from '../index.ts';
+import type { RaceInput } from '../index.ts';
 import { attachKeyboard } from '../index.ts';
 
 /** Node has EventTarget and Event but no KeyboardEvent: build look-alikes with the fields used. */
@@ -17,9 +17,9 @@ function blur(timeStamp: number): Event {
   return ev;
 }
 
-function setup(): { target: EventTarget; got: RunKeyEvent[]; detach: () => void } {
+function setup(): { target: EventTarget; got: RaceInput[]; detach: () => void } {
   const target = new EventTarget();
-  const got: RunKeyEvent[] = [];
+  const got: RaceInput[] = [];
   const detach = attachKeyboard(target as unknown as Window, (e) => got.push(e));
   return { target, got, detach };
 }
@@ -67,6 +67,41 @@ describe('attachKeyboard', () => {
     target.dispatchEvent(blur(5));
     target.dispatchEvent(blur(6));
     expect(got.slice(1)).toEqual([{ kind: 'up', side: 'R', t: 5, repeat: false }]);
+  });
+
+  it('maps ArrowUp/KeyW to jump with the same held rule as sides', () => {
+    const { target, got } = setup();
+    target.dispatchEvent(key('keydown', 'ArrowUp', 1));
+    target.dispatchEvent(key('keydown', 'KeyW', 2));
+    target.dispatchEvent(key('keydown', 'ArrowUp', 3, true));
+    target.dispatchEvent(key('keyup', 'ArrowUp', 4));
+    target.dispatchEvent(key('keyup', 'KeyW', 5));
+    expect(got).toEqual([
+      { kind: 'down', action: 'jump', t: 1, repeat: false },
+      { kind: 'down', action: 'jump', t: 3, repeat: true },
+      { kind: 'up', action: 'jump', t: 5, repeat: false },
+    ]);
+    const up = key('keydown', 'KeyW', 6);
+    target.dispatchEvent(up);
+    expect(up.defaultPrevented).toBe(true);
+  });
+
+  it('a second keydown of the same key without a keyup (lost keyup) forwards nothing', () => {
+    const { target, got } = setup();
+    target.dispatchEvent(key('keydown', 'KeyA', 1));
+    target.dispatchEvent(key('keydown', 'KeyA', 2));
+    target.dispatchEvent(key('keyup', 'KeyA', 3));
+    expect(got).toEqual([
+      { kind: 'down', side: 'L', t: 1, repeat: false },
+      { kind: 'up', side: 'L', t: 3, repeat: false },
+    ]);
+  });
+
+  it('blur also releases a held jump key', () => {
+    const { target, got } = setup();
+    target.dispatchEvent(key('keydown', 'KeyW', 1));
+    target.dispatchEvent(blur(5));
+    expect(got.slice(1)).toEqual([{ kind: 'up', action: 'jump', t: 5, repeat: false }]);
   });
 
   it('detach removes every listener', () => {

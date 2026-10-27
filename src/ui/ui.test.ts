@@ -1,17 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cleanZone,
   crowdIntensity,
   flashHz,
   flashOn,
-  formatLadderTotal,
   gapLabel,
+  gaugeOffset,
+  gaugeVisible,
   fitZoom,
+  jumpReady,
   ladderNodeY,
   litSegments,
   offscreenSide,
+  ovalDot,
   padClock,
+  PAL,
   progressMarkerX,
+  progressTickMarks,
   segmentColorIndex,
+  staminaColorIndex,
+  staminaFillW,
+  staminaLabelColor,
+  sustainTickOffset,
 } from './hudMath.ts';
 import { menuAction } from './keys.ts';
 import { MenuModel } from './menuModel.ts';
@@ -95,6 +105,22 @@ describe('progress bar and off-screen arrow', () => {
     expect(Number.isInteger(progressMarkerX(33.333))).toBe(true);
   });
 
+  it('scales the bar to the event distance (design 18.4)', () => {
+    expect(progressMarkerX(55, 110)).toBe(160);
+    expect(progressMarkerX(110, 110)).toBe(280);
+    expect(progressMarkerX(100, 400)).toBe(100);
+    expect(progressMarkerX(400, 400)).toBe(280);
+  });
+
+  it('puts ticks at the hurdles in hurdles and at 100/200/300 m in the 400 m', () => {
+    expect(progressTickMarks('100m')).toEqual([]);
+    const h = progressTickMarks('110mh');
+    expect(h).toHaveLength(10);
+    expect(h[0]).toBeCloseTo(13.72);
+    expect(h[9]).toBeCloseTo(95.98);
+    expect(progressTickMarks('400m')).toEqual([100, 200, 300]);
+  });
+
   it('detects the off-screen side and labels the gap', () => {
     expect(offscreenSide(-1, 320)).toBe('left');
     expect(offscreenSide(0, 320)).toBeNull();
@@ -133,12 +159,6 @@ describe('time text', () => {
     expect(padClock('5.00')).toBe('05.00');
     expect(padClock('11.85')).toBe('11.85');
     expect(padClock('--.--')).toBe('--.--');
-  });
-
-  it('formats the ladder total as SSS.hh rounding up', () => {
-    expect(formatLadderTotal(null)).toBe('---.--');
-    expect(formatLadderTotal(92341)).toBe('092.35');
-    expect(formatLadderTotal(100000)).toBe('100.00');
   });
 });
 
@@ -192,6 +212,94 @@ describe('crowd intensity', () => {
     expect(crowdIntensity(90)).toBeCloseTo(0.675);
     expect(crowdIntensity(100)).toBe(1);
     expect(crowdIntensity(120)).toBe(1);
+  });
+
+  it('uses the last 20 m of the hurdles and the last 100 m of the 400 m', () => {
+    expect(crowdIntensity(90, '110mh')).toBeCloseTo(0.35);
+    expect(crowdIntensity(100, '110mh')).toBeCloseTo(0.675);
+    expect(crowdIntensity(110, '110mh')).toBe(1);
+    expect(crowdIntensity(300, '400m')).toBeCloseTo(0.35);
+    expect(crowdIntensity(350, '400m')).toBeCloseTo(0.675);
+    expect(crowdIntensity(400, '400m')).toBe(1);
+  });
+});
+
+describe('oval lap icon (design 14.3, 18.4)', () => {
+  it('starts and finishes at the bottom right, back straight on top, home straight on the bottom', () => {
+    const start = ovalDot(0);
+    const finish = ovalDot(400);
+    expect(start).toEqual(finish);
+    expect(start).toEqual({ x: 23, y: 13 });
+    // Halfway round the first bend: the right end of the oval.
+    expect(ovalDot(50)).toEqual({ x: 29, y: 7 });
+    // Back straight on the top edge, moving right to left.
+    expect(ovalDot(100).y).toBe(1);
+    expect(ovalDot(150)).toEqual({ x: 15, y: 1 });
+    expect(ovalDot(199).x).toBeLessThan(ovalDot(101).x);
+    // Second bend reaches the left end.
+    expect(ovalDot(250)).toEqual({ x: 1, y: 7 });
+    // Home straight on the bottom, left to right.
+    expect(ovalDot(350)).toEqual({ x: 15, y: 13 });
+    for (let m = 0; m <= 400; m += 5) {
+      const d = ovalDot(m);
+      expect(d.x).toBeGreaterThanOrEqual(0);
+      expect(d.x + 2).toBeLessThanOrEqual(32);
+      expect(d.y).toBeGreaterThanOrEqual(0);
+      expect(d.y + 2).toBeLessThanOrEqual(16);
+    }
+  });
+});
+
+describe('jump gauge (design 18.4)', () => {
+  it('maps 0-1 s onto the track and clamps', () => {
+    expect(gaugeOffset(0, 78)).toBe(0);
+    expect(gaugeOffset(1, 78)).toBe(78);
+    expect(gaugeOffset(2, 78)).toBe(78);
+    expect(gaugeOffset(-1, 78)).toBe(0);
+    expect(gaugeOffset(0.5, 78)).toBe(39);
+  });
+
+  it('draws the clean window 0.104-0.296 s as a fixed zone', () => {
+    expect(cleanZone(78)).toEqual({ x: 8, w: 15 });
+    expect(cleanZone(54)).toEqual({ x: 6, w: 10 });
+  });
+
+  it('shows the gauge only with a hurdle ahead at 1 m/s or more, and lights Up within 1 s', () => {
+    expect(gaugeVisible(null, 10)).toBe(false);
+    expect(gaugeVisible(0.5, 0.5)).toBe(false);
+    expect(gaugeVisible(0.5, 1)).toBe(true);
+    expect(jumpReady(null)).toBe(false);
+    expect(jumpReady(1.2)).toBe(false);
+    expect(jumpReady(1)).toBe(true);
+  });
+});
+
+describe('stamina meter (design 18.4)', () => {
+  it('colours green above 60, gold 30-60, red below 30', () => {
+    expect(staminaColorIndex(1)).toBe(PAL.green);
+    expect(staminaColorIndex(0.61)).toBe(PAL.green);
+    expect(staminaColorIndex(0.6)).toBe(PAL.gold);
+    expect(staminaColorIndex(0.3)).toBe(PAL.gold);
+    expect(staminaColorIndex(0.29)).toBe(PAL.redLight);
+  });
+
+  it('fills whole pixels of the 56 px bar', () => {
+    expect(staminaFillW(1)).toBe(56);
+    expect(staminaFillW(0)).toBe(0);
+    expect(staminaFillW(0.5)).toBe(28);
+    expect(staminaFillW(1.2)).toBe(56);
+  });
+
+  it('flashes the label at 1 Hz below 30, steady red with reduced flashing', () => {
+    expect(staminaLabelColor(0.5, 0, false)).toBe(PAL.white);
+    expect(staminaLabelColor(0.2, 0, false)).toBe(PAL.redLight);
+    expect(staminaLabelColor(0.2, 500, false)).toBe(PAL.white);
+    expect(staminaLabelColor(0.2, 1000, false)).toBe(PAL.redLight);
+    expect(staminaLabelColor(0.2, 500, true)).toBe(PAL.redLight);
+  });
+
+  it('puts the sustain tick 34 px into the speed segments', () => {
+    expect(sustainTickOffset()).toBe(34);
   });
 });
 

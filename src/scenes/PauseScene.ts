@@ -1,29 +1,43 @@
 import Phaser from 'phaser';
-import type { OpponentId } from '../core/index.ts';
+import { raceFeed, type EventId, type OpponentId } from '../core/index.ts';
 import { playSfx } from '../audio/index.ts';
 import { PAL } from '../ui/hudMath.ts';
 import { Label } from '../ui/text.ts';
 import { addPanel, MenuList } from '../ui/widgets.ts';
-import { applyCrt, goTo, onMenuKeys, SceneKey } from './app.ts';
+import { applyCrt, goTo, isTouch, onMenuKeys, restartOnModalityChange, SceneKey } from './app.ts';
 import type { RaceScene } from './RaceScene.ts';
 
 type PauseId = 'resume' | 'restart' | 'quit';
 
-/** S8 Pause overlay: RESUME, RESTART, QUIT TO MAP. Esc resumes. */
+export interface PauseData {
+  readonly event: EventId;
+  readonly opponent: OpponentId;
+}
+
+/**
+ * Layouts: keyboard 14 px rows; touch 20 px rows so each item is a 20 px tap target (17.5).
+ * Content (cursor to the end of QUIT TO MAP) is 98 px wide, centred in the panel with 8 px of
+ * padding above PAUSED and below the last item.
+ */
+const LAYOUT = {
+  keyboard: { panelY: 52, panelH: 70, listY: 78, lineHeight: 14 },
+  touch: { panelY: 44, panelH: 86, listY: 72, lineHeight: 20 },
+} as const;
+
+/** S8 Pause overlay: RESUME, RESTART, QUIT TO MAP. Esc (or the touch pause button) resumes. */
 export class PauseScene extends Phaser.Scene {
-  private opponent: OpponentId = 'pip';
+  private pauseData!: PauseData;
 
   constructor() {
     super(SceneKey.Pause);
   }
 
-  create(data: { opponent: OpponentId }): void {
-    this.opponent = data.opponent;
+  create(data: PauseData): void {
+    this.pauseData = data;
     applyCrt(this);
-    // Content (cursor to the end of QUIT TO MAP) is 98 px wide, centred in the panel with 8 px of
-    // padding above PAUSED and below the last item.
-    addPanel(this, 88, 52, 144, 70);
-    new Label(this, 160, 60, 'PAUSED', { align: 'center', color: PAL.gold, depth: 101 });
+    const layout = isTouch() ? LAYOUT.touch : LAYOUT.keyboard;
+    addPanel(this, 88, layout.panelY, 144, layout.panelH);
+    new Label(this, 160, layout.panelY + 8, 'PAUSED', { align: 'center', color: PAL.gold, depth: 101 });
     const menu = new MenuList<PauseId>(
       this,
       [
@@ -31,10 +45,15 @@ export class PauseScene extends Phaser.Scene {
         { id: 'restart', label: 'RESTART' },
         { id: 'quit', label: 'QUIT TO MAP' },
       ],
-      { x: 111, y: 78, lineHeight: 14 },
+      { x: 111, y: layout.listY, lineHeight: layout.lineHeight },
     );
+    // Buttons confirm on one tap (17.5.4).
+    menu.enableTaps(this, 136, (id) => {
+      playSfx('menu_select');
+      this.choose(id);
+    });
+    restartOnModalityChange(this, data);
     onMenuKeys(this, (action) => {
-      const race = this.scene.get(SceneKey.Race) as RaceScene;
       switch (action) {
         case 'up':
         case 'down':
@@ -42,18 +61,36 @@ export class PauseScene extends Phaser.Scene {
           return;
         case 'back':
           playSfx('menu_back');
-          race.resumeRace();
+          this.race().resumeRace();
           return;
         case 'confirm':
           playSfx('menu_select');
-          if (menu.focusedId === 'resume') race.resumeRace();
-          // Restarting creates a new Race, which resets the false start count (design 2.5.5).
-          else if (menu.focusedId === 'restart') goTo(this, SceneKey.Race, { opponent: this.opponent });
-          else goTo(this, SceneKey.Ladder);
+          this.choose(menu.focusedId ?? 'resume');
           return;
         default:
           return;
       }
     });
+  }
+
+  /**
+   * RaceScene's update stops while it is paused, so the overlay keeps the feed alive: touch and
+   * haptics read `paused: true` from every frame instead of tracking pause themselves.
+   */
+  update(): void {
+    const race = this.race();
+    if (race.isPaused) raceFeed.publish(race.raceState, []);
+  }
+
+  private race(): RaceScene {
+    return this.scene.get(SceneKey.Race) as RaceScene;
+  }
+
+  private choose(id: PauseId): void {
+    if (id === 'resume') this.race().resumeRace();
+    // Restarting creates a new Race, which resets the false start count (design 2.5.5).
+    else if (id === 'restart')
+      goTo(this, SceneKey.Race, { event: this.pauseData.event, opponent: this.pauseData.opponent });
+    else goTo(this, SceneKey.Ladder);
   }
 }

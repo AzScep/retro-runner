@@ -129,6 +129,12 @@ describe('audio engine without Web Audio', () => {
       api.setCrowd(0.5);
       api.setVolume(3);
       api.setMuted(true);
+      api.playSfx('jump', { volume: 0.5 });
+      api.playSfx('stamina_low', { volume: Number.NaN });
+      api.playMusic('quarter');
+      api.setQuarterFinal(true);
+      api.setQuarterFinal(false);
+      api.playMusic('hurdles', 7);
     }).not.toThrow();
     expect(engine.audioState().unlocked).toBe(false);
     // State is remembered for when audio becomes available.
@@ -136,9 +142,21 @@ describe('audio engine without Web Audio', () => {
       volume: 3,
       muted: true,
       ducked: true,
-      music: null,
+      music: 'boss',
       crowd: 0.5,
+      quarterFinal: false,
     });
+  });
+
+  it('remembers setQuarterFinal until the next track change', async () => {
+    const { api, engine } = await fresh();
+    api.playMusic('quarter', 2);
+    api.setQuarterFinal(true);
+    expect(engine.audioState().quarterFinal).toBe(true);
+    api.playMusic('quarter', 5); // same track: keeps the flag
+    expect(engine.audioState().quarterFinal).toBe(true);
+    api.playMusic('ladder');
+    expect(engine.audioState().quarterFinal).toBe(false);
   });
 
   it('preloadAudio resolves and caches the first tracks', async () => {
@@ -272,4 +290,91 @@ describe('audio engine with a (fake) AudioContext', () => {
     api.setCrowd(0);
     expect(crowd.stopped).not.toBeNull();
   });
+
+  it('plays SFX at a per-play volume through its own gain, rate-limited per volume', async () => {
+    const { api } = await fresh();
+    api.unlockAudio();
+    const ctx = FakeContext.instances[0]!;
+    const gainsBefore = ctx.gains.length;
+    api.playSfx('jump', { volume: 0.5 }); // rival takeoff
+    expect(ctx.gains.length).toBe(gainsBefore + 1);
+    expect(ctx.gains.at(-1)!.gain.value).toBe(0.5);
+    expect(sfxSources(ctx)[0]!.connections[0]).toBe(ctx.gains.at(-1));
+    ctx.currentTime = 0.01;
+    api.playSfx('jump'); // player takeoff in the same frame is not swallowed
+    expect(sfxSources(ctx)).toHaveLength(2);
+    expect(ctx.gains.length).toBe(gainsBefore + 1); // full volume needs no extra gain
+    api.playSfx('jump', { volume: 0.5 }); // rival burst: dropped
+    api.playSfx('jump', { volume: 0 }); // silent: never scheduled
+    api.playSfx('jump', { volume: Number.NaN });
+    expect(sfxSources(ctx)).toHaveLength(2);
+  });
+
+  it('guards stamina SFX against bursts without cutting the 0.6 s cadence', async () => {
+    const { api } = await fresh();
+    api.unlockAudio();
+    const ctx = FakeContext.instances[0]!;
+    for (let i = 0; i < 5; i++) api.playSfx('stamina_low');
+    expect(sfxSources(ctx)).toHaveLength(1);
+    ctx.currentTime = 0.6;
+    api.playSfx('stamina_low');
+    expect(sfxSources(ctx)).toHaveLength(2);
+    api.playSfx('stamina_empty');
+    ctx.currentTime = 1.0;
+    api.playSfx('stamina_empty');
+    ctx.currentTime = 3.6;
+    api.playSfx('stamina_empty');
+    expect(sfxSources(ctx)).toHaveLength(4);
+  });
+
+  it('plays the quarter track as two sample-locked loops and crossfades to final-100 over 1 s', async () => {
+    const { api, engine } = await fresh();
+    api.unlockAudio();
+    const ctx = FakeContext.instances[0]!;
+    await api.prepareMusic('quarter');
+    ctx.currentTime = 5;
+    api.playMusic('quarter', 4);
+    const loops = loopSources(ctx);
+    expect(loops).toHaveLength(2);
+    const [base, final] = loops as [FakeSource, FakeSource];
+    expect(base.started).toBe(5);
+    expect(final.started).toBe(5);
+    expect(base.buffer!.duration).toBe(final.buffer!.duration);
+    const baseMix = base.connections[0] as FakeGain;
+    const finalMix = final.connections[0] as FakeGain;
+    expect(baseMix.gain.value).toBe(1);
+    expect(finalMix.gain.value).toBe(0);
+    expect(baseMix.connections[0]).toBe(finalMix.connections[0]); // one track gain
+
+    ctx.currentTime = 40;
+    api.setQuarterFinal(true);
+    expect(baseMix.gain.value).toBe(0);
+    expect(finalMix.gain.value).toBe(1);
+    expect(finalMix.gain.events.at(-1)).toEqual(['ramp', 1, 41]);
+    expect(baseMix.gain.events.at(-1)).toEqual(['ramp', 0, 41]);
+    expect(loopSources(ctx)).toHaveLength(2); // no restart: loop position kept
+    expect(engine.audioState().quarterFinal).toBe(true);
+
+    api.setQuarterFinal(true); // repeat is a no-op
+    expect(finalMix.gain.events.at(-1)).toEqual(['ramp', 1, 41]);
+    api.setQuarterFinal(false);
+    expect(baseMix.gain.value).toBe(1);
+    expect(finalMix.gain.value).toBe(0);
+
+    ctx.currentTime = 70;
+    api.playMusic(null);
+    expect(base.stopped).toBeGreaterThan(70);
+    expect(final.stopped).toBeGreaterThan(70);
+  }, 20000);
+
+  it('setQuarterFinal on a non-quarter track is a harmless no-op', async () => {
+    const { api } = await fresh();
+    api.unlockAudio();
+    const ctx = FakeContext.instances[0]!;
+    await api.prepareMusic('hurdles', 2);
+    api.playMusic('hurdles', 2);
+    expect(loopSources(ctx)).toHaveLength(1);
+    expect(() => api.setQuarterFinal(true)).not.toThrow();
+    expect(loopSources(ctx)).toHaveLength(1);
+  }, 20000);
 });

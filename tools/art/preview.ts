@@ -1,9 +1,21 @@
 /**
  * Dev-only visual harness for the art layer: `npx vite` then open /tools/art/preview.html?opp=zyx.
  * Drives RaceView with a fake race state (no core simulation needed).
+ * v2: &event=110mh jumps every hurdle (rival clean, player clips H3 and hits H6), &event=400m runs
+ * the player tired with sweat after 250 m, rings the bell at 300 m and shows Sol's watch glance.
+ * &vp / &vr set speeds, &t0 skips ahead in seconds.
  */
 import Phaser from 'phaser';
-import type { OpponentId, RaceEvent, RaceState, RunnerAnim, RunnerState } from '../../src/core/index.ts';
+import { EVENTS, hurdlePositions } from '../../src/core/index.ts';
+import type {
+  EventId,
+  Lane,
+  OpponentId,
+  RaceEvent,
+  RaceState,
+  RunnerAnim,
+  RunnerState,
+} from '../../src/core/index.ts';
 import {
   createCharacterSprite,
   createStadium,
@@ -17,6 +29,11 @@ import {
 const params = new URLSearchParams(location.search);
 const opp = (params.get('opp') ?? 'kofi') as OpponentId;
 const mode = params.get('mode') ?? 'race';
+const event = (params.get('event') ?? '100m') as EventId;
+const DIST = EVENTS[event].distanceM;
+const HURDLES = hurdlePositions(event);
+const AIR_S = 0.4;
+const PEAK_M = 1.3;
 
 function runner(xM: number, vMps: number, anim: RunnerAnim, extra: Partial<RunnerState> = {}): RunnerState {
   return {
@@ -27,6 +44,10 @@ function runner(xM: number, vMps: number, anim: RunnerAnim, extra: Partial<Runne
     effect: 'none',
     visible: true,
     finishMs: null,
+    airM: 0,
+    airPhase: null,
+    hurdlesKnocked: [],
+    stamina: null,
     ...extra,
   };
 }
@@ -38,6 +59,9 @@ class Preview extends Phaser.Scene {
   private r = { x: -2, v: 0 };
   private lastStep = 0;
   private fired = new Set<string>();
+  /** Takeoff time per lane (s), or null when grounded. */
+  private air: Record<Lane, number | null> = { player: null, rival: null };
+  private knocked: Record<Lane, boolean[]> = { player: [], rival: [] };
 
   create(): void {
     registerArt(this);
@@ -61,7 +85,7 @@ class Preview extends Phaser.Scene {
       this.add.image(110, 4, iconKey('trophy')).setOrigin(0).setDepth(100);
       return;
     }
-    this.view = new RaceView(this, opp, { reducedFlashing: false, screenShake: true });
+    this.view = new RaceView(this, event, opp, { reducedFlashing: false, screenShake: true });
     (window as unknown as { __tick: (s: number) => void }).__tick = (sec: number) => {
       for (let i = 0; i < Math.round(sec * 60); i++) this.tick(1 / 60);
     };
@@ -119,13 +143,60 @@ class Preview extends Phaser.Scene {
         visible = true;
       }
     }
-    once('finish', this.p.x >= 100, { type: 'playerFinish', ms: 11000 });
-    if (this.p.x >= 102) pa = this.p.x > 112 ? 'celebrate' : 'run';
-    else if (this.p.x >= 98) pa = 'lean';
-    if (this.r.x >= 98 && this.r.x < 102) ra = 'lean';
-    if (this.r.x > 112) ra = 'lose';
-    if (this.p.x > 110) this.p.v = Math.max(0, this.p.v - 8 * dt);
-    if (this.r.x > 110) this.r.v = Math.max(0, this.r.v - 8 * dt);
+    once('finish', this.p.x >= DIST, { type: 'playerFinish', ms: 11000 });
+    if (this.p.x >= DIST + 2) pa = this.p.x > DIST + 12 ? 'celebrate' : 'run';
+    else if (this.p.x >= DIST - 2) pa = 'lean';
+    if (this.r.x >= DIST - 2 && this.r.x < DIST + 2) ra = 'lean';
+    if (this.r.x > DIST + 12) ra = 'lose';
+    if (this.p.x > DIST + 10) this.p.v = Math.max(0, this.p.v - 8 * dt);
+    if (this.r.x > DIST + 10) this.r.v = Math.max(0, this.r.v - 8 * dt);
+
+    // Hurdles: take off 0.2 s before each hurdle (clean); the player is late at H3 and never jumps H6.
+    const airOf = (lane: Lane, x: number, v: number): { airM: number; airPhase: number | null } => {
+      const t0 = this.air[lane];
+      if (t0 === null) {
+        const next = HURDLES.findIndex((h) => h > x);
+        const h = HURDLES[next];
+        const late = lane === 'player' && next === 2 ? 0.13 : 0;
+        const skip = lane === 'player' && next === 5;
+        if (h !== undefined && !skip && v > 1 && (h - x) / v <= 0.2 - late) {
+          this.air[lane] = this.t;
+          events.push({ type: 'jump', lane });
+        }
+        return { airM: 0, airPhase: null };
+      }
+      const s = (this.t - t0) / AIR_S;
+      if (s >= 1) {
+        this.air[lane] = null;
+        events.push({ type: 'land', lane });
+        return { airM: 0, airPhase: null };
+      }
+      return { airM: 4 * PEAK_M * s * (1 - s), airPhase: s };
+    };
+    const pAir = airOf('player', this.p.x, this.p.v);
+    const rAir = airOf('rival', this.r.x, this.r.v);
+    HURDLES.forEach((h, i) => {
+      for (const [lane, x, a] of [
+        ['player', this.p.x, pAir],
+        ['rival', this.r.x, rAir],
+      ] as const) {
+        once(`h${lane}${i}`, x >= h, {
+          type: a.airM >= 1 ? 'hurdleClear' : a.airM > 0 ? 'hurdleClip' : 'hurdleHit',
+          lane,
+          index: i,
+        });
+        if (x >= h && a.airM < 1) this.knocked[lane][i] = true;
+      }
+    });
+    if (pAir.airPhase !== null && pa === 'run') pa = 'hurdle';
+    if (rAir.airPhase !== null && ra === 'run') ra = 'hurdle';
+    // 400 m: fatigue after 250 m, bell at 300 m, Sol glances at his watch at 200 m.
+    let stamina: number | null = null;
+    if (event === '400m') {
+      stamina = Math.max(0, 1 - this.p.x / 330);
+      if (stamina < 0.3 && pa === 'run') pa = 'tired';
+      once('bell', this.p.x >= 300, { type: 'bell' });
+    }
     let effect: RunnerState['effect'] = 'none';
     if (opp === 'unit7' && this.r.x > 50 && this.r.x < 85) effect = 'overclock';
     if (opp === 'unit7' && this.r.x >= 85 && this.r.x < 92) effect = 'overheat';
@@ -141,8 +212,14 @@ class Preview extends Phaser.Scene {
       paused: false,
       expectedSide: null,
       idleMs: 0,
-      player: runner(this.p.x, this.p.v, pa),
-      rival: runner(this.r.x, this.r.v, ra, { effect, visible }),
+      event,
+      player: runner(this.p.x, this.p.v, pa, { ...pAir, hurdlesKnocked: this.knocked.player, stamina }),
+      rival: runner(this.r.x, this.r.v, ra, {
+        effect: opp === 'sol' && this.r.x > 200 && this.r.x < 205 ? 'watch' : effect,
+        visible,
+        ...rAir,
+        hurdlesKnocked: this.knocked.rival,
+      }),
       outcome: null,
     } as RaceState;
     (window as unknown as { __art: unknown }).__art = { p: this.p, r: this.r, sx: this.view.rivalScreenX() };

@@ -24,20 +24,37 @@ describe('StepFilter (design 2.2)', () => {
     const f = new StepFilter();
     expect(f.down('L', 0, false)).toBe('step');
     expect(f.down('R', 100, false)).toBe('step');
-    // L released, R still held: a second R keydown (e.g. D while ArrowRight is held) gives nothing.
+    // L released, R still held: a second R press (another source, e.g. touch) gives nothing.
     f.release('L');
     expect(f.down('L', 200, false)).toBe('step');
     expect(f.down('R', 300, false)).toBe('ignored');
+    // R counts as held until both sources released it.
     f.release('R');
+    expect(f.isHeld('R')).toBe(true);
+    expect(f.down('R', 350, false)).toBe('ignored');
+    f.release('R');
+    f.release('R');
+    expect(f.isHeld('R')).toBe(false);
     expect(f.down('R', 400, false)).toBe('step');
   });
 
   it('a held key noted before the race cannot step until released', () => {
     const f = new StepFilter();
     f.noteDown('L');
-    expect(f.down('L', 0, false)).toBe('ignored');
+    f.release('L');
+    f.noteDown('L');
+    expect(f.down('L', 0, false)).toBe('ignored'); // a second source while held
+    f.release('L');
     f.release('L');
     expect(f.down('L', 10, false)).toBe('step');
+  });
+
+  it('an up without a down (pressed before the race existed) clamps at not held', () => {
+    const f = new StepFilter();
+    f.release('L');
+    f.release('L');
+    expect(f.isHeld('L')).toBe(false);
+    expect(f.down('L', 0, false)).toBe('step');
   });
 
   it('auto-repeat changes nothing', () => {

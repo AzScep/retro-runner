@@ -430,6 +430,53 @@ const BUSTS: Readonly<Record<SpecId, () => IndexMap>> = {
     setPx(m, 31, 28, 35);
     return m;
   },
+  sol: () => {
+    const skin: Ramp4 = [9, 10, 11, 11];
+    const m = bust({ skin, kit: [6, 7, 8, 8], faceRx: 9, faceRy: 13, cy: 20 });
+    // Orange shoulder trim, orange chest band with the yellow sun emblem.
+    rect(m, 13, 35, 22, 2, 21);
+    line(m, 13, 36, 34, 36, 20);
+    rect(m, 17, 37, 14, 3, skin[2]);
+    rect(m, 26, 37, 5, 3, skin[1]);
+    rect(m, 6, 42, 37, 4, 21);
+    line(m, 6, 45, 42, 45, 20);
+    ellipse(m, 24, 43.5, 3.2, 3.2, [20, 21, 22, 23], 0.3, -0.4);
+    for (const [x, y] of [
+      [19, 43],
+      [29, 43],
+      [24, 39],
+    ] as const)
+      setPx(m, x, y, 22);
+    // Close-cropped dark hair with grey streaks at the temple.
+    for (let y = 5; y < 15; y++) {
+      for (let x = 13; x < 35; x++) {
+        const dx = (x + 0.5 - 24) / 10;
+        const dy = (y + 0.5 - 20) / 14;
+        if (dx * dx + dy * dy <= 1 && y < 13 - (x > 30 ? x - 30 : 0)) setPx(m, x, y, 14);
+      }
+    }
+    rect(m, 13, 12, 4, 8, 14);
+    // Grey at the temple, fading up into the crop.
+    for (const [x, y, w] of [
+      [13, 18, 3],
+      [13, 15, 3],
+      [14, 12, 2],
+      [17, 9, 2],
+      [21, 7, 2],
+    ] as const)
+      line(m, x, y, x + w - 1, y - 1, 7);
+    // Calm, half-closed eyes: heavy lids over the top half.
+    eyes(m, 19, 14, 9);
+    rect(m, 23, 19, 4, 1, 10);
+    rect(m, 30, 19, 3, 1, 10);
+    line(m, 22, 18, 27, 18, 9);
+    line(m, 29, 18, 33, 18, 9);
+    nose(m, 22, skin);
+    // Relaxed closed mouth and a hint of grey stubble.
+    line(m, 26, 27, 30, 27, 9);
+    setPx(m, 25, 26, 10);
+    return m;
+  },
 };
 
 export function portrait48(id: SpecId): IndexMap {

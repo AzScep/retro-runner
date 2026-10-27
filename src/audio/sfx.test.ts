@@ -3,7 +3,7 @@ import { renderSfx, SFX } from './sfx.ts';
 import { levels, SAMPLE_RATE } from './synth.ts';
 import { SFX_IDS, type SfxId } from './types.ts';
 
-/** Design 7.2 lengths in seconds (flashbulb is not in the table; it is a short distant pop). */
+/** Design 7.2 and 20.1 lengths in seconds (flashbulb is not in 7.2; it is a short distant pop). */
 const DESIGN_LENGTH: Record<SfxId, number> = {
   step_l: 0.04,
   step_r: 0.04,
@@ -22,6 +22,14 @@ const DESIGN_LENGTH: Record<SfxId, number> = {
   warp: 0.3,
   overheat: 0.6,
   flashbulb: 0.25,
+  jump: 0.12,
+  land: 0.04,
+  hurdle_clip: 0.08,
+  hurdle_hit: 0.3,
+  split: 0.15,
+  bell: 0.6,
+  stamina_low: 0.12,
+  stamina_empty: 0.4,
 };
 
 describe('sfx', () => {
@@ -63,5 +71,29 @@ describe('sfx', () => {
     expect(SFX.beep_count.layers[0]!.params[2]).toBe(440);
     expect(SFX.beep_go.layers[0]!.params[2]).toBe(880);
     expect(SFX.beep_count.layers[0]!.params[6]).toBe(5); // pulse
+  });
+
+  it('v2 SFX have burst guards that never cut the design cadence', () => {
+    // Core emits staminaLow every 0.6 s and staminaEmpty at most once per 3 s (design 20.1).
+    expect(SFX.stamina_low.minInterval).toBeGreaterThan(0);
+    expect(SFX.stamina_low.minInterval).toBeLessThan(0.6);
+    expect(SFX.stamina_empty.minInterval).toBeGreaterThan(0);
+    expect(SFX.stamina_empty.minInterval).toBeLessThan(3);
+    // A jump is 0.40 s of air plus a 0.10 s lock: one takeoff per lane per 0.5 s at most.
+    for (const id of ['jump', 'land', 'hurdle_clip', 'hurdle_hit'] as const) {
+      expect(SFX[id].minInterval).toBeGreaterThan(0);
+      expect(SFX[id].minInterval).toBeLessThan(0.5);
+    }
+    // Splits and the bell are 100 m apart (10 s or more).
+    for (const id of ['split', 'bell'] as const) {
+      expect(SFX[id].minInterval).toBeGreaterThan(0);
+      expect(SFX[id].minInterval).toBeLessThan(1);
+    }
+  });
+
+  it('jump is a rising sweep and the bell strikes twice', () => {
+    expect(SFX.jump.layers[0]!.params[8]).toBeGreaterThan(0); // positive slide
+    const strikes = new Set(SFX.bell.layers.map((l) => l.at));
+    expect(strikes.size).toBe(2);
   });
 });

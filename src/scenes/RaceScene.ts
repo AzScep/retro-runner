@@ -1,39 +1,48 @@
 import Phaser from 'phaser';
 import {
-  attachKeyboard,
   newSeed,
-  OPPONENTS,
   Race,
+  raceFeed,
+  raceInput,
+  type EventId,
   type OpponentId,
   type RaceEvent,
   type RaceOutcome,
   type RaceState,
 } from '../core/index.ts';
 import { paletteColor, RaceView } from '../art/index.ts';
-import { duckMusic, playMusic, playSfx, setCrowd } from '../audio/index.ts';
+import { duckMusic, playMusic, playSfx, setCrowd, setQuarterFinal } from '../audio/index.ts';
 import { crowdIntensity, PAL } from '../ui/hudMath.ts';
-import { applyCrt, getApp, onKeyDown, SceneKey, settings } from './app.ts';
+import { applyCrt, getApp, onKeyDown, raceMusic, SceneKey, settings } from './app.ts';
 import type { HudScene } from './HudScene.ts';
 import type { ResultsData } from './ResultsScene.ts';
 
 export interface RaceSceneData {
+  readonly event: EventId;
   readonly opponent: OpponentId;
 }
 
 const STEP_SFX_MIN_MS = 40;
+/** Rival takeoffs and knocks play at half volume (design 20.1). */
+const RIVAL_VOLUME = 0.5;
 
 /**
  * S3 + S4: pre-race walk, countdown and race (design 1.2). Owns the core Race, the art RaceView
  * (world camera), audio cues, pause and auto-pause. The HUD runs in HudScene on a fixed camera.
+ *
+ * Input: main.ts attaches the keyboard adapter to core's raceInput hub once, the touch layer emits
+ * into the same hub, and this scene feeds the hub into Race.input while it runs. Every frame the state and events go out on
+ * raceFeed (touch pads, haptics); publish(null, []) on shutdown says no race is on screen.
  */
 export class RaceScene extends Phaser.Scene {
   private race!: Race;
   private view!: RaceView;
   private hud!: HudScene;
+  private event: EventId = '100m';
   private opponent: OpponentId = 'pip';
   private paused = false;
   private resultShown = false;
-  private detachKeys: (() => void) | null = null;
+  private detach: (() => void)[] = [];
   private lastStepSfx = -Infinity;
   private lastCrowd = -1;
 
@@ -44,35 +53,43 @@ export class RaceScene extends Phaser.Scene {
   create(data: RaceSceneData): void {
     const app = getApp();
     const s = settings();
+    this.event = data.event;
     this.opponent = data.opponent;
+    app.event = data.event;
     this.paused = false;
     this.resultShown = false;
     this.lastStepSfx = -Infinity;
     this.lastCrowd = -1;
-    const tier = OPPONENTS[this.opponent].tier;
     const seed = app.pendingSeed ?? newSeed();
     app.pendingSeed = null;
+    // First race of the event (no history) shows the pre-race tip (design 18.5).
+    const firstRace = app.records.data.events[this.event].history.length === 0;
 
     this.cameras.main.setBackgroundColor(paletteColor(PAL.ink));
     applyCrt(this);
-    this.view = new RaceView(this, this.opponent, {
+    this.view = new RaceView(this, this.event, this.opponent, {
       reducedFlashing: s.reducedFlashing,
       // Reduced flashing also disables screen shake (design 6.5).
       screenShake: s.screenShake && !s.reducedFlashing,
     });
-    this.race = new Race({ opponent: this.opponent, seed, startT: performance.now() });
+    this.race = new Race({ event: this.event, opponent: this.opponent, seed, startT: performance.now() });
     app.race = this.race;
-    this.detachKeys = attachKeyboard(window, (e) => this.race.input(e));
+    // main.ts attaches the keyboard to raceInput once at app start; touch emits into the same hub.
+    this.detach = [raceInput.subscribe((e) => this.race.input(e))];
 
-    this.scene.launch(SceneKey.Hud, { opponent: this.opponent });
+    this.scene.launch(SceneKey.Hud, { event: this.event, opponent: this.opponent, firstRace });
     this.hud = this.scene.get(SceneKey.Hud) as HudScene;
 
-    playMusic(tier === 7 ? 'boss' : 'race', tier);
+    const music = raceMusic(this.event, this.opponent);
+    playMusic(music.id, music.tier);
+    // A retry keeps the quarter track playing, so the final-100 layer must be reset every start.
+    if (this.event === '400m') setQuarterFinal(false);
     duckMusic(false);
 
-    // Esc pauses (Backspace is menus-only, design 8). Space/Enter do nothing during S4 (8.3).
+    // Esc pauses (Backspace is menus-only, design 8); the touch pause button dispatches a synthetic
+    // Escape. Space/Enter do nothing during S4 (8.3).
     onKeyDown(this, (e) => {
-      if (e.code === 'Escape' && !e.repeat) this.pauseRace();
+      if ((e.code === 'Escape' || e.key === 'Escape') && !e.repeat) this.pauseRace();
     });
 
     window.addEventListener('blur', this.onBlur);
@@ -80,8 +97,9 @@ export class RaceScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       window.removeEventListener('blur', this.onBlur);
       document.removeEventListener('visibilitychange', this.onVisibility);
-      this.detachKeys?.();
-      this.detachKeys = null;
+      for (const off of this.detach) off();
+      this.detach = [];
+      raceFeed.publish(null, []);
       this.view.destroy();
       if (getApp().race === this.race) getApp().race = null;
       setCrowd(0);
@@ -102,17 +120,23 @@ export class RaceScene extends Phaser.Scene {
     return this.paused;
   }
 
-  /** Esc, window blur or hidden tab during S3/S4 (design 8.4, 8.5). */
+  get raceEvent(): EventId {
+    return this.event;
+  }
+
+  /** Esc, the touch pause button, window blur or hidden tab during S3/S4 (design 8.4, 8.5). */
   pauseRace(): void {
     if (this.paused || this.resultShown || !this.sys.isActive()) return;
     const st = this.race.state;
     if (st.phase === 'finished') return;
     this.race.pause(performance.now());
     this.paused = true;
+    // Pads and haptics see the paused state while the simulation is frozen.
+    raceFeed.publish(this.race.state, []);
     setCrowd(0);
     this.scene.pause(SceneKey.Race);
     this.scene.pause(SceneKey.Hud);
-    this.scene.launch(SceneKey.Pause, { opponent: this.opponent });
+    this.scene.launch(SceneKey.Pause, { event: this.event, opponent: this.opponent });
   }
 
   /** Called by PauseScene: RESUME (or Esc). */
@@ -133,9 +157,11 @@ export class RaceScene extends Phaser.Scene {
     const state = this.race.state;
     this.view.update(state, events);
     this.hud.onFrame(state, events, this.view.rivalScreenX());
+    raceFeed.publish(state, events);
     this.playCues(events, now);
     if (state.phase !== 'intro') {
-      const c = Math.round(crowdIntensity(Math.max(state.player.xM, state.rival.xM)) * 100) / 100;
+      const lead = Math.max(state.player.xM, state.rival.xM);
+      const c = Math.round(crowdIntensity(lead, this.event) * 100) / 100;
       if (c !== this.lastCrowd) {
         this.lastCrowd = c;
         setCrowd(c);
@@ -183,6 +209,34 @@ export class RaceScene extends Phaser.Scene {
           else if (ev.name === 'overheat') playSfx('overheat');
           else if (ev.name === 'flashbulb' && !s.reducedFlashing) playSfx('flashbulb');
           break;
+        // v2 (design 20.1).
+        case 'jump':
+          if (ev.lane === 'player') playSfx('jump');
+          else playSfx('jump', { volume: RIVAL_VOLUME });
+          break;
+        case 'land':
+          if (ev.lane === 'player') playSfx('land');
+          break;
+        case 'hurdleClip':
+          playSfx('hurdle_clip', ev.lane === 'player' ? {} : { volume: RIVAL_VOLUME });
+          break;
+        case 'hurdleHit':
+          playSfx('hurdle_hit', ev.lane === 'player' ? {} : { volume: RIVAL_VOLUME });
+          break;
+        case 'split':
+          playSfx('split');
+          break;
+        case 'bell':
+          // The quarter track crossfades to its final-100 render at 300 m (design 20.2).
+          playSfx('bell');
+          setQuarterFinal(true);
+          break;
+        case 'staminaLow':
+          playSfx('stamina_low');
+          break;
+        case 'staminaEmpty':
+          playSfx('stamina_empty');
+          break;
         default:
           break;
       }
@@ -194,8 +248,8 @@ export class RaceScene extends Phaser.Scene {
     this.resultShown = true;
     const app = getApp();
     const record = app.records.record(outcome, new Date());
-    if (record.unlocked) app.ladderCursor = record.unlocked;
-    if (record.becameChampion) app.championPending = true;
+    if (record.unlocked) app.ladderCursor[outcome.event] = record.unlocked;
+    if (record.becameChampion) app.championPending = outcome.event;
     const data: ResultsData = { outcome, record };
     this.scene.launch(SceneKey.Results, data);
   }

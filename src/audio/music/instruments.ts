@@ -77,6 +77,35 @@ const ALIEN = {
 export const ALIEN_LEAD_A = zz({ ...ALIEN, freq: F, repeat: 0.072 });
 export const ALIEN_LEAD_B = zz({ ...ALIEN, freq: F * 2 ** (18 / 1200), repeat: 0.083 });
 
+/** Thin 12.5% pulse harmony under a pulse lead (hurdles). */
+export const PULSE_HARMONY = zz({
+  vol: 0.24,
+  freq: F,
+  attack: 0.006,
+  decay: 0.1,
+  sVol: 0.55,
+  sustain: 1.3,
+  release: 0.1,
+  shape: SHAPE.pulse,
+  curve: 0.25,
+  filter: -3000,
+});
+
+/** Bright 12.5% pulse descant with a short echo: the quarter track's final-100 lead. */
+export const DESCANT_LEAD = zz({
+  vol: 0.26,
+  freq: F,
+  attack: 0.01,
+  decay: 0.15,
+  sVol: 0.7,
+  sustain: 1.6,
+  release: 0.12,
+  shape: SHAPE.pulse,
+  curve: 0.25,
+  filter: -5200,
+  delay: 0.15,
+});
+
 // Accompaniment -------------------------------------------------------------------------------
 
 /** 12.5% pulse blip for 16th-note arpeggios. */

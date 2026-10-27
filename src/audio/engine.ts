@@ -1,13 +1,17 @@
 /**
  * Web Audio engine: one lazily created AudioContext and a fixed graph
  *
- *   music tracks -> trackGain -> duck -> music bus -\
+ *   music tracks -> [mix gain] -> trackGain -> duck -> music bus -\
  *   sfx sources ------------------------> sfx bus --+-> master (volume x mute) -> limiter -> out
  *   crowd loop -> low-pass -> crowdGain -> sfx bus -/
  *
  * Nothing touches Web Audio at import time. Before unlockAudio() (or without Web Audio at all) every
  * call only records state: volume, mute, duck, the wanted track and crowd intensity are applied when
  * the context appears, so UI can call playMusic('title') at boot and hear it on the first key press.
+ *
+ * Tracks with a final-100 render (quarter) play as two sample-locked looping sources started at the
+ * same instant, each through its own mix gain; setQuarterFinal() crossfades the mix gains, so the
+ * loop position never jumps.
  */
 
 import type { MusicId, Pcm, SfxId } from './types.ts';
@@ -33,9 +37,14 @@ const FIRST_FADE_IN = 0.02;
 const VOLUME_RAMP = 0.04;
 const CROWD_RAMP = 0.25;
 const CROWD_STOP = 0.4;
+/** Quarter track base <-> final-100 crossfade (design 20.2). */
+export const QUARTER_XFADE = 1;
 
-/** Most rendered songs kept in memory (each 10-21 MB of stereo float). */
-const MAX_TRACKS = 4;
+/**
+ * Memory budget for rendered songs (stereo float32: 10 MB for a 30 s race theme, 21 MB for the
+ * champion, 45 MB for the quarter pair). The playing and wanted tracks are never evicted.
+ */
+const MAX_TRACK_BYTES = 96 * 1024 * 1024;
 /** Hard cap on simultaneous SFX voices. */
 const MAX_SFX_VOICES = 24;
 
@@ -60,8 +69,10 @@ interface Graph {
 
 interface Playing {
   readonly key: string;
-  readonly source: AudioBufferSourceNode;
+  readonly sources: readonly AudioBufferSourceNode[];
   readonly gain: GainNode;
+  /** Base and final-100 mix gains (quarter only). */
+  readonly mix: { readonly base: GainNode; readonly final: GainNode } | null;
 }
 
 interface Crowd {
@@ -73,6 +84,13 @@ interface Crowd {
 interface TrackEntry {
   pcm: Pcm | null;
   buffer: AudioBuffer | null;
+  final: AudioBuffer | null;
+  readonly bytes: number;
+}
+
+function pcmBytes(pcm: Pcm): number {
+  const n = pcm.channels.length + (pcm.final?.length ?? 0);
+  return n * pcm.channels[0]!.length * 4;
 }
 
 // State that exists without a context ---------------------------------------------------------
@@ -81,6 +99,7 @@ let muted = false;
 let ducked = false;
 let wanted: TrackRef | null = null;
 let crowdIntensity = 0;
+let quarterFinal = false;
 
 // Context-bound state ---------------------------------------------------------------------------
 let graph: Graph | null = null;
@@ -210,10 +229,13 @@ function touch(key: string, entry: TrackEntry): void {
 }
 
 function evict(): void {
-  for (const key of tracks.keys()) {
-    if (tracks.size <= MAX_TRACKS) return;
+  let bytes = 0;
+  for (const e of tracks.values()) bytes += e.bytes;
+  for (const [key, e] of tracks) {
+    if (bytes <= MAX_TRACK_BYTES) return;
     if (key === playing?.key || key === wanted?.key) continue;
     tracks.delete(key);
+    bytes -= e.bytes;
   }
 }
 
@@ -227,7 +249,7 @@ function ensureTrack(ref: TrackRef): Promise<void> {
   if (!p) {
     p = renderTrack(ref)
       .then((pcm) => {
-        tracks.set(ref.key, { pcm, buffer: null });
+        tracks.set(ref.key, { pcm, buffer: null, final: null, bytes: pcmBytes(pcm) });
         evict();
       })
       .finally(() => pending.delete(ref.key));
@@ -236,15 +258,19 @@ function ensureTrack(ref: TrackRef): Promise<void> {
   return p;
 }
 
-function trackBuffer(key: string): AudioBuffer | null {
+function trackBuffers(
+  key: string,
+): { readonly main: AudioBuffer; readonly final: AudioBuffer | null } | null {
   const entry = tracks.get(key);
   if (!entry || !graph) return null;
   if (!entry.buffer && entry.pcm) {
-    entry.buffer = toBuffer(graph.ctx, entry.pcm.channels, entry.pcm.sampleRate);
+    const { channels, final, sampleRate } = entry.pcm;
+    entry.buffer = toBuffer(graph.ctx, channels, sampleRate);
+    entry.final = final ? toBuffer(graph.ctx, final, sampleRate) : null;
     entry.pcm = null; // keep one copy only
   }
   touch(key, entry);
-  return entry.buffer;
+  return entry.buffer ? { main: entry.buffer, final: entry.final } : null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -254,6 +280,7 @@ export function playMusic(id: MusicId | null, tier?: number): void {
   const ref = id ? resolveTrack(id, tier) : null;
   if (ref?.key === wanted?.key) return;
   wanted = ref;
+  quarterFinal = false; // a newly started track always begins on its base mix
   try {
     applyMusic();
   } catch {
@@ -269,8 +296,8 @@ function applyMusic(): void {
     return;
   }
   if (playing?.key === ref.key) return;
-  const buffer = trackBuffer(ref.key);
-  if (!buffer) {
+  const buffers = trackBuffers(ref.key);
+  if (!buffers) {
     ensureTrack(ref).then(
       () => {
         if (wanted?.key === ref.key) applyMusic();
@@ -286,24 +313,60 @@ function applyMusic(): void {
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(0, t);
   gain.gain.linearRampToValueAtTime(1, t + (hadPrevious ? XFADE_IN : FIRST_FADE_IN));
-  const source = ctx.createBufferSource();
-  source.buffer = buffer;
-  source.loop = true;
-  source.connect(gain).connect(duck);
-  source.start(t);
-  playing = { key: ref.key, source, gain };
+  gain.connect(duck);
+  const loopSource = (buffer: AudioBuffer, into: AudioNode) => {
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.connect(into);
+    return source;
+  };
+  let sources: AudioBufferSourceNode[];
+  let mix: Playing['mix'] = null;
+  if (buffers.final) {
+    const base = ctx.createGain();
+    const final = ctx.createGain();
+    base.gain.value = quarterFinal ? 0 : 1;
+    final.gain.value = quarterFinal ? 1 : 0;
+    base.connect(gain);
+    final.connect(gain);
+    sources = [loopSource(buffers.main, base), loopSource(buffers.final, final)];
+    mix = { base, final };
+  } else {
+    sources = [loopSource(buffers.main, gain)];
+  }
+  // Same start time and same length: the two quarter loops stay sample-locked forever.
+  for (const s of sources) s.start(t);
+  playing = { key: ref.key, sources, gain, mix };
 }
 
 function fadeOutPlaying(): void {
   if (!graph || !playing) return;
-  const { source, gain } = playing;
+  const { sources, gain } = playing;
   const t = graph.ctx.currentTime;
   gain.gain.cancelScheduledValues(t);
   gain.gain.setValueAtTime(gain.gain.value, t);
   gain.gain.linearRampToValueAtTime(0, t + XFADE_OUT);
-  source.stop(t + XFADE_OUT + 0.05);
-  source.onended = () => gain.disconnect();
+  for (const s of sources) s.stop(t + XFADE_OUT + 0.05);
+  sources[0]!.onended = () => gain.disconnect();
   playing = null;
+}
+
+/**
+ * Crossfade the playing quarter track to its final-100 render (or back) over QUARTER_XFADE.
+ * Linear ramps are exact here: final = base + extra with one shared gain, so the blend is
+ * base + k * extra at every instant. Remembered until the next track change; harmless otherwise.
+ */
+export function setQuarterFinal(final: boolean): void {
+  if (final === quarterFinal) return;
+  quarterFinal = final;
+  try {
+    if (!graph || !playing?.mix) return;
+    ramp(playing.mix.base.gain, final ? 0 : 1, QUARTER_XFADE);
+    ramp(playing.mix.final.gain, final ? 1 : 0, QUARTER_XFADE);
+  } catch {
+    // ignore
+  }
 }
 
 export function duckMusic(isDucked: boolean): void {
@@ -329,15 +392,24 @@ function sfxBuffer(id: SfxId): AudioBuffer | null {
   return buf;
 }
 
-export function playSfx(id: SfxId): void {
+export interface SfxOptions {
+  /** Linear gain 0-1 for this play (default 1); rival takeoffs use 0.5. */
+  readonly volume?: number;
+}
+
+export function playSfx(id: SfxId, opts?: SfxOptions): void {
   try {
+    const vol = opts?.volume ?? 1;
+    if (!Number.isFinite(vol) || vol <= 0) return;
     if (!graph || graph.ctx.state !== 'running') return;
     const def = SFX[id];
     if (!def) return;
     const { ctx, sfx } = graph;
     const now = ctx.currentTime;
     if (def.minInterval) {
-      const group = def.group ?? id;
+      // Plays at different volumes are rate-limited separately: a half-volume rival jump never
+      // swallows the player's own jump in the same frame.
+      const group = `${def.group ?? id}@${vol < 1 ? 'soft' : 'full'}`;
       const last = lastPlayed.get(group);
       if (last !== undefined && now - last < def.minInterval - 1e-4) return;
       lastPlayed.set(group, now);
@@ -348,11 +420,18 @@ export function playSfx(id: SfxId): void {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     if (def.jitter) source.playbackRate.value = 1 + def.jitter * (Math.random() * 2 - 1);
-    source.connect(sfx);
+    let out: AudioNode = source;
+    if (vol < 1) {
+      const g = ctx.createGain();
+      g.gain.value = vol;
+      out = source.connect(g);
+    }
+    out.connect(sfx);
     sfxVoices++;
     source.onended = () => {
       sfxVoices--;
       source.disconnect();
+      if (out !== source) out.disconnect();
     };
     source.start(now);
   } catch {
@@ -430,7 +509,9 @@ export function audioState(): {
   readonly music: string | null;
   readonly playing: string | null;
   readonly crowd: number;
+  readonly quarterFinal: boolean;
   readonly cachedTracks: readonly string[];
+  readonly cachedBytes: number;
 } {
   return {
     unlocked: graph !== null,
@@ -441,6 +522,8 @@ export function audioState(): {
     music: wanted?.key ?? null,
     playing: playing?.key ?? null,
     crowd: crowdIntensity,
+    quarterFinal,
     cachedTracks: [...tracks.keys()],
+    cachedBytes: [...tracks.values()].reduce((a, e) => a + e.bytes, 0),
   };
 }

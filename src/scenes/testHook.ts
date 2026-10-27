@@ -4,8 +4,16 @@
  */
 import Phaser from 'phaser';
 import { PALETTE } from '../art/index.ts';
-import { toKmh, type RaceState, type RunnerState, type SaveData } from '../core/index.ts';
-import { applyAudioSettings, getApp, hasApp, SceneKey, SETTINGS_CHANGED } from './app.ts';
+import {
+  modality,
+  toKmh,
+  type ModalityState,
+  type RaceState,
+  type RunnerState,
+  type SaveData,
+} from '../core/index.ts';
+import { getApp, hasApp, resetRecords, SceneKey } from './app.ts';
+import { activeTapTargets, dispatchTap, type TapRect } from '../ui/tapTargets.ts';
 import { audioPreloaded, bootError } from './BootScene.ts';
 import type { HudScene, HudSnapshot } from './HudScene.ts';
 import { OUTLINE_NAME } from '../ui/text.ts';
@@ -17,6 +25,9 @@ export interface RunnerSnapshot {
   readonly anim: string;
   readonly visible: boolean;
   readonly finishMs: number | null;
+  readonly airM: number;
+  readonly hurdlesKnocked: readonly boolean[];
+  readonly stamina: number | null;
 }
 
 export interface TestState {
@@ -29,6 +40,11 @@ export interface TestState {
   /** Every scene that is running or paused, bottom to top. */
   readonly scenes: readonly string[];
   readonly race: {
+    readonly event: RaceState['event'];
+    readonly nextHurdleS: number | null;
+    readonly nextHurdleIndex: number | null;
+    readonly splits: readonly number[];
+    readonly staminaDraining: boolean;
     readonly opponent: string;
     readonly seed: number;
     readonly phase: RaceState['phase'];
@@ -47,15 +63,27 @@ export interface TestState {
   readonly texts: readonly string[];
   readonly records: SaveData | null;
   readonly persistent: boolean | null;
+  /** Rival selected on the current event's ladder. */
   readonly ladderCursor: string | null;
+  /** Event of the ladder / race / results on screen. */
+  readonly event: string | null;
+  readonly modality: ModalityState;
+  /** Tap targets of running scenes (design 17.5). */
+  readonly taps: readonly { readonly scene: string; readonly rect: TapRect }[];
 }
 
 export interface TestHook {
   getState(): TestState;
+  /** Just the race and HUD parts of getState(), cheap enough to poll every few ms. */
+  getRace(): Pick<TestState, 'race' | 'hud'>;
   /** Force the seed of the next race. */
   seed(n: number): void;
   /** Reset records (Options -> reset) without the UI. */
   clearRecords(): void;
+  /** A menu tap at game px (what the touch layer does after pointerup). True if a target took it. */
+  tap(x: number, y: number): boolean;
+  /** Force the input modality (copy, BACK items, HUD layout) without touch hardware. */
+  setModality(patch: Partial<ModalityState>): void;
   /**
    * Snapshots the next rendered frame and returns every colour not in the master palette
    * (design 10, visuals) as "#rrggbb @x,y aA" (first pixel seen), plus the number of distinct colours.
@@ -73,6 +101,9 @@ function runner(r: RunnerState): RunnerSnapshot {
     anim: r.anim,
     visible: r.visible,
     finishMs: r.finishMs,
+    airM: r.airM,
+    hurdlesKnocked: r.hurdlesKnocked,
+    stamina: r.stamina,
   };
 }
 
@@ -92,56 +123,72 @@ function visibleTexts(scene: Phaser.Scene): string[] {
 }
 
 export function installTestHook(game: Phaser.Game): void {
+  const raceParts = (): Pick<TestState, 'race' | 'hud'> => {
+    const app = hasApp() ? getApp() : null;
+    const st = app?.race?.state ?? null;
+    const hudScene = game.scene.getScene(SceneKey.Hud) as HudScene | null;
+    const hudLive = hudScene !== null && (hudScene.sys.isActive() || hudScene.sys.isPaused());
+    return {
+      race:
+        st === null
+          ? null
+          : {
+              event: st.event,
+              nextHurdleS: st.nextHurdleS,
+              nextHurdleIndex: st.nextHurdleIndex,
+              splits: st.splits,
+              staminaDraining: st.staminaDraining,
+              opponent: st.opponent,
+              seed: st.seed,
+              phase: st.phase,
+              countdown: st.countdown,
+              raceMs: st.raceMs,
+              falseStarts: st.falseStarts,
+              paused: st.paused,
+              expectedSide: st.expectedSide,
+              idleMs: st.idleMs,
+              player: runner(st.player),
+              rival: runner(st.rival),
+              outcome: st.outcome,
+            },
+      hud: hudLive ? hudScene.snapshot() : null,
+    };
+  };
   const hook: TestHook = {
     game,
+    getRace: raceParts,
     getState(): TestState {
       const mgr = game.scene;
       const live = mgr.getScenes(false).filter((s) => s.sys.isActive() || s.sys.isPaused());
       const running = live.filter((s) => s.sys.isActive());
       const app = hasApp() ? getApp() : null;
-      const st = app?.race?.state ?? null;
-      const hudScene = mgr.getScene(SceneKey.Hud) as HudScene | null;
-      const hudLive = hudScene !== null && (hudScene.sys.isActive() || hudScene.sys.isPaused());
       return {
         ready: app !== null && running.some((s) => s.sys.settings.key !== SceneKey.Boot),
         bootError,
         audioPreloaded,
         scene: running.length > 0 ? (running[running.length - 1]?.sys.settings.key ?? null) : null,
         scenes: live.map((s) => s.sys.settings.key),
-        race:
-          st === null
-            ? null
-            : {
-                opponent: st.opponent,
-                seed: st.seed,
-                phase: st.phase,
-                countdown: st.countdown,
-                raceMs: st.raceMs,
-                falseStarts: st.falseStarts,
-                paused: st.paused,
-                expectedSide: st.expectedSide,
-                idleMs: st.idleMs,
-                player: runner(st.player),
-                rival: runner(st.rival),
-                outcome: st.outcome,
-              },
-        hud: hudLive ? hudScene.snapshot() : null,
+        ...raceParts(),
         texts: live.flatMap((s) => visibleTexts(s)),
         records: app?.records.data ?? null,
         persistent: app?.records.persistent ?? null,
-        ladderCursor: app?.ladderCursor ?? null,
+        ladderCursor: app ? app.ladderCursor[app.event] : null,
+        event: app?.event ?? null,
+        modality: modality.get(),
+        taps: activeTapTargets(),
       };
     },
     seed(n: number): void {
       getApp().pendingSeed = n >>> 0;
     },
     clearRecords(): void {
-      const app = getApp();
-      app.records.reset();
-      app.ladderCursor = 'pip';
-      app.championPending = false;
-      applyAudioSettings();
-      game.events.emit(SETTINGS_CHANGED);
+      resetRecords(game);
+    },
+    tap(x: number, y: number): boolean {
+      return dispatchTap(x, y);
+    },
+    setModality(patch: Partial<ModalityState>): void {
+      modality.set(patch);
     },
     paletteCheck() {
       const allowed = new Set(PALETTE.slice(1));

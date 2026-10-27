@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OPPONENT_IDS, WORLD, type RunnerState } from '../core/index.ts';
+import { EVENTS, OPPONENTS, WORLD, type RunnerState } from '../core/index.ts';
 import { getPx, validIndices, type IndexMap } from './bake/index.ts';
 import { buildCharacter, CHARACTER_IDS } from './chars/index.ts';
 import { ANIM_FRAME_COUNTS, ANIMS } from './chars/poses.ts';
@@ -20,7 +20,7 @@ import {
   TIERS,
   trackLayer,
 } from './stadium/layers.ts';
-import { cameraScroll, FINISH_X_PX, MAX_SCROLL, VIEW, worldX } from './view/camera.ts';
+import { cameraScroll, finishXPx, maxScroll, VIEW, worldX } from './view/camera.ts';
 import { blocksOffsetPx, pickRunnerView, READY_SHIFT_PX } from './view/runner.ts';
 
 const ARTS = CHARACTER_IDS.map((id) => buildCharacter(id));
@@ -44,7 +44,7 @@ function opaqueBounds(m: IndexMap) {
 
 describe('characters (design 5.5, 5.6)', () => {
   it('covers rio and every opponent', () => {
-    expect([...CHARACTER_IDS].sort()).toEqual(['rio', ...OPPONENT_IDS].sort());
+    expect([...CHARACTER_IDS].sort()).toEqual(['rio', ...Object.keys(OPPONENTS)].sort());
   });
 
   it.each(ARTS.map((a) => [a.id, a] as const))('%s has every anim with the design frame counts', (_, art) => {
@@ -147,7 +147,8 @@ describe('characters (design 5.5, 5.6)', () => {
   });
 
   it('celebrate jumps: feet leave the ground mid-loop and land on the last frame', () => {
-    for (const art of ARTS) {
+    // Sol nods instead of jumping (design 15.5).
+    for (const art of ARTS.filter((a) => a.id !== 'sol')) {
       const bottom = (n: string) => opaqueBounds(art.frames.find((f) => f.name === n)?.map as IndexMap).maxY;
       expect(bottom('celebrate0'), art.id).toBe(47);
       // Zyx is 44 px tall, so the frame leaves him only a small hop.
@@ -283,18 +284,26 @@ describe('view math (design 5.7)', () => {
   it('mirrors the core world constants', () => {
     expect(VIEW.PX_PER_M).toBe(WORLD.PX_PER_M);
     expect(VIEW.START_X_PX).toBe(WORLD.START_X_PX);
-    expect(VIEW.RACE_DISTANCE_M).toBe(WORLD.RACE_DISTANCE_M);
     expect(VIEW.RUN_OUT_M).toBe(WORLD.RUN_OUT_M);
   });
 
   it('keeps the player pivot at screen x 96 and clamps at both ends', () => {
     expect(worldX(0)).toBe(96);
-    expect(FINISH_X_PX).toBe(2496);
-    expect(cameraScroll(worldX(-2))).toBe(0);
-    expect(cameraScroll(worldX(0))).toBe(0);
-    expect(worldX(50) - cameraScroll(worldX(50))).toBe(96);
-    expect(cameraScroll(worldX(500))).toBe(MAX_SCROLL);
-    expect(Number.isInteger(cameraScroll(worldX(33.333)))).toBe(true);
+    expect(finishXPx(EVENTS['100m'].distanceM)).toBe(2496);
+    expect(cameraScroll(worldX(-2), 100)).toBe(0);
+    expect(cameraScroll(worldX(0), 100)).toBe(0);
+    expect(worldX(50) - cameraScroll(worldX(50), 100)).toBe(96);
+    expect(cameraScroll(worldX(500), 100)).toBe(maxScroll(100));
+    expect(Number.isInteger(cameraScroll(worldX(33.333), 100))).toBe(true);
+  });
+
+  it("uses each event's world length: 400 m is 9600 px plus the 20 m run-out (design 14.3)", () => {
+    expect(finishXPx(EVENTS['400m'].distanceM) - VIEW.START_X_PX).toBe(9600);
+    expect(finishXPx(EVENTS['110mh'].distanceM) - VIEW.START_X_PX).toBe(2640);
+    // The camera keeps following past 100 m in the 400 m, and stops 64 px after the run-out end.
+    expect(worldX(300) - cameraScroll(worldX(300), 400)).toBe(96);
+    expect(cameraScroll(worldX(999), 400)).toBe(finishXPx(400) + 20 * 24 + 64 - 320);
+    expect(cameraScroll(worldX(999), 110)).toBe(maxScroll(110));
   });
 });
 
@@ -307,6 +316,10 @@ describe('runner animation selection (design 5.6)', () => {
     effect: 'none',
     visible: true,
     finishMs: null,
+    airM: 0,
+    airPhase: null,
+    hurdlesKnocked: [],
+    stamina: null,
     ...p,
   });
 

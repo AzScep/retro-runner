@@ -482,6 +482,207 @@ export const SFX: Record<SfxId, SfxDef> = {
     ],
     jitter: 0.05,
   },
+
+  // ---- v2 (design 20.1) ----------------------------------------------------------------------
+
+  // Short rising pulse sweep: 25% pulse 330 -> ~800 Hz with a soft triangle shadow an octave down.
+  // Rival takeoffs play it at half volume; the limit is per volume so they never mask the player.
+  jump: {
+    length: 0.12,
+    layers: [
+      layer({
+        vol: 0.18,
+        freq: 330,
+        attack: 0.004,
+        sustain: 0.05,
+        release: 0.062,
+        shape: SHAPE.pulse,
+        curve: 0.5,
+        slide: 8,
+        filter: -4500,
+      }),
+      layer({
+        vol: 0.14,
+        freq: 165,
+        attack: 0.004,
+        sustain: 0.03,
+        release: 0.06,
+        shape: SHAPE.triangle,
+        slide: 4,
+      }),
+    ],
+    jitter: 0.02,
+    minInterval: 0.06,
+  },
+
+  // Soft low tick: sinking triangle thump plus a muffled noise scuff.
+  land: {
+    length: 0.04,
+    layers: [
+      layer({ vol: 0.38, freq: 140, attack: 0.001, release: 0.036, shape: SHAPE.triangle, slide: -3 }),
+      layer({ vol: 0.16, freq: 700, release: 0.025, shape: SHAPE.sine, noise: 4, filter: -1200 }),
+    ],
+    jitter: 0.03,
+    minInterval: 0.06,
+  },
+
+  // Wooden clack: two hollow knocks (crushed triangle + band of pitched noise), the bar tipping over.
+  hurdle_clip: {
+    length: 0.08,
+    layers: [
+      layer({
+        vol: 0.42,
+        freq: 620,
+        attack: 0.001,
+        release: 0.03,
+        shape: SHAPE.triangle,
+        slide: -8,
+        crush: 0.05,
+      }),
+      layer({ vol: 0.24, freq: 1400, release: 0.02, shape: SHAPE.sine, noise: 2, filter: -3000 }),
+      layer({ vol: 0.3, freq: 480, attack: 0.001, release: 0.03, shape: SHAPE.triangle, slide: -6 }, 0.042),
+    ],
+    jitter: 0.03,
+    minInterval: 0.05,
+  },
+
+  // Crash with metal clatter: body thud, low-passed noise crash, then bouncing metallic pings.
+  hurdle_hit: {
+    length: 0.3,
+    layers: [
+      layer({ vol: 0.55, freq: 110, attack: 0.001, release: 0.12, shape: SHAPE.sine, slide: -3, curve: 0.8 }),
+      layer({
+        vol: 0.4,
+        freq: 600,
+        attack: 0.002,
+        decay: 0.04,
+        sVol: 0.5,
+        release: 0.2,
+        shape: SHAPE.noise,
+        filter: -3500,
+      }),
+      ...(
+        [
+          [0.03, 1870, 0.13],
+          [0.09, 2490, 0.1],
+          [0.15, 2120, 0.08],
+          [0.2, 2780, 0.06],
+        ] as const
+      ).map(([at, f, vol]) =>
+        layer(
+          {
+            vol,
+            freq: f,
+            attack: 0.001,
+            release: 0.07,
+            shape: SHAPE.pulse,
+            curve: 0.25,
+            mod: 37,
+            filter: -6000,
+          },
+          at,
+        ),
+      ),
+    ],
+    jitter: 0.03,
+    minInterval: 0.12,
+    normalize: 0.85,
+  },
+
+  // Square double blip: two 50% pulse A5 hits, the second a fourth higher (D6).
+  split: {
+    length: 0.15,
+    layers: [
+      layer({
+        vol: 0.22,
+        freq: 880,
+        attack: 0.002,
+        sustain: 0.035,
+        release: 0.02,
+        shape: SHAPE.pulse,
+        filter: -5000,
+      }),
+      layer(
+        {
+          vol: 0.22,
+          freq: 1174.7,
+          attack: 0.002,
+          sustain: 0.045,
+          release: 0.03,
+          shape: SHAPE.pulse,
+          filter: -5000,
+        },
+        0.07,
+      ),
+    ],
+    jitter: 0,
+    minInterval: 0.3,
+  },
+
+  // Bright lap bell, two strikes: a chip "bell" from a 12.5% pulse strike plus inharmonic sine
+  // partials (x2.0, x2.76, x5.4 of E6) with linear decay; the second strike rings out.
+  bell: {
+    length: 0.6,
+    layers: [0, 0.22].flatMap((at, k) => {
+      const ring = k ? 0.36 : 0.2;
+      const base = 1318.5;
+      return [
+        layer({ vol: 0.12, freq: base, attack: 0.001, release: 0.04, shape: SHAPE.pulse, curve: 0.25 }, at),
+        layer({ vol: 0.22, freq: base, attack: 0.002, release: ring }, at),
+        layer({ vol: 0.12, freq: base * 2, attack: 0.002, release: ring * 0.7 }, at),
+        layer({ vol: 0.08, freq: base * 2.76, attack: 0.002, release: ring * 0.5 }, at),
+        layer({ vol: 0.05, freq: base * 5.4, attack: 0.001, release: ring * 0.25 }, at),
+      ];
+    }),
+    jitter: 0,
+    minInterval: 0.5,
+  },
+
+  // Heartbeat "lub-dub": two low-passed noise thumps over sinking sine kicks.
+  stamina_low: {
+    length: 0.12,
+    layers: [
+      [0, 0.24],
+      [0.055, 0.17],
+    ].flatMap(([at, v]) => [
+      layer({ vol: v! * 1.8, freq: 75, attack: 0.002, release: 0.05, shape: SHAPE.sine, slide: -1.5 }, at),
+      layer({ vol: v!, freq: 300, attack: 0.002, release: 0.04, shape: SHAPE.noise, filter: -260 }, at),
+    ]),
+    jitter: 0,
+    minInterval: 0.3,
+  },
+
+  // Breathy wheeze: band of high-passed noise that swells in and sags, with a fluttering throat rasp.
+  stamina_empty: {
+    length: 0.4,
+    layers: [
+      layer({
+        vol: 0.3,
+        freq: 1600,
+        attack: 0.1,
+        sustain: 0.12,
+        release: 0.17,
+        shape: SHAPE.noise,
+        filter: 1400,
+        slide: -1,
+        repeat: 0.06,
+        trem: 0.35,
+      }),
+      layer({
+        vol: 0.1,
+        freq: 240,
+        attack: 0.08,
+        sustain: 0.1,
+        release: 0.18,
+        shape: SHAPE.saw,
+        crush: 0.2,
+        filter: -900,
+        slide: -0.6,
+      }),
+    ],
+    jitter: 0.03,
+    minInterval: 2.5,
+  },
 };
 
 /** Render one effect to mono samples. */

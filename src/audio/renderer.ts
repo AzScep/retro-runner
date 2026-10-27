@@ -8,7 +8,7 @@ import type { Pcm } from './types.ts';
 import { getSong, renderSongSteps, type TrackRef } from './music/index.ts';
 
 type Reply =
-  | { key: string; sampleRate: number; left: Float32Array; right: Float32Array }
+  | { key: string; sampleRate: number; channels: Float32Array[]; final?: Float32Array[] }
   | { key: string; error: string };
 
 let worker: Worker | null = null;
@@ -38,7 +38,10 @@ function getWorker(): Worker | null {
       if (!w) return;
       waiting.delete(reply.key);
       if ('error' in reply) w.reject(new Error(reply.error));
-      else w.resolve({ sampleRate: reply.sampleRate, channels: [reply.left, reply.right] });
+      else {
+        const { sampleRate, channels, final } = reply;
+        w.resolve(final ? { sampleRate, channels, final } : { sampleRate, channels });
+      }
     });
     worker.addEventListener('error', (e) => failWorker(e));
   }

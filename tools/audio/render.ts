@@ -4,18 +4,22 @@
  *   node tools/audio/render.ts            # render everything to tools/audio/out/*.wav and check it
  *   node tools/audio/render.ts --no-wav   # checks only
  *
- * Renders every SFX, every song (race tiers 1-6 and boss) and the crowd loop with the same pure
- * modules the game uses, prints duration / peak / RMS, and fails (exit 1) on clipping, silence,
- * wrong lengths or clicky loop/edge boundaries. Imports only Web-Audio-free modules.
+ * Renders every SFX, every song (race and hurdles tiers 1-6, boss, the quarter track's base and
+ * final-100 renders) and the crowd loop with the same pure modules the game uses, prints duration /
+ * peak / RMS, render time and memory, and fails (exit 1) on clipping, silence, wrong lengths,
+ * clicky loop/edge boundaries or a final-100 render that differs in length from its base.
+ * Imports only Web-Audio-free modules.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderSfx, SFX } from '../../src/audio/sfx.ts';
 import { levels, SAMPLE_RATE } from '../../src/audio/synth.ts';
 import { renderCrowdLoop } from '../../src/audio/crowd.ts';
-import { getSong, renderSong, resolveTrack, type TrackRef } from '../../src/audio/music/index.ts';
+import { getSong, renderSongSteps, resolveTrack, type TrackRef } from '../../src/audio/music/index.ts';
 import { SFX_IDS, type MusicId } from '../../src/audio/types.ts';
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), 'out');
@@ -28,6 +32,8 @@ const SONG_RANGE: Record<MusicId, readonly [number, number]> = {
   race: [23, 33],
   boss: [23, 35],
   champion: [55, 65],
+  hurdles: [27, 33],
+  quarter: [64, 64],
 };
 
 function wav(path: string, channels: readonly Float32Array[], sampleRate: number): void {
@@ -120,6 +126,9 @@ for (const id of SFX_IDS) {
 
 check('crowd_loop', [renderCrowdLoop()], [2, 10], true);
 
+const MB = 1024 * 1024;
+setFlagsFromString('--expose-gc');
+const gc = runInNewContext('gc') as () => void;
 const songs: [string, TrackRef, MusicId][] = [
   ['music_title', resolveTrack('title'), 'title'],
   ['music_ladder', resolveTrack('ladder'), 'ladder'],
@@ -130,20 +139,52 @@ const songs: [string, TrackRef, MusicId][] = [
   ]),
   ['music_boss', resolveTrack('race', 7), 'boss'],
   ['music_champion', resolveTrack('champion'), 'champion'],
+  ...[1, 2, 3, 4, 5, 6].map((t): [string, TrackRef, MusicId] => [
+    `music_hurdles_tier${t}`,
+    resolveTrack('hurdles', t),
+    'hurdles',
+  ]),
+  ['music_quarter', resolveTrack('quarter', 3), 'quarter'],
 ];
 for (const [name, ref, id] of songs) {
+  const song = getSong(ref);
+  // Render step by step (one ZzFXM channel each, as the worker does) and sample ArrayBuffer memory
+  // above a collected baseline after each channel: output PCM plus that channel's instrument
+  // sample cache (an estimate of the worker's peak; a GC mid-render can only lower it).
+  gc();
+  const before = process.memoryUsage().arrayBuffers;
+  let peakMem = 0;
   const t0 = performance.now();
-  const pcm = renderSong(getSong(ref));
+  const it = renderSongSteps(song);
+  let r = it.next();
+  for (; !r.done; r = it.next()) peakMem = Math.max(peakMem, process.memoryUsage().arrayBuffers - before);
+  const pcm = r.value;
   const ms = performance.now() - t0;
+  const outBytes = [...pcm.channels, ...(pcm.final ?? [])].reduce((a, c) => a + c.byteLength, 0);
   check(name, pcm.channels, SONG_RANGE[id], true);
-  rows[rows.length - 1]!.edge += ` render ${ms.toFixed(0)} ms`;
+  rows[rows.length - 1]!.edge +=
+    ` render ${ms.toFixed(0)} ms, PCM ${(outBytes / MB).toFixed(1)} MB, peak ${(peakMem / MB).toFixed(1)} MB`;
+  if (pcm.final) {
+    check(`${name}_final100`, pcm.final, SONG_RANGE[id], true);
+    const row = rows[rows.length - 1]!;
+    if (pcm.final[0]!.length !== pcm.channels[0]!.length) {
+      row.ok = false;
+      row.why.push('final-100 length differs from base');
+    }
+    const lift = levels(pcm.final).rms / levels(pcm.channels).rms;
+    row.edge += ` rms lift x${lift.toFixed(2)}`;
+    if (lift < 1.05) {
+      row.ok = false;
+      row.why.push('final-100 adds no energy');
+    }
+  }
 }
 
 const pad = (s: string, n: number) => s.padEnd(n);
-console.log(pad('file', 22), pad('dur s', 8), pad('peak', 7), pad('rms', 7), 'boundary');
+console.log(pad('file', 28), pad('dur s', 8), pad('peak', 7), pad('rms', 7), 'boundary');
 for (const r of rows) {
   console.log(
-    pad(r.name, 22),
+    pad(r.name, 28),
     pad(r.seconds.toFixed(3), 8),
     pad(r.peak.toFixed(3), 7),
     pad(r.rms.toFixed(3), 7),

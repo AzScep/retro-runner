@@ -25,13 +25,26 @@ export function preloadAudio(): Promise<void> {
   return engine.preloadAudio();
 }
 
-export function playSfx(id: SfxId): void {
-  engine.playSfx(id);
+/** Play a sound effect. `volume` 0-1 scales this play (rival takeoffs play `jump` at 0.5). */
+export function playSfx(id: SfxId, opts?: { readonly volume?: number }): void {
+  engine.playSfx(id, opts);
 }
 
-/** Crossfade to a track (null = stop). `tier` 1-7 selects the race transposition. */
+/**
+ * Crossfade to a track (null = stop). `tier` 1-7: `race` and `hurdles` transpose per tier 1-6,
+ * `quarter` is one track for tiers 1-6, and tier 7 (Zyx) plays `boss` for all three.
+ * Starting a different track resets the quarter final-100 flag.
+ */
 export function playMusic(id: MusicId | null, tier?: number): void {
   engine.playMusic(id, tier);
+}
+
+/**
+ * 400 m: crossfade the quarter track to its "final 100" render over 1 s (design 20.2), keeping
+ * the loop position. false fades back to the base render. Safe without a context or track.
+ */
+export function setQuarterFinal(final: boolean): void {
+  engine.setQuarterFinal(final);
 }
 
 /** Duck music to 40% (countdown, result jingles) or restore. */
@@ -39,7 +52,10 @@ export function duckMusic(ducked: boolean): void {
   engine.duckMusic(ducked);
 }
 
-/** Crowd noise loop during races; intensity 0-1 (rises in the last 20 m). 0 stops it. */
+/**
+ * Crowd noise loop during races; intensity 0-1 (rises over the last 20 m in the 100 m and
+ * hurdles, over the last 100 m in the 400 m). 0 stops it.
+ */
 export function setCrowd(intensity: number): void {
   engine.setCrowd(intensity);
 }
@@ -56,6 +72,7 @@ export function setMuted(muted: boolean): void {
 /**
  * Optional (additive to the contract): render a track in the background before it is needed,
  * e.g. `prepareMusic('race', tier)` when the ladder screen opens. Never rejects.
+ * `prepareMusic('quarter')` warms both quarter renders (~45 MB) in one worker job.
  */
 export function prepareMusic(id: MusicId, tier?: number): Promise<void> {
   return engine.prepareMusic(id, tier);

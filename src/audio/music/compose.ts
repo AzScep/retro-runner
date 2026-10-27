@@ -16,6 +16,11 @@ export const MELODIC_BASE_HZ = midiHz(36);
 
 export interface Song {
   readonly bpm: number;
+  /**
+   * Channels 0..baseChannels-1 form the base mix; any channels after them are the "final" layer
+   * (added lead and drums), so the final render is exactly base + extra.
+   */
+  readonly baseChannels: number;
   readonly instruments: readonly ZzfxParams[];
   readonly patterns: readonly ZzfxmPattern[];
   readonly sequence: readonly number[];
@@ -87,7 +92,8 @@ function harmonize(lead: readonly Step[], chords: readonly Chord[]): Step[] {
 // ---------------------------------------------------------------------------------------------
 // Bass and arpeggio styles (one bar each)
 
-export type BassStyle = 'none' | 'hold' | 'root8' | 'octave8' | 'gallop' | 'pulse16' | 'walk4' | 'march';
+export type BassStyle =
+  'none' | 'hold' | 'root8' | 'octave8' | 'gallop' | 'pulse16' | 'walk4' | 'march' | 'synco';
 export type ArpStyle = 'none' | 'up16' | 'updown16' | 'broken8' | 'offbeat8';
 
 function n(m: number, att = 0): Step {
@@ -134,6 +140,9 @@ function bassBar(style: BassStyle, c: Chord): Step[] {
       return [n(r), H, H, OFF, n(fifth), H, H, OFF, n(o), H, H, OFF, n(fifth), H, H, OFF];
     case 'march':
       return [n(r), H, H, n(r, 0.4), n(fifth), H, H, OFF, n(r), H, H, n(r, 0.4), n(fifth), H, n(o, 0.3), OFF];
+    case 'synco':
+      // 3+3+2 | 3+3+2: the hurdler's stride pattern, octave pop on each group's last 8th.
+      return [n(r), H, OFF, n(r), H, OFF, n(o), OFF, n(r), H, OFF, n(fifth), H, OFF, n(o), n(r, 0.4)];
   }
 }
 
@@ -164,7 +173,7 @@ function arpBar(style: ArpStyle, c: Chord): Step[] {
 // Drums: x = hit, o = ghost hit, . = nothing
 
 export type DrumStyle =
-  'none' | 'hats' | 'rock' | 'light' | 'drive' | 'boss' | 'march' | 'halftime' | 'build';
+  'none' | 'hats' | 'rock' | 'light' | 'drive' | 'boss' | 'march' | 'halftime' | 'build' | 'hurdle' | 'push';
 
 interface Kit {
   readonly k: string;
@@ -182,6 +191,10 @@ const DRUMS: Record<DrumStyle, Kit> = {
   march: { k: 'x.......x.......', s: '....x..o....x.oo', h: 'x.x.x.x.x.x.x.x.' },
   halftime: { k: 'x.........x.....', s: '........x.......', h: 'x.x.x.x.x.x.x.x.' },
   build: { k: 'x...x...x...x...', s: '................', h: 'x.x.x.x.x.x.x.x.' },
+  /** Syncopated 3+3+2 kick under a straight backbeat. */
+  hurdle: { k: 'x..x..x...x..x..', s: '....x.......x..o', h: 'x.xox.xox.xox.xo' },
+  /** Overlay only (final-100 layer): offbeat kick pushes, ghost snares and 16th hats. */
+  push: { k: '......x.......x.', s: '.......o.o.....o', h: 'ooxoooxoooxoooxo' },
 };
 
 const FILLS: Record<DrumStyle, Kit> = {
@@ -194,6 +207,8 @@ const FILLS: Record<DrumStyle, Kit> = {
   march: { k: 'x.......x...x...', s: 'x.oox.oox.oox.xx', h: 'x.x.x.x.........' },
   halftime: { k: 'x.........x.....', s: '........x...xoxx', h: 'x.x.x.x.x.x.....' },
   build: { k: 'x...x...x...x...', s: 'x.x.x.x.xxxxxxxx', h: '................' },
+  hurdle: { k: 'x..x..x...x.....', s: '....x..o..x.xxxx', h: 'x.xox.xox.......' },
+  push: { k: '......x.......x.', s: '.......o.ooooooo', h: 'ooxoooxo........' },
 };
 
 function drumSteps(grid: string): Step[] {
@@ -216,6 +231,12 @@ export interface Section {
   readonly fill?: boolean;
   /** Crash cymbal on the first beat of the section. */
   readonly crash?: boolean;
+  /** Soft crash accent on the downbeat of every bar (hurdles). */
+  readonly accent?: boolean;
+  /** Final-100 layer: a written descant line on Instruments.finalLead. */
+  readonly finalLead?: string;
+  /** Final-100 layer: extra drums played on top of `drums`. */
+  readonly finalDrums?: DrumStyle;
 }
 
 export interface Instruments {
@@ -230,6 +251,8 @@ export interface Instruments {
   readonly harmony?: ZzfxParams;
   /** Detuned double of the lead, panned opposite (boss "alien" lead). */
   readonly lead2?: ZzfxParams;
+  /** Voice of Section.finalLead (only in the final render). */
+  readonly finalLead?: ZzfxParams;
 }
 
 export interface SongSpec {
@@ -250,8 +273,25 @@ export function specBars(spec: SongSpec): number {
   return spec.sections.reduce((a, s) => a + s.chords.length, 0);
 }
 
-/** Compile a spec to ZzFXM song data, transposing melodic parts by `transpose` semitones. */
-export function buildSong(spec: SongSpec, transpose = 0): Song {
+/** True if the spec has a final-100 layer (Section.finalLead / finalDrums). */
+export function hasFinalLayer(spec: SongSpec): boolean {
+  return spec.sections.some((s) => s.finalLead !== undefined || s.finalDrums !== undefined);
+}
+
+function sectionLine(text: string | undefined, bars: number, what: string): Step[] {
+  const line: Step[] = text ? parseLine(text) : [OFF, ...Array<Step>(bars * STEPS_PER_BAR - 1).fill(HOLD)];
+  if (line.length !== bars * STEPS_PER_BAR) {
+    throw new Error(`${what} is ${line.length} steps, expected ${bars * STEPS_PER_BAR}`);
+  }
+  return line;
+}
+
+/**
+ * Compile a spec to ZzFXM song data, transposing melodic parts by `transpose` semitones.
+ * With `final`, the final-100 layer (descant lead and extra drums) is appended after the base
+ * channels; the base channels are identical to the plain build.
+ */
+export function buildSong(spec: SongSpec, transpose = 0, final = false): Song {
   const inst = spec.instruments;
   const instruments: ZzfxParams[] = [];
   const add = (p: ZzfxParams) => instruments.push(p) - 1;
@@ -264,16 +304,15 @@ export function buildSong(spec: SongSpec, transpose = 0): Song {
   const snare: Step[] = [];
   const hat: Step[] = [];
   const crash: Step[] = [];
+  const fLead: Step[] = [];
+  const fKick: Step[] = [];
+  const fSnare: Step[] = [];
+  const fHat: Step[] = [];
 
   spec.sections.forEach((sec, si) => {
     const bars = sec.chords.length;
-    const line: Step[] = sec.lead
-      ? parseLine(sec.lead)
-      : [OFF, ...Array<Step>(bars * STEPS_PER_BAR - 1).fill(HOLD)];
-    if (line.length !== bars * STEPS_PER_BAR) {
-      throw new Error(`Section ${si}: lead is ${line.length} steps, expected ${bars * STEPS_PER_BAR}`);
-    }
-    lead.push(...line);
+    lead.push(...sectionLine(sec.lead, bars, `Section ${si}: lead`));
+    fLead.push(...sectionLine(sec.finalLead, bars, `Section ${si}: finalLead`));
     sec.chords.forEach((name, b) => {
       const c = parseChord(name);
       chords.push(c);
@@ -283,7 +322,13 @@ export function buildSong(spec: SongSpec, transpose = 0): Song {
       kick.push(...drumSteps(kit.k));
       snare.push(...drumSteps(kit.s));
       hat.push(...drumSteps(kit.h));
-      crash.push(...drumSteps(sec.crash && b === 0 ? 'x...............' : '................'));
+      const fd = sec.finalDrums ?? 'none';
+      const fkit = sec.fill && b === bars - 1 ? FILLS[fd] : DRUMS[fd];
+      fKick.push(...drumSteps(fkit.k));
+      fSnare.push(...drumSteps(fkit.s));
+      fHat.push(...drumSteps(fkit.h));
+      const hit = sec.crash && b === 0 ? 'x' : sec.accent ? 'o' : '.';
+      crash.push(...drumSteps(`${hit}...............`));
     });
   });
 
@@ -302,6 +347,17 @@ export function buildSong(spec: SongSpec, transpose = 0): Song {
     { instrument: add(inst.hat), pan: 0.3, steps: hat, melodic: false },
     { instrument: add(inst.crash), pan: -0.25, steps: crash, melodic: false },
   );
+  const baseChannels = tracks.length;
+  if (final && hasFinalLayer(spec)) {
+    if (inst.finalLead) {
+      tracks.push({ instrument: add(inst.finalLead), pan: 0.4, steps: fLead, melodic: true });
+    }
+    tracks.push(
+      { instrument: add(inst.kick), pan: 0, steps: fKick, melodic: false },
+      { instrument: add(inst.snare), pan: -0.1, steps: fSnare, melodic: false },
+      { instrument: add(inst.hat), pan: -0.3, steps: fHat, melodic: false },
+    );
+  }
 
   const toValue = (s: Step, melodic: boolean): number => {
     if (s === HOLD || s === OFF) return s;
@@ -327,5 +383,5 @@ export function buildSong(spec: SongSpec, transpose = 0): Song {
     }
     sequence.push(p);
   }
-  return { bpm: spec.bpm, instruments, patterns, sequence };
+  return { bpm: spec.bpm, baseChannels, instruments, patterns, sequence };
 }

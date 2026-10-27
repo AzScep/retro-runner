@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatMargin, formatTime, toKmh } from './index.ts';
+import { formatLadderTotal, formatMargin, formatTime, toKmh } from './index.ts';
 
 describe('formatTime (design 4.1)', () => {
   it('rounds up to the next hundredth', () => {
@@ -15,13 +15,30 @@ describe('formatTime (design 4.1)', () => {
     expect(formatTime(null)).toBe('--.--');
   });
 
-  it('formats ladder totals of 100 s or more', () => {
-    expect(formatTime(100000)).toBe('100.00');
-    expect(formatTime(92401)).toBe('92.41');
+  it('switches to M:SS.hh from 60.00 s (design 14.4), deciding on the rounded-up value', () => {
+    expect(formatTime(59990)).toBe('59.99');
+    expect(formatTime(59991)).toBe('1:00.00');
+    expect(formatTime(60000)).toBe('1:00.00');
+    expect(formatTime(64370)).toBe('1:04.37');
+    expect(formatTime(64361)).toBe('1:04.37');
+    expect(formatTime(72000)).toBe('1:12.00');
+    expect(formatTime(90000)).toBe('1:30.00');
+    expect(formatTime(100000)).toBe('1:40.00');
   });
 
   it('ignores float noise from tick-based clocks', () => {
     expect(formatTime((12 * 1000) / 120)).toBe('00.10');
+  });
+});
+
+describe('formatLadderTotal (design 16.5)', () => {
+  it('always uses M:SS.hh with the same round-up rule', () => {
+    expect(formatLadderTotal(84100)).toBe('1:24.10');
+    expect(formatLadderTotal(391620)).toBe('6:31.62');
+    expect(formatLadderTotal(391611)).toBe('6:31.62');
+    expect(formatLadderTotal(70000)).toBe('1:10.00');
+    expect(formatLadderTotal(59990)).toBe('0:59.99');
+    expect(formatLadderTotal(null)).toBe('-:--.--');
   });
 });
 

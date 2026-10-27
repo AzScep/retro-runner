@@ -33,7 +33,7 @@ function referenceFinish(pressMs: readonly number[]): number {
 
 describe('Race: countdown (design 2.5)', () => {
   it('walks in for 1.5 s, then beats 3/2/1 every 0.8 s, with a seeded 0-0.5 s extra on "1"', () => {
-    const race = new Race({ opponent: 'pip', seed: 5, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'pip', seed: 5, startT: START_T });
     expect(race.state.phase).toBe('intro');
     expect(race.state.player.anim).toBe('walk');
     expect(race.state.player.xM).toBeCloseTo(-4, 9);
@@ -58,7 +58,7 @@ describe('Race: countdown (design 2.5)', () => {
   });
 
   it('shows ready2 from "1" and GO text for 0.6 s; the timer reads 0 until GO', () => {
-    const race = new Race({ opponent: 'pip', seed: 5, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'pip', seed: 5, startT: START_T });
     frames(race, START_T, START_T + 3200);
     expect(race.state.countdown).toBe(1);
     expect(race.state.player.anim).toBe('ready2');
@@ -75,14 +75,14 @@ describe('Race: countdown (design 2.5)', () => {
   it('the length of "1" varies with the seed', () => {
     const gos = new Set<number>();
     for (let seed = 1; seed <= 20; seed++)
-      gos.add(runToGo(new Race({ opponent: 'pip', seed, startT: START_T })));
+      gos.add(runToGo(new Race({ event: '100m', opponent: 'pip', seed, startT: START_T })));
     expect(gos.size).toBeGreaterThan(10);
   });
 });
 
 describe('Race: false starts (design 2.5)', () => {
   it('first false start: banner, back to crouch, countdown restarts from 3', () => {
-    const race = new Race({ opponent: 'jess', seed: 1, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'jess', seed: 1, startT: START_T });
     frames(race, START_T, START_T + 2500); // during "2"
     race.input(down('L', START_T + 2500));
     const log = race.advance(START_T + 2520);
@@ -97,7 +97,7 @@ describe('Race: false starts (design 2.5)', () => {
   });
 
   it('second false start disqualifies: dq outcome, no time, no oppMs, resultReady at once', () => {
-    const race = new Race({ opponent: 'jess', seed: 1, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'jess', seed: 1, startT: START_T });
     frames(race, START_T, START_T + 2500);
     race.input(down('L', START_T + 2500));
     race.input(up('L', START_T + 2550));
@@ -112,7 +112,7 @@ describe('Race: false starts (design 2.5)', () => {
   });
 
   it('auto-repeat is never a false start: hold L with repeats through the countdown, then release and press', () => {
-    const race = new Race({ opponent: 'jess', seed: 1, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'jess', seed: 1, startT: START_T });
     race.input(down('L', START_T + 1000)); // pressed during the walk-in: not a false start
     // Auto-repeat every 30 ms from "3" until well after the latest possible GO.
     for (let t = START_T + 1500; t < START_T + 5600; t += 30) race.input(down('L', t, true));
@@ -123,34 +123,37 @@ describe('Race: false starts (design 2.5)', () => {
     expect(steps(log)).toBe(0);
     expect(race.state.falseStarts).toBe(0);
     expect(race.state.phase).toBe('running');
-    // Still held after GO: a non-repeat L keydown without a keyup cannot step.
+    // Still held after GO: an L press from a second source (touch) cannot step.
     const go = START_T + 5600;
     expect(steps(play(race, [down('L', go + 10)], go, go + 50))).toBe(0);
-    const log2 = play(race, [up('L', go + 60), down('L', go + 100)], go + 50, go + 200);
+    // Both sources must release before L steps again.
+    expect(steps(play(race, [up('L', go + 55), down('L', go + 58)], go + 50, go + 59))).toBe(0);
+    const log2 = play(race, [up('L', go + 60), up('L', go + 61), down('L', go + 100)], go + 59, go + 200);
     expect(log2).toContainEqual({ type: 'step', side: 'L' });
     expect(race.state.expectedSide).toBe('R');
   });
 
   it('a fresh keydown during the countdown is a false start', () => {
-    const race = new Race({ opponent: 'jess', seed: 1, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'jess', seed: 1, startT: START_T });
     const log = play(race, [down('R', START_T + 1800)], START_T, START_T + 1900);
     expect(log).toContainEqual({ type: 'falseStart', count: 1 });
   });
 
   it('holding a key through the countdown is not a false start, but it cannot step until re-pressed', () => {
-    const race = new Race({ opponent: 'jess', seed: 1, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'jess', seed: 1, startT: START_T });
     race.input(down('L', START_T + 1000));
     const go = runToGo(race);
     expect(race.state.falseStarts).toBe(0);
+    // A second source pressing L while the first holds it gives nothing.
     const log = play(race, [down('L', go + 50), down('R', go + 100)], go, go + 200);
     expect(steps(log)).toBe(1); // only R; L is still held
     expect(race.state.expectedSide).toBe('L');
-    const log2 = play(race, [up('L', go + 250), down('L', go + 300)], go + 200, go + 400);
+    const log2 = play(race, [up('L', go + 240), up('L', go + 250), down('L', go + 300)], go + 200, go + 400);
     expect(steps(log2)).toBe(1);
   });
 
   it('inputs before GO never become speed', () => {
-    const race = new Race({ opponent: 'jess', seed: 1, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'jess', seed: 1, startT: START_T });
     race.input(down('L', START_T + 100));
     race.input(up('L', START_T + 200));
     race.input(down('R', START_T + 300));
@@ -201,7 +204,7 @@ describe('Race: mash model in the full loop', () => {
   });
 
   it('reports step and fumble events and the expected side', () => {
-    const race = new Race({ opponent: 'pip', seed: 2, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'pip', seed: 2, startT: START_T });
     const go = runToGo(race);
     expect(race.state.expectedSide).toBeNull();
     const log = play(
@@ -219,7 +222,7 @@ describe('Race: mash model in the full loop', () => {
   });
 
   it('holding one key after GO leaves the runner at 0 km/h', () => {
-    const race = new Race({ opponent: 'pip', seed: 2, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'pip', seed: 2, startT: START_T });
     const go = runToGo(race);
     const held = [
       down('R', go + 10),
@@ -231,7 +234,7 @@ describe('Race: mash model in the full loop', () => {
   });
 
   it('exposes runFps = clamp(2v, 6, 25) and ready2 below 0.3 m/s', () => {
-    const race = new Race({ opponent: 'pip', seed: 2, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'pip', seed: 2, startT: START_T });
     const go = runToGo(race);
     race.advance(go + 100);
     expect(race.state.player.anim).toBe('ready2');
@@ -245,7 +248,7 @@ describe('Race: mash model in the full loop', () => {
 
 describe('Race: finish, run-out and results (design 1.4)', () => {
   it('player first: oppMs is exact (matches the later on-screen crossing) and resultReady comes 1.5 s after', () => {
-    const race = new Race({ opponent: 'pip', seed: 8, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'pip', seed: 8, startT: START_T });
     const go = runToGo(race);
     const log: (RaceEvent & { now: number })[] = [];
     const states: RaceState[] = [];
@@ -334,7 +337,7 @@ describe('Race: finish, run-out and results (design 1.4)', () => {
 
 describe('Race: pause and resume (design 8.4)', () => {
   it('pause freezes sim and clock; resume adds a frozen 0.5 s GET SET beat without a time jump', () => {
-    const race = new Race({ opponent: 'kofi', seed: 6, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'kofi', seed: 6, startT: START_T });
     const go = runToGo(race);
     play(race, alternate(go, 100, 20), go, go + 2000);
     const s0 = race.state;
@@ -363,16 +366,17 @@ describe('Race: pause and resume (design 8.4)', () => {
   });
 
   it('a key held across pause must be released and re-pressed', () => {
-    const race = new Race({ opponent: 'kofi', seed: 6, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'kofi', seed: 6, startT: START_T });
     const go = runToGo(race);
     play(race, [down('L', go + 10), up('L', go + 30), down('R', go + 100)], go, go + 200);
     race.pause(go + 200);
     race.resume(go + 1000);
     const log = play(race, [down('L', go + 1600), down('R', go + 1700)], go + 1000, go + 1800);
     expect(steps(log)).toBe(1);
+    // R was pressed twice (two sources) without a release: both must lift before R steps.
     const log2 = play(
       race,
-      [up('R', go + 1800), up('L', go + 1810), down('R', go + 1900)],
+      [up('R', go + 1800), up('R', go + 1805), up('L', go + 1810), down('R', go + 1900)],
       go + 1800,
       go + 2000,
     );
@@ -380,14 +384,14 @@ describe('Race: pause and resume (design 8.4)', () => {
   });
 
   it('pausing mid-frame keeps events produced up to the pause', () => {
-    const race = new Race({ opponent: 'kofi', seed: 6, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'kofi', seed: 6, startT: START_T });
     frames(race, START_T, START_T + 1490);
     race.pause(START_T + 1600);
     expect(race.advance(START_T + 1700)).toContainEqual({ type: 'introDone' });
   });
 
   it('caps catch-up after a long stall instead of replaying it', () => {
-    const race = new Race({ opponent: 'kofi', seed: 6, startT: START_T });
+    const race = new Race({ event: '100m', opponent: 'kofi', seed: 6, startT: START_T });
     const go = runToGo(race);
     const before = race.state.raceMs;
     race.advance(go + 5000);
@@ -407,7 +411,12 @@ describe('Race: rival quirks surface as events and view state (design 3.3, 5.6)'
   };
   for (const [id, names] of Object.entries(expected)) {
     it(`${id}: ${names.join(', ')}`, () => {
-      const race = new Race({ opponent: id as RaceState['opponent'], seed: 21, startT: START_T });
+      const race = new Race({
+        event: '100m',
+        opponent: id as RaceState['opponent'],
+        seed: 21,
+        startT: START_T,
+      });
       const go = runToGo(race);
       // A capped-speed player, so Zyx feels the pressure.
       const presses = alternate(go, 60, 500);
