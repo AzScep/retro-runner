@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type Phaser from 'phaser';
-import { activeTapTargets, dispatchTap, registerTapTarget, TAP_SLOP } from './tapTargets.ts';
+import {
+  activeTapTargets,
+  dispatchTap,
+  MENU_TAP_MIN,
+  MENU_TAP_MIN_SCALE,
+  registerTapTarget,
+  TAP_SLOP,
+} from './tapTargets.ts';
 
 /** The slice of a Phaser scene that tapTargets uses. */
 function fakeScene(key: string, index: number) {
@@ -116,6 +123,34 @@ describe('tap targets (design 17.5)', () => {
     const s = fakeScene('A', 0);
     registerTapTarget(s.scene, { x: 0.4, y: 1.6, w: 19.6, h: 20.2 }, () => {});
     expect(activeTapTargets()[0]?.rect).toEqual({ x: 0, y: 2, w: 20, h: 20 });
+    s.shutdown();
+  });
+
+  it('menu rows reach 44 CSS px on phones in landscape (17.5.2)', () => {
+    // CSS px per game px measured on phones: Pixel 7 Chrome tab, 667x375, iPhone 15 Home Screen app,
+    // Pixel 7 fullscreen. Each is at or above the scale where MENU_TAP_MIN is 44 CSS px.
+    for (const gp of [2.0, 375 / 180, 372 / 180, 412 / 180]) {
+      expect(gp).toBeGreaterThanOrEqual(MENU_TAP_MIN_SCALE);
+      expect(MENU_TAP_MIN * gp).toBeGreaterThanOrEqual(44);
+    }
+    expect(MENU_TAP_MIN_SCALE).toBeLessThan(1.84);
+  });
+
+  it('stacked MENU_TAP_MIN rows touch without overlapping: every point has one owner', () => {
+    const s = fakeScene('Pause', 0);
+    const hits = [vi.fn(), vi.fn(), vi.fn()];
+    hits.forEach((fn, i) =>
+      registerTapTarget(s.scene, { x: 100, y: 60 + i * MENU_TAP_MIN, w: 120, h: MENU_TAP_MIN }, fn),
+    );
+    const rects = activeTapTargets().map((t) => t.rect);
+    for (let i = 1; i < rects.length; i++) {
+      const above = rects[i - 1]!;
+      expect(rects[i]!.y).toBe(above.y + above.h);
+    }
+    // Just inside the second row's top edge goes to the second row, not the first.
+    dispatchTap(150, 60 + MENU_TAP_MIN + 0.5);
+    expect(hits[1]).toHaveBeenCalledTimes(1);
+    expect(hits[0]).not.toHaveBeenCalled();
     s.shutdown();
   });
 });

@@ -25,9 +25,9 @@ import { HIDDEN_FRAME, PadStates, type PadFrame } from './padState.ts';
 import {
   androidFullscreen,
   isAndroid,
-  isTouchDevice,
   readPlatform,
   wantsHomeScreenHint,
+  wantsRotatePrompt,
 } from './platform.ts';
 import { PointerMap, type Control } from './pointerMap.ts';
 import { readSafeArea } from './safeArea.ts';
@@ -45,7 +45,8 @@ export interface TouchOptions {
   readonly unlockAudio: () => void;
   readonly getSettings: () => Settings;
   readonly setHint: (name: 'addToHomeScreen', v: boolean) => void;
-  readonly hintSeen: () => boolean;
+  /** The Add to Home Screen hint may show now: the save is loaded, it was never dismissed, and the Title is up. */
+  readonly hintDue: () => boolean;
 }
 
 export function installTouch(opts: TouchOptions): TouchHandle {
@@ -78,6 +79,9 @@ export function installTouch(opts: TouchOptions): TouchHandle {
   let hurdlesLaid: boolean | null = null;
 
   const reducedFlashing = (): boolean => opts.getSettings().reducedFlashing;
+  const reduceMotionQuery = win.matchMedia('(prefers-reduced-motion: reduce)');
+  /** The rotate prompt's turning phone is motion too: static with reduced flashing or the OS setting. */
+  const stillArt = (): boolean => reducedFlashing() || reduceMotionQuery.matches;
   const emit = (events: readonly RaceInput[]): void => {
     for (const e of events) raceInput.emit(e);
   };
@@ -220,18 +224,21 @@ export function installTouch(opts: TouchOptions): TouchHandle {
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // --- Activation-gated work on release: audio, Android fullscreen, iPhone hint --------------
-  let firstTapDone = false;
+  let fullscreenTried = false;
+  let hintShown = false;
   const onActivation = (e: Event): void => {
     opts.unlockAudio();
-    if (firstTapDone) return;
     if (e instanceof PointerEvent && e.pointerType === 'mouse') return;
-    firstTapDone = true;
-    if (isAndroid(platform)) androidFullscreen(win);
-    if (wantsHomeScreenHint(platform) && !opts.hintSeen()) {
-      // After this tap has been dispatched, so the tap itself does not hit the panel.
-      win.setTimeout(() => {
-        overlay.showHint(canvasRect, gamePx, () => opts.setHint('addToHomeScreen', true));
-      }, 0);
+    if (!fullscreenTried) {
+      fullscreenTried = true;
+      if (isAndroid(platform)) androidFullscreen(win);
+    }
+    // The hint belongs to the Title (17.6). It opens in this capture-phase handler, before the
+    // canvas sees the release, so this tap only opens the hint and does not also start the game
+    // (the canvas handler drops taps while the hint is up); the next tap after OK starts.
+    if (!hintShown && wantsHomeScreenHint(platform) && opts.hintDue()) {
+      hintShown = true;
+      overlay.showHint(canvasRect, gamePx, () => opts.setHint('addToHomeScreen', true));
     }
   };
   on(win, 'pointerup', onActivation, { capture: true });
@@ -247,18 +254,26 @@ export function installTouch(opts: TouchOptions): TouchHandle {
 
   // --- Rotate prompt: portrait on a touch device releases every finger and auto-pauses --------
   const portrait = win.matchMedia('(orientation: portrait)');
+  const coarse = win.matchMedia('(pointer: coarse)');
   let rotateShown = false;
   const updateRotate = (): void => {
-    const show = portrait.matches && isTouchDevice(platform);
+    const show = wantsRotatePrompt({
+      portrait: portrait.matches,
+      coarse: coarse.matches,
+      modality: modality.get().modality,
+    });
     if (show && !rotateShown) {
       // Blur-equivalent: the race and the keyboard adapter treat it like the window losing focus.
       win.dispatchEvent(new Event('blur'));
     }
-    if (show !== rotateShown) overlay.setRotate(show, reducedFlashing());
+    if (show !== rotateShown) overlay.setRotate(show, stillArt());
     rotateShown = show;
   };
-  portrait.addEventListener('change', updateRotate);
-  cleanups.push(() => portrait.removeEventListener('change', updateRotate));
+  for (const q of [portrait, coarse]) {
+    q.addEventListener('change', updateRotate);
+    cleanups.push(() => q.removeEventListener('change', updateRotate));
+  }
+  cleanups.push(modality.subscribe(updateRotate));
   updateRotate();
 
   return {

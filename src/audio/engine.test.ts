@@ -62,7 +62,9 @@ class FakeSource extends FakeNode {
 
 class FakeContext {
   static instances: FakeContext[] = [];
-  state: 'running' | 'suspended' = 'running';
+  state: 'running' | 'suspended' | 'interrupted' | 'closed' = 'running';
+  onstatechange: (() => void) | null = null;
+  resumes = 0;
   currentTime = 0;
   sampleRate = 48000;
   destination = new FakeNode();
@@ -103,8 +105,15 @@ class FakeContext {
     };
   }
   resume() {
+    this.resumes++;
+    if (this.state === 'closed') return Promise.reject(new Error('closed'));
     this.state = 'running';
     return Promise.resolve();
+  }
+  /** The OS changes the state (an iOS call or Siri), as WebKit does, then fires statechange. */
+  osSetState(state: 'suspended' | 'interrupted' | 'closed') {
+    this.state = state;
+    this.onstatechange?.();
   }
   suspend() {
     this.state = 'suspended';
@@ -221,6 +230,34 @@ describe('audio engine with a (fake) AudioContext', () => {
     api.playSfx('beep_go');
     expect(sfxSources(ctx)).toHaveLength(3);
     expect(sfxSources(ctx).every((s) => s.started !== null && s.buffer)).toBe(true);
+  });
+
+  it('resumes an iOS interrupted context on the next tap or key', async () => {
+    const { api, engine } = await fresh();
+    api.unlockAudio();
+    const ctx = FakeContext.instances[0]!;
+    // Without onstatechange (older engines) the state just changes underneath.
+    ctx.state = 'interrupted';
+    api.unlockAudio();
+    expect(ctx.state).toBe('running');
+    expect(engine.audioState().context).toBe('running');
+  });
+
+  it('asks for an interrupted or OS-suspended context back as soon as its state changes', async () => {
+    const { api } = await fresh();
+    api.unlockAudio();
+    const ctx = FakeContext.instances[0]!;
+    const before = ctx.resumes;
+    ctx.osSetState('interrupted');
+    expect(ctx.resumes).toBe(before + 1);
+    expect(ctx.state).toBe('running');
+    ctx.osSetState('suspended');
+    expect(ctx.state).toBe('running');
+    // A closed context is never resumed.
+    ctx.osSetState('closed');
+    expect(ctx.resumes).toBe(before + 2);
+    api.unlockAudio();
+    expect(ctx.resumes).toBe(before + 2);
   });
 
   it('does not queue SFX while the context is suspended', async () => {

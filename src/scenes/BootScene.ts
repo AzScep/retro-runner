@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { browserStorage, RecordsStore } from '../core/index.ts';
+import { browserStorage, defaultSettings, RecordsStore } from '../core/index.ts';
 import { GAME_HEIGHT, GAME_WIDTH, iconKey, paletteColor, prepareArt, registerArt } from '../art/index.ts';
 import { preloadAudio } from '../audio/index.ts';
 import { FONT_PS, loadPressStart, registerFonts } from '../ui/fonts.ts';
@@ -38,7 +38,8 @@ export class BootScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(paletteColor(PAL.ink));
     const warm = this.warmShaders();
     new Label(this, 160, 86, 'LOADING...', { align: 'center' });
-    initApp(RecordsStore.load(browserStorage()));
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    initApp(RecordsStore.load(browserStorage(), defaultSettings(reducedMotion)));
     void preloadAudio().then(() => {
       audioPreloaded = true;
     });

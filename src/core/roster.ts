@@ -62,6 +62,22 @@ export function nextRival(event: EventId, id: OpponentId): OpponentId | null {
 
 export const PLAYER = { id: 'rio', name: 'RIO' } as const;
 
+/**
+ * Named rival's kit base colour as a palette index (design 3.3, 15.5, 27.1-27.5): the HUD badge
+ * frame, progress bar head and off-screen markers, and the world chevron above a rival level with
+ * Rio. Chrome UNIT-7 uses metal base, which still reads apart from the field's index 7.
+ */
+export const RIVAL_KIT: Readonly<Record<OpponentId, number>> = {
+  pip: 26,
+  jess: 29,
+  marco: 33,
+  kofi: 26,
+  valentina: 29,
+  unit7: 5,
+  zyx: 33,
+  sol: 21,
+};
+
 /** World constants shared by all layers (design 2.1, 2.3, 5.7). Distances per event: EVENTS. */
 export const WORLD = {
   RUN_OUT_M: 20,
@@ -80,6 +96,8 @@ export const TUNING = {
   IDLE_DECEL: 3.0,
   MIN_STEP_INTERVAL_MS: 35,
   INTRO_MS: 1500,
+  /** Immediate retry of the same race: runners wait at the blocks, no walk-in or meet card. */
+  RETRY_INTRO_MS: 300,
   COUNT_STEP_MS: 800,
   COUNT_ONE_JITTER_MS: 500,
   GO_TEXT_MS: 600,
@@ -165,6 +183,8 @@ export const TUNING = {
   POSITION_HOLD_MS: 350,
   /** 1st-2nd margin for the 'closeFinish' event (31.3). */
   PHOTO_MARGIN_MS: 20,
+  /** The player within this of a neighbour at the line: `PHOTO!` in-race; a win this close is a PHOTO FINISH. */
+  PHOTO_FINISH_MS: 50,
   /** Judges lean while any runner is within this distance of the line (31.3). */
   JUDGE_LEAN_M: 10,
   /** Meet card (31.1): first race of a tier in a session / retry. */

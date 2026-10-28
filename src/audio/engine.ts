@@ -174,9 +174,10 @@ export function unlockAudio(): void {
       sfx.connect(master);
       graph = { ctx, master, music, duck, sfx };
       watchVisibility();
+      watchState(ctx);
       for (const id of sfxPcm.keys()) sfxBuffer(id);
     }
-    if (graph.ctx.state === 'suspended') {
+    if (resumable(graph.ctx)) {
       suspendedForHidden = false;
       void graph.ctx.resume().catch(() => {});
     }
@@ -187,6 +188,19 @@ export function unlockAudio(): void {
   }
 }
 
+/**
+ * Neither running nor closed: `suspended`, or iOS Safari's `interrupted` (a call, Siri or an alarm
+ * took the audio session). Both come back with resume(); a closed context never does.
+ */
+function resumable(ctx: AudioContext): boolean {
+  const state: string = ctx.state;
+  return state !== 'running' && state !== 'closed';
+}
+
+function pageHidden(): boolean {
+  return typeof document !== 'undefined' && document.hidden;
+}
+
 function watchVisibility(): void {
   if (typeof document === 'undefined') return;
   document.addEventListener('visibilitychange', () => {
@@ -194,11 +208,23 @@ function watchVisibility(): void {
     if (document.hidden && graph.ctx.state === 'running') {
       suspendedForHidden = true;
       void graph.ctx.suspend().catch(() => {});
-    } else if (!document.hidden && suspendedForHidden) {
+    } else if (!document.hidden && (suspendedForHidden || resumable(graph.ctx))) {
       suspendedForHidden = false;
       void graph.ctx.resume().catch(() => {});
     }
   });
+}
+
+/**
+ * The OS can stop the context while the page stays visible (iOS `interrupted`, or `suspended` after
+ * an interruption ends). Ask for it back at once: WebKit resumes an interrupted context when the
+ * interruption ends, and a refused resume is retried by the next tap or key (unlockAudio).
+ */
+function watchState(ctx: AudioContext): void {
+  ctx.onstatechange = () => {
+    if (graph?.ctx !== ctx || pageHidden() || suspendedForHidden || !resumable(ctx)) return;
+    void ctx.resume().catch(() => {});
+  };
 }
 
 // ---------------------------------------------------------------------------------------------

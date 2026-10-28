@@ -94,6 +94,8 @@ describe('400 m acceptance (design 22)', () => {
     expect(emptyAt).not.toBeNull();
     expect(emptyAt ?? 0).toBeGreaterThan(100);
     expect(emptyAt ?? 0).toBeLessThan(160);
+    // The outcome keeps the whole metre where the meter first emptied.
+    expect(Math.abs((race.state.outcome?.staminaEmptyM ?? 0) - (emptyAt ?? 0))).toBeLessThanOrEqual(1);
     expect(Math.round(lateV * 3.6)).toBeGreaterThanOrEqual(21);
     expect(Math.round(lateV * 3.6)).toBeLessThanOrEqual(23);
     expect(Math.abs((race.state.outcome?.ms ?? 0) - 59600)).toBeLessThan(300);

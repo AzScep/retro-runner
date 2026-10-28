@@ -30,7 +30,7 @@ import { ladderEntry, OPPONENTS, PLAYER, TUNING, WORLD } from '../roster.ts';
 import { airTicksTotal, arcHeight, PlayerBody } from '../runner/player.ts';
 import { TripState } from './trip.ts';
 
-const INTRO_TICKS = ticks(TUNING.INTRO_MS);
+const WALK_TICKS = ticks(TUNING.INTRO_MS);
 const BEAT_TICKS = ticks(TUNING.COUNT_STEP_MS);
 const GO_TEXT_TICKS = ticks(TUNING.GO_TEXT_MS);
 const BANNER_TICKS = ticks(TUNING.FALSE_START_BANNER_MS);
@@ -98,6 +98,8 @@ export class Race {
   private readonly who: readonly LaneCharacter[];
   private readonly names: readonly string[];
   private readonly trip: TripState;
+  /** Intro length; shorter than the walk-in, the runners wait at the blocks (immediate retry). */
+  private readonly introTicks: number;
   /** Race ms of the last RATE_WINDOW valid steps (stamina arrow). */
   private recentSteps: number[] = [];
 
@@ -146,6 +148,7 @@ export class Race {
     this.lastNow = opts.startT;
     this.player = new PlayerBody(opts.event);
     this.trip = new TripState(opts.trip ?? TUNING.TRIP_ENABLED);
+    this.introTicks = Math.min(WALK_TICKS, ticks(opts.introMs ?? TUNING.INTRO_MS));
     // Separate streams so the number of countdown attempts never changes the AI draws.
     const { ai, field: fieldInfo } = createAi(opts.event, opts.opponent, this.seed);
     this.ai = ai;
@@ -248,7 +251,7 @@ export class Race {
     const k = this.tick;
     switch (this.phase) {
       case 'intro':
-        if (k >= INTRO_TICKS) {
+        if (k >= this.introTicks) {
           out.push({ type: 'introDone' });
           this.startCountdown(out);
         }
@@ -405,9 +408,10 @@ export class Race {
     out.push({ type: 'falseStart', count: this.falseStarts });
     if (this.falseStarts >= TUNING.FALSE_STARTS_TO_DQ) {
       this.dq = true;
-      const outcome = this.setOutcome('dq', null);
+      this.setOutcome('dq', null);
       out.push({ type: 'disqualified' });
-      out.push({ type: 'resultReady', outcome });
+      // The DISQUALIFIED banner shows for the banner time before the card.
+      this.resultTick = this.tick + BANNER_TICKS;
       return;
     }
     this.phase = 'falseStart';
@@ -528,6 +532,7 @@ export class Race {
     const timed = all.filter((t): t is number => t !== null);
     const winMs = timed.length > 0 ? Math.min(...timed) : null;
     const oppMs = all[1] ?? null;
+    const second = standings.find((s) => s.lane !== 0)?.ms ?? null;
     const result = kind === 'placed' ? (place === 1 ? 'win' : 'lose') : kind;
     this.outcome = {
       event: this.event,
@@ -536,7 +541,7 @@ export class Race {
       ms,
       oppMs,
       marginMs: ms !== null && oppMs !== null ? ms - oppMs : null,
-      photoFinish: ms !== null && place === 1 && all.slice(1).some((t) => t === ms),
+      photoFinish: ms !== null && place === 1 && second !== null && second - ms <= TUNING.PHOTO_FINISH_MS,
       falseStarts: this.falseStarts,
       seed: this.seed,
       hit: this.event === '110mh' ? this.player.hit : null,
@@ -551,6 +556,7 @@ export class Race {
       fumble2: this.fumble2,
       trips: this.trip.count,
       input: this.sawTouch ? (this.sawKeys ? 'm' : 't') : 'k',
+      staminaEmptyM: this.player.emptyAtM,
     };
     return this.outcome;
   }
@@ -633,7 +639,7 @@ export class Race {
   private preRaceAnim(isPlayer: boolean): RunnerAnim | null {
     switch (this.phase) {
       case 'intro':
-        return 'walk';
+        return this.atBlocks() ? 'ready1' : 'walk';
       case 'countdown':
         return this.beat() === 1 ? 'ready2' : 'ready1';
       case 'falseStart':
@@ -644,8 +650,14 @@ export class Race {
     }
   }
 
+  /** A short (retry) intro starts at the blocks instead of walking in. */
+  private atBlocks(): boolean {
+    return this.introTicks < WALK_TICKS;
+  }
+
   private walkX(alpha: number): number {
-    const f = Math.min(1, Math.max(0, (this.tick - 1 + alpha) / INTRO_TICKS));
+    if (this.atBlocks()) return 0;
+    const f = Math.min(1, Math.max(0, (this.tick - 1 + alpha) / WALK_TICKS));
     return WALK_FROM_M * (1 - f);
   }
 

@@ -19,15 +19,19 @@ import { GAME_WIDTH, iconKey, keyIconKey, meetBadgeKey, portraitKey } from '../a
 import { playSfx } from '../audio/index.ts';
 import { SpeechBubble } from '../ui/bubble.ts';
 import { FONT_MINI } from '../ui/fonts.ts';
+import { miniTextWidth } from '../ui/miniFont.ts';
 import { gauntletStrip, type GauntletRun } from '../ui/gauntlet.ts';
 import {
   cleanZone,
+  finishCall,
   flashHz,
-  flashOn,
+  FUMBLE_LOOK_MS,
   gapLabel,
   gaugeOffset,
   gaugeVisible,
+  hurdlePopup,
   jumpReady,
+  keyPrompt,
   litSegments,
   offscreenIndicators,
   OVAL,
@@ -39,23 +43,17 @@ import {
   PlaceHold,
   progressTickMarks,
   RIVAL_KIT,
-  segmentColorIndex,
+  speedSegmentColor,
   SPEED_SEGMENTS,
+  splitPopupText,
   S_FATIGUE,
   STAMINA_BAR_W,
   staminaColorIndex,
   staminaFillW,
   staminaLabelColor,
-  sustainTickOffset,
+  sustainDividerOffset,
 } from '../ui/hudMath.ts';
-import {
-  firstRaceTip,
-  livePlaceColor,
-  meetSubtitle,
-  ordinal,
-  splitPopup,
-  starterBubble,
-} from '../ui/screenText.ts';
+import { firstRaceTip, livePlaceColor, meetSubtitle, ordinal, starterBubble } from '../ui/screenText.ts';
 import { Label } from '../ui/text.ts';
 import { ARROW_8X8, drawMask, drawPanel, fillRect, HEAD_6X4, HEAD_8X8, UI_DEPTH } from '../ui/widgets.ts';
 import { applyCrt, getApp, SceneKey, settings, tierOf } from './app.ts';
@@ -79,6 +77,8 @@ export interface HudSnapshot {
   readonly lit: number;
   readonly keys: { readonly L: KeyLook; readonly R: KeyLook; readonly U: KeyLook };
   readonly mash: boolean;
+  /** Key prompt text: `MASH!` (idle) or `ALTERNATE!` (one-key mashing), else null. */
+  readonly prompt: string | null;
   readonly fumbles: number;
   readonly countdown: string | null;
   readonly banner: string | null;
@@ -100,6 +100,17 @@ export interface HudSnapshot {
   } | null;
   readonly popup: string | null;
   readonly split: string | null;
+  /** Finish callout (`1ST!`, `3RD` ...) and its 2x time, shown from the crossing to the card. */
+  readonly finish: string | null;
+  readonly finishTime: string | null;
+  /** `PHOTO!` above the finish callout (player within 50 ms of a neighbour). */
+  readonly photo: boolean;
+  /** Second banner line (`ONE MORE AND YOU ARE OUT` after the first false start). */
+  readonly bannerSub: string | null;
+  /** False start strike pip beside the timer. */
+  readonly strike: boolean;
+  /** Paused: countdown, meet card, banners and tip are hidden under the pause menu. */
+  readonly pausedLook: boolean;
   readonly knockedTicks: number;
   readonly speedMeter: { readonly x: number; readonly y: number };
   /** Gauntlet strip bounds in game px (layout checks), null outside Gauntlet races. */
@@ -145,12 +156,17 @@ const SPEED_AT: Readonly<Record<HudLayout, { x: number; y: number }>> = {
   touchBars: { x: 4, y: 163 },
   touchCanvas: { x: 118, y: 165 },
 };
-/** Stamina meter (design 18.4): STA label then a 56 x 8 bar with an outline; box matches the speed meter. */
-const STA_W = 88;
-const STA_BAR_DX = 26;
+/**
+ * Stamina meter (design 18.4): STA label, the 5x3 drain/refill arrow, then a 56 x 8 bar with an
+ * outline, 2 px apart, inside a box as tall as the speed meter (92 wide so the arrow sits inside the
+ * box instead of on the lane line above it).
+ */
+const STA_W = 92;
+const STA_ARROW = { x: 23, y: SEG_DY + 2 } as const;
+const STA_BAR_DX = 31;
 const STAMINA_AT: Readonly<Record<HudLayout, { x: number; y: number }>> = {
-  keyboard: { x: 228, y: 163 },
-  touchBars: { x: 228, y: 163 },
+  keyboard: { x: 224, y: 163 },
+  touchBars: { x: 224, y: 163 },
   touchCanvas: { x: 118, y: 150 },
 };
 /**
@@ -190,7 +206,7 @@ const TRIP_POPUP_MS = 600;
 /** Screen areas the starter's bubble keeps clear of: the 4x/5x countdown digit and the 2x banner. */
 const BUBBLE_AVOID = {
   digit: { x: 138, y: 50, w: 44, h: 42 },
-  banner: { x: 62, y: 62, w: 196, h: 20 },
+  banner: { x: 60, y: 61, w: 200, h: 33 },
 } as const;
 /** The starter's DISQUALIFIED bubble shows this long (31.2). */
 const DQ_BUBBLE_MS = 1500;
@@ -198,14 +214,29 @@ const SPLIT_POPUP = { x: 160, y: 44, ms: 2000 } as const;
 const KNOCK_POPUP_MS = 500;
 /** Player sprite: screen x 96 while racing (camera follow), feet on y 152, ~44 px tall. */
 const PLAYER_POPUP = { x: 96, y: 152 - 56 } as const;
-const MASH_IDLE_MS = 500;
-const FUMBLE_FRAMES = 4;
+/** Hurdle popups sit this far above the player's feet (clear of the head, under the meet rows). */
+const KNOCK_ABOVE_FEET = 54;
+/** Dark plates behind HUD text over the stadium: padding around the glyphs. */
+const PLATE_PAD = { x: 3, y: 2 } as const;
 const POP_FRAMES = 2;
+/** Finish callout (R7): place at 4x on the countdown spot, time at 2x under it, PHOTO! above. */
+const FINISH_TIME_Y = COUNT_Y + 22;
+const PHOTO_Y = COUNT_Y - 32;
+/** False start strike pip (R8), right of the widest (400 m) timer, which ends at x 215. */
+const STRIKE = { x: 220, y: 7, size: 6 } as const;
 /** Fumble red flashes are an element flashing, so they are capped like any flash (design 6.5). */
 const FUMBLE_FLASH_HZ = 3;
 /** HUD text floats over busy stadium art, so it gets the index 1 outline as well as the shadow. */
 const HUD_TEXT = { outline: true } as const;
 const JUMP_LABEL_HURDLES = 3;
+
+/** A dark plate (index 1 edge, index 2 fill) around a text box, so HUD text reads over the stadium. */
+function plate(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number): void {
+  const px = PLATE_PAD.x;
+  const py = PLATE_PAD.y;
+  fillRect(g, x - px, y - py, w + 2 * px, h + 2 * py, PAL.ink);
+  fillRect(g, x - px + 1, y - py + 1, w + 2 * px - 2, h + 2 * py - 2, PAL.panel);
+}
 
 function layoutOf(m: ModalityState): HudLayout {
   if (m.modality !== 'touch') return 'keyboard';
@@ -271,6 +302,8 @@ export class HudScene extends Phaser.Scene {
   private splitUntil = 0;
   private knockUntil = 0;
   private lastLit = -1;
+  /** 400 m: lit segments over the sustain speed turn red while the stamina drains (R5). */
+  private draining = false;
   private lastKeysSig = '';
   private lastTicksSig = '';
   private lastStaSig = '';
@@ -278,9 +311,24 @@ export class HudScene extends Phaser.Scene {
   private lastBeat: CountdownBeat = null;
   private popFrames = 0;
   private fumbleSide: Side | null = null;
-  private fumbleFrames = 0;
+  /** The wrong-key look and shake run until this time (R2: time-based, not frame-counted). */
+  private fumbleUntil = 0;
   private fumbles = 0;
+  /** Fumbles since the last valid step (ALTERNATE!), and valid steps since GO or the last fumble. */
+  private fumblesSinceStep = 0;
+  private stepsSinceGuide = 0;
+  private promptText: string | null = null;
+  /** Dark plates behind the countdown / finish callout, the popups and the off-screen markers. */
+  private countPlate!: Phaser.GameObjects.Graphics;
+  private knockPlate!: Phaser.GameObjects.Graphics;
+  private bannerSub!: Label;
+  private finishTime!: Label;
+  private photoLabel!: Label;
+  private strike!: Phaser.GameObjects.Graphics;
+  private finishShown = false;
+  private pausedLook = false;
   private lastFumbleFlash = -Infinity;
+  private lastPlateSig = '';
   private keyLooks: { L: KeyLook; R: KeyLook; U: KeyLook } = { L: 'dim', R: 'dim', U: 'hidden' };
   private mashOn = false;
   private gaugeState = { visible: false, pipX: 0, label: false };
@@ -298,6 +346,7 @@ export class HudScene extends Phaser.Scene {
     this.opponent = data.opponent;
     this.firstRace = data.firstRace;
     this.lastLit = -1;
+    this.draining = false;
     this.lastKeysSig = '';
     this.lastTicksSig = '';
     this.lastStaSig = '';
@@ -305,8 +354,14 @@ export class HudScene extends Phaser.Scene {
     this.lastBeat = null;
     this.popFrames = 0;
     this.fumbleSide = null;
-    this.fumbleFrames = 0;
+    this.fumbleUntil = 0;
     this.fumbles = 0;
+    this.fumblesSinceStep = 0;
+    this.stepsSinceGuide = 0;
+    this.promptText = null;
+    this.finishShown = false;
+    this.pausedLook = false;
+    this.lastPlateSig = '';
     this.lastFumbleFlash = -Infinity;
     this.splitUntil = 0;
     this.knockUntil = 0;
@@ -408,7 +463,7 @@ export class HudScene extends Phaser.Scene {
       const staBar = this.add.graphics();
       const label = new Label(this, 4, SEG_DY, 'STA', { font: FONT_MINI });
       const arrow = this.add
-        .image(STA_BAR_DX + STAMINA_BAR_W - 5, -4, iconKey('staminaArrowDown'))
+        .image(STA_ARROW.x, STA_ARROW.y, iconKey('staminaArrowDown'))
         .setOrigin(0, 0)
         .setVisible(false);
       const container = this.add.container(0, 0, [box, staBar, ...label.objects(), arrow]).setDepth(UI_DEPTH);
@@ -439,7 +494,12 @@ export class HudScene extends Phaser.Scene {
       this.gaugeLabel.setVisible(false);
     }
 
-    // Countdown, banners, tip and popups.
+    // Countdown, banners, tip and popups. The centre callouts sit on one dark plate (R10): the white
+    // 4x digits otherwise merge with the white crowd signs behind them.
+    this.countPlate = this.add
+      .graphics()
+      .setDepth(UI_DEPTH - 1)
+      .setVisible(false);
     this.countdown = new Label(this, 160, COUNT_Y - 16, '', { scale: 4, outline: true, align: 'center' });
     this.countdown.setVisible(false);
     this.banner = new Label(this, 160, COUNT_Y - 8, '', {
@@ -449,11 +509,36 @@ export class HudScene extends Phaser.Scene {
       color: PAL.redLight,
     });
     this.banner.setVisible(false);
+    this.bannerSub = new Label(this, 160, COUNT_Y + 11, '', {
+      ...HUD_TEXT,
+      font: FONT_MINI,
+      align: 'center',
+    });
+    this.bannerSub.setVisible(false);
+    // Finish callout (R7): the place reuses the countdown label; time and PHOTO! at 2x.
+    this.finishTime = new Label(this, 160, FINISH_TIME_Y, '', { ...HUD_TEXT, scale: 2, align: 'center' });
+    this.finishTime.setVisible(false);
+    this.photoLabel = new Label(this, 160, PHOTO_Y, 'PHOTO!', {
+      ...HUD_TEXT,
+      scale: 2,
+      align: 'center',
+      color: PAL.gold,
+    });
+    this.photoLabel.setVisible(false);
+    // False start strike (R8): a red pip beside the timer for the rest of the race.
+    this.strike = this.add.graphics().setDepth(UI_DEPTH).setVisible(false);
+    fillRect(this.strike, STRIKE.x, STRIKE.y, STRIKE.size, STRIKE.size, PAL.ink);
+    fillRect(this.strike, STRIKE.x + 1, STRIKE.y + 1, STRIKE.size - 2, STRIKE.size - 2, PAL.red);
     this.tipPanel = this.add.graphics().setDepth(UI_DEPTH).setVisible(false);
     this.tip = new Label(this, 160, TIP_Y, '', { align: 'center', color: PAL.gold, depth: UI_DEPTH + 1 });
     this.tip.setVisible(false);
     this.splitLabel = new Label(this, SPLIT_POPUP.x, SPLIT_POPUP.y, '', { ...HUD_TEXT, align: 'center' });
     this.splitLabel.setVisible(false);
+    // Hurdle popups ride above the player on a dark plate (R4), not on the busy ad boards.
+    this.knockPlate = this.add
+      .graphics()
+      .setDepth(UI_DEPTH - 1)
+      .setVisible(false);
     this.knockLabel = new Label(this, PLAYER_POPUP.x, PLAYER_POPUP.y, '', { ...HUD_TEXT, align: 'center' });
     this.knockLabel.setVisible(false);
     this.tripLabel = new Label(this, PLAYER_POPUP.x, PLAYER_POPUP.y, 'TRIP!', {
@@ -479,6 +564,11 @@ export class HudScene extends Phaser.Scene {
   }
 
   private buildMeetCard(data: HudData): void {
+    // An immediate retry has no meet card (R12).
+    if (data.meetMs <= 0) {
+      this.meetText = null;
+      return;
+    }
     const tier = tierOf(data.event, data.opponent);
     const name = meet(tier).name;
     const sub = meetSubtitle(data.event, OPPONENTS[data.opponent].name, data.gauntlet?.tier ?? null);
@@ -500,6 +590,24 @@ export class HudScene extends Phaser.Scene {
     this.meetUntil = this.t0 + data.meetMs;
   }
 
+  /**
+   * Under the pause menu (M9): the countdown, meet card, banners, tip and popups would show around
+   * its panel as cut-off stubs, so they hide until the race resumes (onFrame redraws them).
+   */
+  setPausedLook(paused: boolean): void {
+    if (!this.ready) return;
+    this.pausedLook = paused;
+    const meet = paused ? false : this.meetText !== null;
+    for (const o of this.meetObjs) o.setVisible(meet);
+    if (!paused) return;
+    for (const l of [this.countdown, this.banner, this.bannerSub, this.tip, this.finishTime, this.photoLabel])
+      l.setVisible(false);
+    this.countPlate.setVisible(false);
+    this.tipPanel.setVisible(false);
+    this.bubble.hide();
+    this.lastPlateSig = '';
+  }
+
   private hideMeetCard(): void {
     if (this.meetText === null) return;
     this.meetText = null;
@@ -518,10 +626,6 @@ export class HudScene extends Phaser.Scene {
     bg.clear();
     fillRect(bg, 0, 0, w, 14, PAL.ink);
     fillRect(bg, 1, 1, w - 2, 12, PAL.panel);
-    if (this.event === '400m') {
-      // Sustain tick: 1 px index 8 above the segments at SUSTAIN_RATE speed (design 18.4).
-      fillRect(bg, SEG_DX + sustainTickOffset(SPEED_SEGMENTS * SEG_PITCH), 0, 1, 2, PAL.white);
-    }
     this.spdLabel.setText(this.compactMeter ? 'KMH' : 'SPD');
     this.kmh.setPosition(w - 4, SEG_DY);
     if (this.stamina) {
@@ -546,6 +650,7 @@ export class HudScene extends Phaser.Scene {
       lit: Math.max(0, this.lastLit),
       keys: { ...this.keyLooks },
       mash: this.mashOn,
+      prompt: this.promptText,
       fumbles: this.fumbles,
       countdown: this.countdown.visible ? this.countdown.text : null,
       banner: this.banner.visible ? this.banner.text : null,
@@ -562,6 +667,12 @@ export class HudScene extends Phaser.Scene {
       stamina: this.staSnap,
       popup: this.knockLabel.visible ? this.knockLabel.text : null,
       split: this.splitLabel.visible ? this.splitLabel.text : null,
+      finish: this.finishShown && this.countdown.visible ? this.countdown.text : null,
+      finishTime: this.finishTime.visible ? this.finishTime.text : null,
+      photo: this.photoLabel.visible,
+      bannerSub: this.bannerSub.visible ? this.bannerSub.text : null,
+      strike: this.strike.visible,
+      pausedLook: this.pausedLook,
       knockedTicks: this.knocked,
       speedMeter: { x: this.speed.x, y: this.speed.y },
       stripBox: this.strip
@@ -586,26 +697,33 @@ export class HudScene extends Phaser.Scene {
     for (const ev of events) {
       if (ev.type === 'fumble') {
         this.fumbles++;
+        this.fumblesSinceStep++;
+        this.stepsSinceGuide = 0;
         if (now - this.lastFumbleFlash >= minFlashGapMs) {
           this.lastFumbleFlash = now;
           this.fumbleSide = ev.side;
-          this.fumbleFrames = FUMBLE_FRAMES;
+          this.fumbleUntil = now + FUMBLE_LOOK_MS;
         }
+      } else if (ev.type === 'step') {
+        this.fumblesSinceStep = 0;
+        this.stepsSinceGuide++;
       } else if (ev.type === 'split') {
-        this.splitLabel.setText(splitPopup(ev.index, ev.ms)).setVisible(true);
+        this.splitLabel.setText(splitPopupText(ev.index, state.splits)).setVisible(true);
         this.splitUntil = now + SPLIT_POPUP.ms;
       } else if (ev.type === 'trip') {
         this.tripUntil = now + TRIP_POPUP_MS;
       } else if (ev.type === 'disqualified') {
         this.dqUntil = now + DQ_BUBBLE_MS;
-      } else if ((ev.type === 'hurdleClip' || ev.type === 'hurdleHit') && ev.lane === 0) {
-        const hit = ev.type === 'hurdleHit';
-        const lift = Math.round(p.airM * 24);
-        this.knockLabel
-          .setText(hit ? 'HIT!' : 'CLIP')
-          .setColor(hit ? PAL.red : PAL.gold)
-          .setPosition(PLAYER_POPUP.x, PLAYER_POPUP.y - lift)
-          .setVisible(true);
+      } else if (
+        (ev.type === 'hurdleClip' || ev.type === 'hurdleHit' || ev.type === 'hurdleClear') &&
+        ev.lane === 0
+      ) {
+        // R4: which way to correct (EARLY / LATE / TOO EARLY / JUMP!), and a clean clear confirmed.
+        const pop =
+          ev.type === 'hurdleClear'
+            ? hurdlePopup('clear', undefined)
+            : hurdlePopup(ev.type === 'hurdleClip' ? 'clip' : 'hit', ev.timing);
+        this.knockLabel.setText(pop.text).setColor(pop.color).setVisible(true);
         this.knockUntil = now + KNOCK_POPUP_MS;
       }
     }
@@ -617,11 +735,16 @@ export class HudScene extends Phaser.Scene {
       this.knockUntil = 0;
       this.knockLabel.setVisible(false);
     }
+    // Popups follow the player's drawn position, above the head and the jump arc.
+    const at = view.runnerScreenPos(0);
+    const popX = Math.round(at.x);
+    const popY = Math.round(at.y) - KNOCK_ABOVE_FEET - Math.round(p.airM * 24);
+    if (this.knockLabel.visible) this.knockLabel.setPosition(popX, popY);
     // TRIP! rides above the player (who may be falling or lying).
     const tripOn = now < this.tripUntil;
     this.tripLabel.setVisible(tripOn);
-    if (tripOn)
-      this.tripLabel.setPosition(PLAYER_POPUP.x, PLAYER_POPUP.y - (this.knockLabel.visible ? 10 : 0));
+    if (tripOn) this.tripLabel.setPosition(popX, popY - (this.knockLabel.visible ? 12 : 0));
+    this.drawKnockPlate();
 
     // Live position (27.2): held 0.35 s, hidden before GO and after a DQ, frozen once crossed.
     const crossedLine = p.finishMs !== null;
@@ -649,7 +772,8 @@ export class HudScene extends Phaser.Scene {
       const was = this.bubble.text;
       const at = view.starterScreenPos();
       // Never under the big countdown digit or the FALSE START! banner (6.3 stays the timing cue).
-      const avoid = state.phase === 'falseStart' ? BUBBLE_AVOID.banner : BUBBLE_AVOID.digit;
+      const bannerUp = state.phase === 'falseStart' || state.outcome?.result === 'dq';
+      const avoid = bannerUp ? BUBBLE_AVOID.banner : BUBBLE_AVOID.digit;
       this.bubble.show(bubbleText, Math.round(at.x), Math.round(at.y), avoid);
       if (was !== bubbleText) playSfx('bubble');
     }
@@ -676,29 +800,40 @@ export class HudScene extends Phaser.Scene {
 
     // Speed meter.
     const lit = litSegments(p.vMps);
-    if (lit !== this.lastLit) this.drawSegments(lit);
+    if (lit !== this.lastLit || state.staminaDraining !== this.draining)
+      this.drawSegments(lit, state.staminaDraining);
     this.kmh.setText(this.compactMeter ? String(toKmh(p.vMps)) : `${toKmh(p.vMps)}KM/H`);
 
     // Stamina meter.
     if (this.stamina && p.stamina !== null)
       this.drawStamina(p.stamina, state.staminaDraining, now, s.reducedFlashing);
 
-    // Key prompt and MASH! (6.4, 17.4); pulse limited per 6.5.
+    // Key prompt, MASH! and ALTERNATE! (6.4, 17.4, R1); pulse limited per 6.5.
     const crossed = p.finishMs !== null || state.phase === 'finished';
     const running = state.phase === 'running' && !crossed;
-    const pulseHz = flashHz(2, s.reducedFlashing);
-    const idle = running && state.idleMs >= MASH_IDLE_MS;
-    const pulse = idle && flashOn(state.idleMs - MASH_IDLE_MS, pulseHz);
-    this.mashOn = idle && pulse;
-    this.mash.setVisible(this.mashOn);
-    let looks: { L: KeyLook; R: KeyLook };
-    if (crossed) looks = { L: 'hidden', R: 'hidden' };
-    else if (!running) looks = { L: 'dim', R: 'dim' };
-    else if (idle) looks = pulse ? { L: 'bright', R: 'bright' } : { L: 'dim', R: 'dim' };
-    // The expected-side swap can alternate ~12 Hz while mashing, so reduced flashing keeps both lit.
-    else if (state.expectedSide === null || s.reducedFlashing) looks = { L: 'bright', R: 'bright' };
-    else looks = state.expectedSide === 'L' ? { L: 'bright', R: 'dim' } : { L: 'dim', R: 'bright' };
-    if (this.fumbleFrames > 0 && this.fumbleSide && !crossed) looks[this.fumbleSide] = 'fumble';
+    const prompt = keyPrompt({
+      running,
+      idleMs: state.idleMs,
+      fumblesSinceStep: this.fumblesSinceStep,
+      stepsSinceGuide: this.stepsSinceGuide,
+      expectedSide: state.expectedSide,
+      reducedFlashing: s.reducedFlashing,
+    });
+    this.promptText = prompt.text;
+    this.mashOn = prompt.text === 'MASH!';
+    if (prompt.text === null) this.mash.setVisible(false);
+    else
+      this.mash
+        .setText(prompt.text)
+        .setColor(prompt.text === 'MASH!' ? PAL.gold : PAL.redLight)
+        .setVisible(true);
+    const look = (l: 'dim' | 'bright' | 'wrong'): KeyLook => (l === 'wrong' ? 'fumble' : l);
+    const looks: { L: KeyLook; R: KeyLook } = crossed
+      ? { L: 'hidden', R: 'hidden' }
+      : { L: look(prompt.L), R: look(prompt.R) };
+    const fumbleOn = now < this.fumbleUntil && this.fumbleSide !== null && !crossed;
+    if (!fumbleOn) this.fumbleSide = null;
+    if (fumbleOn && this.fumbleSide) looks[this.fumbleSide] = 'fumble';
     // Up: dim until the next hurdle is within 1.0 s, then bright; never flashes (18.4).
     const up: KeyLook =
       !this.keyImages.U || crossed ? 'hidden' : running && jumpReady(state.nextHurdleS) ? 'bright' : 'dim';
@@ -708,25 +843,23 @@ export class HudScene extends Phaser.Scene {
     this.keyLooks = all;
     // The 2 px key shake is motion like screen shake: off with reduced flashing or screen shake off.
     const shakeOn = s.screenShake && !s.reducedFlashing;
-    const shake = shakeOn && this.fumbleFrames > 0 ? (this.fumbleFrames % 2 === 0 ? 2 : -2) : 0;
+    // 2 px left-right every 33 ms while the wrong-key look lasts.
+    const shake = shakeOn && fumbleOn ? (Math.floor((this.fumbleUntil - now) / 33) % 2 === 0 ? 2 : -2) : 0;
     const sig = `${all.L}${all.R}${all.U}${this.fumbleSide ?? ''}${shake}`;
     if (sig !== this.lastKeysSig) {
       this.lastKeysSig = sig;
       this.drawKeys(all, this.fumbleSide, shake);
     }
-    if (this.fumbleFrames > 0) {
-      this.fumbleFrames--;
-      if (this.fumbleFrames === 0) this.fumbleSide = null;
-    }
 
     // Jump gauge (hurdles).
     if (this.gauge) this.drawGauge(state, running);
 
-    // Pre-race tip during the intro walk, first race of the event only (18.5).
+    // Pre-race tip, first race of the event only (18.5): from the end of the meet card until GO, so
+    // it is readable for the whole countdown (its panel at y 95-113 sits under the digit plate and
+    // the banners, which end by y 92).
+    const preRace = state.phase === 'intro' || state.phase === 'countdown' || state.phase === 'falseStart';
     const tip =
-      this.firstRace && state.phase === 'intro' && this.meetText === null
-        ? firstRaceTip(this.event, m.modality)
-        : null;
+      this.firstRace && preRace && this.meetText === null ? firstRaceTip(this.event, m.modality) : null;
     if (tip === null) {
       this.tip.setVisible(false);
       this.tipPanel.setVisible(false);
@@ -744,7 +877,19 @@ export class HudScene extends Phaser.Scene {
       this.lastBeat = beat;
       this.popFrames = beat !== null && beat !== 'go' ? POP_FRAMES : 0;
     }
-    if (beat === null) {
+    // Finish moment (R7): the final place big in the centre and the time under it until the card,
+    // PHOTO! (with a shutter click) when the player is within 50 ms of a neighbour.
+    const call = p.finishMs !== null && state.outcome !== null ? finishCall(state.outcome) : null;
+    if (call !== null && !this.finishShown) {
+      this.finishShown = true;
+      if (call.photo) playSfx('photo_click');
+    }
+    if (call !== null) {
+      this.countdown.setText(call.text).setColor(call.color).setScale(4);
+      this.countdown.setPosition(160, COUNT_Y - 16).setVisible(true);
+      this.finishTime.setText(formatTime(p.finishMs)).setVisible(true);
+      this.photoLabel.setVisible(call.photo);
+    } else if (beat === null) {
       this.countdown.setVisible(false);
     } else {
       const scale = this.popFrames > 0 ? 5 : 4;
@@ -756,15 +901,68 @@ export class HudScene extends Phaser.Scene {
         .setVisible(true);
       if (this.popFrames > 0) this.popFrames--;
     }
+    if (call === null) {
+      this.finishTime.setVisible(false);
+      this.photoLabel.setVisible(false);
+    }
 
-    // Banners: FALSE START! (1.5 s, core phase) and GET SET (core's frozen beat after resume).
-    if (state.phase === 'falseStart') {
+    // Banners: FALSE START! (1.5 s, core phase) with the strike warning on the first one (R8),
+    // DISQUALIFIED until the card (core holds it for the banner time), GET SET after resume.
+    const dq = state.outcome?.result === 'dq';
+    let sub: string | null = null;
+    if (dq) {
+      this.banner.setText('DISQUALIFIED').setColor(PAL.redLight).setVisible(true);
+    } else if (state.phase === 'falseStart') {
       this.banner.setText('FALSE START!').setColor(PAL.redLight).setVisible(true);
+      if (state.falseStarts === TUNING.FALSE_STARTS_TO_DQ - 1) sub = 'ONE MORE AND YOU ARE OUT';
     } else if (state.getSet && !state.paused) {
       this.banner.setText('GET SET').setColor(PAL.gold).setVisible(true);
     } else {
       this.banner.setVisible(false);
     }
+    if (sub === null) this.bannerSub.setVisible(false);
+    else this.bannerSub.setText(sub).setVisible(true);
+    this.strike.setVisible(state.falseStarts > 0 && !dq);
+    this.drawCountPlate();
+  }
+
+  /** One dark plate behind whichever centre callouts show (countdown, banners, finish; R10). */
+  private drawCountPlate(): void {
+    // GO! is gold and reads without a plate, which would hide the starter firing behind it.
+    const shown = [this.countdown, this.banner, this.bannerSub, this.finishTime, this.photoLabel].filter(
+      (l) => l.visible && l.text !== '' && l.text !== 'GO!',
+    );
+    const sig = shown.map((l) => `${l.text}@${l.main.x},${l.main.y},${l.width}`).join('|');
+    if (sig === this.lastPlateSig) return;
+    this.lastPlateSig = sig;
+    const g = this.countPlate;
+    g.clear();
+    if (shown.length === 0) {
+      g.setVisible(false);
+      return;
+    }
+    const x0 = Math.min(...shown.map((l) => l.main.x));
+    const y0 = Math.min(...shown.map((l) => l.main.y));
+    const x1 = Math.max(...shown.map((l) => l.main.x + l.width));
+    const y1 = Math.max(...shown.map((l) => l.main.y + l.height));
+    plate(g, x0, y0, x1 - x0, y1 - y0);
+    g.setVisible(true);
+  }
+
+  private drawKnockPlate(): void {
+    const shown = [this.knockLabel, this.tripLabel].filter((l) => l.visible);
+    const g = this.knockPlate;
+    g.clear();
+    if (shown.length === 0) {
+      g.setVisible(false);
+      return;
+    }
+    const x0 = Math.min(...shown.map((l) => l.main.x));
+    const y0 = Math.min(...shown.map((l) => l.main.y));
+    const x1 = Math.max(...shown.map((l) => l.main.x + l.width));
+    const y1 = Math.max(...shown.map((l) => l.main.y + l.height));
+    plate(g, x0, y0, x1 - x0, y1 - y0);
+    g.setVisible(true);
   }
 
   private drawMarkers(state: RaceState, distance: number): void {
@@ -800,13 +998,21 @@ export class HudScene extends Phaser.Scene {
       : { leader: null, behind: null };
     const leader = ind.leader;
     const behind = ind.behind;
-    const leaderText = leader ? `> ${gapLabel(leader.gapM)}` : null;
-    const behindText = behind ? `< ${behind.count}` : null;
+    // The arrow icons already point the way, so the labels carry only the number (R11).
+    const leaderText = leader ? gapLabel(leader.gapM) : null;
+    const behindText = behind ? String(behind.count) : null;
     const sig = `${leader?.lane ?? '-'}|${behind?.rival ?? '-'}|${behindText ?? ''}`;
     if (sig !== this.lastOffSig) {
       this.lastOffSig = sig;
       const g = this.offMarks;
       g.clear();
+      // Dark plates under the markers (R11): a kit-coloured arrow vanishes on same-coloured scenery.
+      if (leaderText !== null) {
+        const w = miniTextWidth(leaderText);
+        const x0 = GAME_WIDTH - EDGE - 21 - w;
+        plate(g, x0, OFF_Y, GAME_WIDTH - EDGE - x0, 8);
+      }
+      if (behindText !== null) plate(g, EDGE, OFF_Y, 10 + miniTextWidth(behindText), 8);
       if (leader) {
         const c = leader.lane === 1 ? this.kit : PAL.lightGrey;
         drawMask(g, GAME_WIDTH - EDGE - 8, OFF_Y, ARROW_8X8, { k: PAL.ink, c });
@@ -899,8 +1105,9 @@ export class HudScene extends Phaser.Scene {
     if (arrow !== null) st.arrow.setTexture(iconKey(arrow === 'up' ? 'staminaArrowUp' : 'staminaArrowDown'));
   }
 
-  private drawSegments(lit: number): void {
+  private drawSegments(lit: number, draining = false): void {
     this.lastLit = lit;
+    this.draining = draining;
     const g = this.segments;
     g.clear();
     fillRect(g, SEG_DX - 1, SEG_DY - 1, SPEED_SEGMENTS * SEG_PITCH + 1, 10, PAL.ink);
@@ -911,8 +1118,13 @@ export class HudScene extends Phaser.Scene {
         SEG_DY,
         SEG_PITCH - 1,
         8,
-        i <= lit ? segmentColorIndex(i) : PAL.shadowDark,
+        i <= lit ? speedSegmentColor(i, this.event, this.draining) : PAL.shadowDark,
       );
+    }
+    if (this.event === '400m') {
+      // Sustain divider (R5): a full-height 1 px index 8 line in the gap after the sustain segments,
+      // through the box edges, so steady pace has a visible mark.
+      fillRect(g, SEG_DX + sustainDividerOffset(SEG_PITCH), 0, 1, 14, PAL.white);
     }
   }
 

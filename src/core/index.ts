@@ -56,7 +56,7 @@ export type { EventCourse } from './events.ts';
  * ladderEntry(event, id): that rival's entry, or null if not on the event's ladder.
  * nextRival(event, id): next rival on that ladder, or null after tier 7.
  */
-export { OPPONENTS, LADDERS, ladderEntry, nextRival, PLAYER, WORLD, TUNING } from './roster.ts';
+export { OPPONENTS, LADDERS, ladderEntry, nextRival, PLAYER, RIVAL_KIT, WORLD, TUNING } from './roster.ts';
 
 // ---------------------------------------------------------------------------
 // [v3] Field runners and meets (design 24.2, 24.3, 31.1)
@@ -273,7 +273,10 @@ export interface RaceOutcome {
   readonly oppMs: number | null;
   /** ms - oppMs when both exist (negative = player faster than the named rival). */
   readonly marginMs: number | null;
-  /** [v3] The player shares 1st place (equal ms with the fastest AI); counts as a win. */
+  /**
+   * The player is 1st and 2nd place is at most TUNING.PHOTO_FINISH_MS behind (a dead heat
+   * included): the results title reads PHOTO FINISH.
+   */
   readonly photoFinish: boolean;
   readonly falseStarts: number;
   readonly seed: number;
@@ -299,6 +302,11 @@ export interface RaceOutcome {
   readonly trips: number;
   /** 'k' keyboard only, 't' touch only, 'm' both (by run-key downs after GO; 'k' when none). */
   readonly input: 'k' | 't' | 'm';
+  /**
+   * 400 m: whole metre where the player's stamina first reached 0, null when it never did or
+   * outside the 400 m. Optional only so older fixtures stay valid; Race always sets it.
+   */
+  readonly staminaEmptyM?: number | null;
 }
 
 export interface RaceState {
@@ -365,6 +373,9 @@ export type QuirkName =
   | 'watch'
   | 'sweat';
 
+/** Which way a knocked hurdle's jump was off (player only). */
+export type HurdleTiming = 'early' | 'late';
+
 /** Things that happened during one advance() call, in order. Scenes map these to audio, HUD and FX. */
 export type RaceEvent =
   | { readonly type: 'introDone' }
@@ -383,8 +394,22 @@ export type RaceEvent =
   | { readonly type: 'jump'; readonly lane: number }
   | { readonly type: 'land'; readonly lane: number }
   | { readonly type: 'hurdleClear'; readonly lane: number; readonly index: number }
-  | { readonly type: 'hurdleClip'; readonly lane: number; readonly index: number }
-  | { readonly type: 'hurdleHit'; readonly lane: number; readonly index: number }
+  /**
+   * Knocked hurdles. `timing` (player only): 'late' = still rising at the bar, 'early' = already
+   * falling at the bar or (HIT) landed before it; absent on a HIT with no jump since the last hurdle.
+   */
+  | {
+      readonly type: 'hurdleClip';
+      readonly lane: number;
+      readonly index: number;
+      readonly timing?: HurdleTiming;
+    }
+  | {
+      readonly type: 'hurdleHit';
+      readonly lane: number;
+      readonly index: number;
+      readonly timing?: HurdleTiming;
+    }
   /** [v3] Any runner (player and named rival included) crosses the line on screen. */
   | { readonly type: 'runnerFinish'; readonly lane: number; readonly ms: number }
   /** [v3] The 1st-2nd margin is at most PHOTO_MARGIN_MS (judges); once, when 2nd crosses. */
@@ -416,6 +441,11 @@ export interface RaceOptions {
   readonly mode?: RaceMode;
   /** [v3] Deterministic trip (design 33). Default TUNING.TRIP_ENABLED (false). */
   readonly trip?: boolean;
+  /**
+   * Intro length in ms. Default TUNING.INTRO_MS (the walk-in); shorter than that, the runners wait
+   * at the blocks instead of walking in (an immediate retry, TUNING.RETRY_INTRO_MS).
+   */
+  readonly introMs?: number;
 }
 
 /**
@@ -600,6 +630,9 @@ export interface GauntletOutcome {
  * - reset(): removes the v3, v2 and v1 keys, keeps settings and hints.
  */
 export { SAVE_KEY_V1, SAVE_KEY_V2, SAVE_KEY, CORRUPT_KEY, RecordsStore } from './records/store.ts';
+
+/** Settings for a first save: reduced flashing and no shake when the OS asks for reduced motion. */
+export { defaultSettings } from './records/fields.ts';
 
 /** window.localStorage if usable (probe write), else null. Safe to call in Node (returns null). */
 export { browserStorage } from './platform/storage.ts';

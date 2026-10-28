@@ -47,3 +47,19 @@ export function gauntletStrip(run: GauntletRun, liveMs: number): string {
 export function furthestText(furthest: number): string {
   return `FURTHEST ${furthest}/${GAUNTLET_TIERS}`;
 }
+
+/**
+ * Over card line for ABANDON RUN on the between-race card (design 32.2): the player never ran the
+ * next meet, so it is not "abandoned at" it.
+ */
+export function gauntletQuitLine(nextMeetName: string): string {
+  return `QUIT BEFORE ${nextMeetName}`;
+}
+
+/**
+ * Over card: `BEST FURTHEST n/7` repeats `FURTHEST n/7` and `NEW FURTHEST!` when this run set the
+ * record, so it shows only when an earlier run went further.
+ */
+export function showBestFurthest(newFurthest: boolean): boolean {
+  return !newFurthest;
+}

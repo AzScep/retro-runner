@@ -4,7 +4,18 @@ import { fieldPortraitKey, GAME_HEIGHT, medalKey, portraitKey } from '../art/ind
 import { duckMusic, playSfx } from '../audio/index.ts';
 import { FONT_MINI } from '../ui/fonts.ts';
 import { flashHz, flashOn, PAL } from '../ui/hudMath.ts';
-import { EVENT_TITLE, hurdlesRow, marginText, medalRow, ordinal, resultTitle } from '../ui/screenText.ts';
+import {
+  EVENT_TITLE,
+  marginText,
+  medalRow,
+  ordinal,
+  pbGapText,
+  RESULT_FACTS_W,
+  resultFacts,
+  resultTitle,
+  unlockHint,
+  type NextTier,
+} from '../ui/screenText.ts';
 import { Label } from '../ui/text.ts';
 import { addPanel, ButtonRow, fillRect, UI_DEPTH } from '../ui/widgets.ts';
 import { applyCrt, getApp, goTo, nextOpponent, onMenuKeys, SceneKey, settings } from './app.ts';
@@ -20,13 +31,17 @@ type ButtonId = 'next' | 'retry' | 'map' | 'continue';
 /** Design 28.1: (8, 12, 304 x 156); table on the left (panel x 8-176), facts on the right (184-300). */
 const CARD = { x: 8, y: 12, w: 304, h: 156 } as const;
 const TABLE = { x: 8, right: 176, rowY: 28, rowH: 16 } as const;
-const FACTS = { x: 184, right: 300 } as const;
+const FACTS = { x: 184, right: 184 + RESULT_FACTS_W } as const;
 const ROW = {
   title: 6,
   margin: 28,
   facts: 40,
-  pb: 68,
-  old: 86,
+  /** `NEW PB!` and the plain `PB 11.52` both start 4 px clear of a third facts line (ends at 66). */
+  pb: 70,
+  old: 88,
+  pbLine: 70,
+  /** `+0.12 OFF PB` (mini font) right under the plain PB line. */
+  pbGap: 80,
   medal: 98,
   eventUnlock: 110,
   buttons: 134,
@@ -77,22 +92,37 @@ export class ResultsScene extends Phaser.Scene {
     const title = resultTitle(outcome);
     text(CARD.w / 2, ROW.title, title.text, { scale: 2, color: title.color, align: 'center' });
 
-    // Placings table: 6 rows of 16 px, the player's DQ/DNF row last (24.1, 28.2).
+    // Placings table: 6 rows of 16 px, the player's DQ/DNF row last (24.1, 28.2). A DQ ran no race,
+    // so only the player's row shows, over `RACE NOT RUN` instead of a table of dashes (R8).
     const table = this.add.graphics().setDepth(D);
     objs.push(table);
-    outcome.standings.forEach((s, i) => this.tableRow(s, i, table, objs, text));
+    if (outcome.result === 'dq') {
+      outcome.standings.filter((s) => s.lane === 0).forEach((s, i) => this.tableRow(s, i, table, objs, text));
+      text((TABLE.x + TABLE.right) / 2, TABLE.rowY + TABLE.rowH, 'RACE NOT RUN', {
+        color: PAL.lightGrey,
+        align: 'center',
+      });
+    } else {
+      outcome.standings.forEach((s, i) => this.tableRow(s, i, table, objs, text));
+    }
 
-    // Right column: margin, event facts, PB, medal / unlock, event unlock.
+    // Right column: margin, facts, PB, medal / unlock, event unlock.
     const margin = marginText(outcome);
     if (margin !== null) text(FACTS.x, ROW.margin, margin);
-    this.eventFacts(outcome, text);
+    let factY = ROW.facts;
+    for (const f of resultFacts(outcome)) {
+      text(FACTS.x, factY, f.text, { color: f.color, ...(f.big ? {} : { font: FONT_MINI }) });
+      factY += f.big ? 10 : 9;
+    }
 
     const best = app.records.bestMs(outcome.event, outcome.opponent);
     if (record.newPb) {
       this.newPb = text(FACTS.x, ROW.pb, 'NEW PB!', { scale: 2, color: PAL.gold });
       if (record.previousPbMs !== null) text(FACTS.x, ROW.old, `OLD ${formatTime(record.previousPbMs)}`);
     } else {
-      text(FACTS.x, ROW.pb, `PB ${formatTime(best)}`);
+      text(FACTS.x, ROW.pbLine, `PB ${formatTime(best)}`);
+      const gap = pbGapText(outcome.ms, best);
+      if (gap !== null) text(FACTS.x, ROW.pbGap, gap, { font: FONT_MINI, color: PAL.lightGrey });
     }
 
     const medal = medalRow({
@@ -102,24 +132,36 @@ export class ResultsScene extends Phaser.Scene {
       revealPending: record.revealPending,
       newBestPlace: record.newBestPlace,
       rivalName: rival.name,
-      bestPlace: app.records.bestPlace(outcome.event, outcome.opponent),
     });
-    let medalX = FACTS.x;
-    if (medal.medal !== null) {
-      objs.push(
-        this.add
-          .image(x0 + FACTS.x, y0 + ROW.medal, medalKey(medal.medal))
-          .setOrigin(0, 0)
-          .setDepth(D),
-      );
-      medalX += 12;
+    if (medal !== null) {
+      let medalX = FACTS.x;
+      if (medal.medal !== null) {
+        objs.push(
+          this.add
+            .image(x0 + FACTS.x, y0 + ROW.medal, medalKey(medal.medal))
+            .setOrigin(0, 0)
+            .setDepth(D),
+        );
+        medalX += 12;
+      }
+      this.fitText(text, ROW.medal, medal.text, medal.color, medalX);
     }
-    // Long lines (`VALENTINA UNLOCKED!`, `CHAMPIONSHIP WON!`) drop to the mini font to fit the column.
-    const fits8 = medal.text.length * 8 <= FACTS.right - medalX;
-    text(medalX, ROW.medal + (fits8 ? 0 : 1), medal.text, {
-      color: medal.color,
-      ...(fits8 ? {} : { font: FONT_MINI }),
-    });
+
+    // The next tier is still locked after a non-1st finish: say that only 1st unlocks it (M1).
+    const next = nextOpponent(outcome.event, outcome.opponent);
+    const locked: NextTier | null =
+      next !== null && !app.records.isUnlocked(outcome.event, next)
+        ? {
+            name: OPPONENTS[next].name,
+            // Tier 7 is the last tier and stays unnamed until the reveal (design 30).
+            hidden: nextOpponent(outcome.event, next) === null && !app.records.isRevealed(outcome.event),
+          }
+        : null;
+    const hint = record.unlockedEvent === null ? unlockHint(outcome, locked) : null;
+    if (hint !== null) {
+      text(FACTS.x, ROW.eventUnlock, hint[0], { font: FONT_MINI, color: PAL.white });
+      text(FACTS.x, ROW.eventUnlock + 9, hint[1], { font: FONT_MINI, color: PAL.gold });
+    }
     if (record.unlockedEvent !== null) {
       // Two mini lines: the full line is wider than the 116 px column.
       text(FACTS.x, ROW.eventUnlock, 'NEW EVENT:', { font: FONT_MINI, color: PAL.gold });
@@ -131,7 +173,6 @@ export class ResultsScene extends Phaser.Scene {
 
     // Buttons: a pending reveal replaces them with CONTINUE (30.1.2); NEXT only if the next tier
     // is unlocked (or the champion screen awaits).
-    const next = nextOpponent(outcome.event, outcome.opponent);
     const hasNext = record.becameChampion || (next !== null && app.records.isUnlocked(outcome.event, next));
     const items: { id: ButtonId; label: string }[] = record.revealPending
       ? [{ id: 'continue', label: 'CONTINUE' }]
@@ -234,23 +275,19 @@ export class ResultsScene extends Phaser.Scene {
     text(TABLE.right - 4, y, time, { align: 'right' });
   }
 
-  /** Hurdles `CLEAN RACE!` / `HIT 2/10`; 400 m splits on 3 lines; 100 m empty (28.1). */
-  private eventFacts(
-    outcome: RaceOutcome,
+  /**
+   * One 8 px line of the right column at `y`, dropping to the mini font (1 px lower) when it is
+   * wider than the column (`VALENTINA UNLOCKED!`, `CHAMPIONSHIP WON!`).
+   */
+  private fitText(
     text: (x: number, y: number, s: string, opts?: ConstructorParameters<typeof Label>[4]) => Label,
+    y: number,
+    s: string,
+    color: number,
+    x: number = FACTS.x,
   ): void {
-    if (outcome.result === 'dq') return;
-    if (outcome.event === '110mh' && outcome.hit !== null) {
-      const h = hurdlesRow(outcome.hit);
-      text(FACTS.x, ROW.facts, h.text, { color: h.color });
-    } else if (outcome.event === '400m') {
-      [100, 200, 300].forEach((m, i) => {
-        const ms = outcome.splits[i];
-        text(FACTS.x, ROW.facts + i * 9, `${m} ${ms === undefined ? '--' : formatTime(ms)}`, {
-          font: FONT_MINI,
-        });
-      });
-    }
+    const fits8 = s.length * 8 <= FACTS.right - x;
+    text(x, y + (fits8 ? 0 : 1), s, { color, ...(fits8 ? {} : { font: FONT_MINI }) });
   }
 
   private choose(id: ButtonId): void {
@@ -275,7 +312,7 @@ export class ResultsScene extends Phaser.Scene {
       goTo(this, SceneKey.Race, { event: outcome.event, opponent: next });
     } else if (id === 'retry') {
       app.ladderCursor[outcome.event] = outcome.opponent;
-      goTo(this, SceneKey.Race, { event: outcome.event, opponent: outcome.opponent });
+      goTo(this, SceneKey.Race, { event: outcome.event, opponent: outcome.opponent, retry: true });
     } else {
       app.event = outcome.event;
       goTo(this, SceneKey.Ladder);
@@ -287,7 +324,9 @@ export class ResultsScene extends Phaser.Scene {
     const eased = 1 - (1 - t) * (1 - t);
     this.card.setY(Math.round(SLIDE_FROM * (1 - eased)));
     if (this.newPb) {
-      this.newPb.setVisible(flashOn(time - this.t0, flashHz(2, settings().reducedFlashing)));
+      // Always readable: the flash swaps gold and white instead of blanking the row (2 Hz, 1 Hz reduced).
+      const on = flashOn(time - this.t0, flashHz(2, settings().reducedFlashing));
+      this.newPb.setColor(on ? PAL.gold : PAL.white);
     }
   }
 }

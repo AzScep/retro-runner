@@ -20,23 +20,13 @@ import { setCrt } from '../art/index.ts';
 import { setMuted, setVolume, type MusicId } from '../audio/index.ts';
 import type { GauntletRun } from '../ui/gauntlet.ts';
 import { menuAction, type MenuAction } from '../ui/keys.ts';
+import { hapticsAvailable } from '../ui/menuText.ts';
+import { SceneKey } from './sceneKey.ts';
 
-export const SceneKey = {
-  Boot: 'Boot',
-  Title: 'Title',
-  Events: 'Events',
-  Ladder: 'Ladder',
-  Records: 'Records',
-  Options: 'Options',
-  Champion: 'Champion',
-  Race: 'Race',
-  Hud: 'Hud',
-  Results: 'Results',
-  Pause: 'Pause',
-  Gauntlet: 'Gauntlet',
-  Reveal: 'Reveal',
-} as const;
-export type SceneKey = (typeof SceneKey)[keyof typeof SceneKey];
+export { SceneKey } from './sceneKey.ts';
+
+/** Ladder Map menu buttons that keep focus across a visit to Records or Options (BACK leaves). */
+export type LadderMenuId = 'race' | 'gauntlet' | 'records' | 'options';
 
 /** Scenes that run in parallel on top of Race. */
 export const RACE_OVERLAYS: readonly SceneKey[] = [
@@ -52,6 +42,8 @@ export interface App {
   event: EventId;
   /** Rival selected on each event's Ladder Map. */
   ladderCursor: Record<EventId, OpponentId>;
+  /** Focused menu button on each event's Ladder Map; back to RACE once a race starts. */
+  ladderMenu: Record<EventId, LadderMenuId>;
   /** Set by the first tier 7 win of an event; that event's Ladder shows its Champion screen once. */
   championPending: EventId | null;
   /** "RECORDS WILL NOT BE SAVED" is shown once per session. */
@@ -83,11 +75,18 @@ function initialCursors(records: RecordsStore): Record<EventId, OpponentId> {
   return out;
 }
 
+function initialLadderMenus(): Record<EventId, LadderMenuId> {
+  const out = {} as Record<EventId, LadderMenuId>;
+  for (const e of EVENT_IDS) out[e] = 'race';
+  return out;
+}
+
 export function initApp(records: RecordsStore): App {
   app = {
     records,
     event: records.data.lastEvent,
     ladderCursor: initialCursors(records),
+    ladderMenu: initialLadderMenus(),
     championPending: null,
     saveWarningShown: false,
     pendingSeed: null,
@@ -116,6 +115,7 @@ export function resetRecords(game: Phaser.Game): void {
   a.records.reset();
   a.event = '100m';
   a.ladderCursor = initialCursors(a.records);
+  a.ladderMenu = initialLadderMenus();
   a.championPending = null;
   a.gauntlet = null;
   a.revealDone = null;
@@ -222,9 +222,12 @@ export function restartOnModalityChange(scene: Phaser.Scene, data?: object): voi
   onModalityChange(scene, () => scene.scene.restart(data));
 }
 
-/** HAPTICS is listed only where navigator.vibrate exists (design 17.7). */
+/** HAPTICS is listed only on touch hardware that can vibrate (design 17.7, see hapticsAvailable). */
 export function hapticsSupported(): boolean {
-  return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
+  return hapticsAvailable({
+    vibrate: typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function',
+    coarsePointer: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches,
+  });
 }
 
 /** Rival ids of an event's ladder in tier order. */

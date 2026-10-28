@@ -180,7 +180,7 @@ test('a 6-runner race: meet card, starter bubbles, live place and off-screen lea
   const last = await waitForState(page, (s) => s.hud?.place === '6TH', '6TH', 8000);
   expect(last.race?.livePlace).toBe(6);
   const ahead = await waitForState(page, (s) => s.hud?.leader != null, 'leader indicator', 10_000);
-  expect(ahead.hud?.leader).toMatch(/^> \d+\.\dM$/);
+  expect(ahead.hud?.leader).toMatch(/^\d+\.\dM$/);
   expect(ahead.hud?.behind).toBeNull();
   await page.keyboard.press('Escape');
   await waitForScene(page, 'Pause');
@@ -243,9 +243,9 @@ test('best placings: medal pips, BEST line, records places and the SILVER! row',
   for (const t of ['2ND PLACE', 'SILVER!', 'TO 1ST +0.10', 'DOT', 'MILO', 'BEA', 'NOOR', 'KOFI', 'RIO'])
     expectText(res, t);
   expectButton(res, 'RETRY');
-  // Without a new best and ahead of the named rival: BEAT KOFI!
+  // Without a new best and ahead of the named rival: AHEAD OF KOFI
   await stageResults(page, secondPlaceOutcome(), RECORD);
-  expectText(await getState(page), 'BEAT KOFI!');
+  expectText(await getState(page), 'AHEAD OF KOFI');
   await page.keyboard.press('Escape');
   await waitForScene(page, 'Ladder');
   await page.keyboard.press('ArrowRight');
@@ -453,7 +453,11 @@ test('a v2 save with Zyx unlocked migrates to v3 and never plays the reveal', as
 async function openGauntlet(page: Page): Promise<GameState> {
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
-  return waitForState(page, (s) => s.scene === 'Gauntlet' && s.texts.includes('100M GAUNTLET'), 'intro');
+  return waitForState(
+    page,
+    (s) => s.scene === 'Gauntlet' && s.texts.includes('GAUNTLET') && s.texts.includes('100 METRES'),
+    'intro',
+  );
 }
 
 test('Gauntlet: a won race leads to the next meet, ABANDON RUN ends it and records the run', async ({

@@ -96,7 +96,7 @@ describe('Race: false starts (design 2.5)', () => {
     expect(race.state.player.anim).toBe('ready1');
   });
 
-  it('second false start disqualifies: dq outcome, no time, no oppMs, resultReady at once', () => {
+  it('second false start disqualifies: dq outcome, no time, no oppMs, resultReady after the banner', () => {
     const race = new Race({ event: '100m', opponent: 'jess', seed: 1, startT: START_T });
     frames(race, START_T, START_T + 2500);
     race.input(down('L', START_T + 2500));
@@ -104,7 +104,12 @@ describe('Race: false starts (design 2.5)', () => {
     frames(race, START_T + 2500, START_T + 5000); // banner over, new countdown running
     race.input(down('R', START_T + 5000));
     const log = race.advance(START_T + 5020);
-    expect(types(log)).toEqual(expect.arrayContaining(['falseStart', 'disqualified', 'resultReady']));
+    expect(types(log)).toEqual(expect.arrayContaining(['falseStart', 'disqualified']));
+    // The DISQUALIFIED banner holds for FALSE_START_BANNER_MS before the card (outcome final at once).
+    expect(types(log)).not.toContain('resultReady');
+    expect(race.state.outcome?.result).toBe('dq');
+    expect(types(frames(race, START_T + 5020, START_T + 6400))).not.toContain('resultReady');
+    expect(types(frames(race, START_T + 6400, START_T + 6600))).toContain('resultReady');
     const s = race.state;
     expect(s.phase).toBe('finished');
     expect(s.outcome).toMatchObject({ result: 'dq', ms: null, oppMs: null, marginMs: null, falseStarts: 2 });
@@ -318,6 +323,21 @@ describe('Race: finish, run-out and results (design 1.4)', () => {
     expect(race.state.player.finishMs).toBeNull();
   });
 
+  it('a win by at most PHOTO_FINISH_MS (50 ms) is a photo finish; a wider win is not', () => {
+    // Seed 77 vs Kofi: 106.54 ms presses tie Kofi at 12642; slightly faster presses win narrowly.
+    for (const [period, photo] of [
+      [106.3, true],
+      [104, false],
+    ] as const) {
+      const o = runRace('kofi', 77, (go) => alternate(go, period, 400)).race.state.outcome;
+      expect(o?.result).toBe('win');
+      const second = o?.standings.find((r) => r.lane !== 0)?.ms ?? 0;
+      const gap = second - (o?.ms ?? 0);
+      expect(gap <= 50).toBe(photo);
+      expect(o?.photoFinish).toBe(photo);
+    }
+  });
+
   it('a photo finish (equal ms with the winner) counts as a win and shares 1st (design 24.1)', () => {
     // Found by scanning press periods: the player and Kofi both cross at 12642 ms (seed 77).
     const { race } = runRace('kofi', 77, (go) => alternate(go, 106.54, 400));
@@ -348,6 +368,25 @@ describe('Race: finish, run-out and results (design 1.4)', () => {
     expect(slower?.result).toBe('lose');
     expect(slower?.place).toBeGreaterThanOrEqual(2);
     expect(slower?.photoFinish).toBe(false);
+  });
+});
+
+describe('Race: immediate retry intro', () => {
+  it('a short intro keeps the runners at the blocks, then the usual countdown', () => {
+    const race = new Race({ event: '100m', opponent: 'pip', seed: 5, startT: START_T, introMs: 300 });
+    expect(race.state.phase).toBe('intro');
+    expect(race.state.player.xM).toBe(0);
+    expect(race.state.player.anim).toBe('ready1');
+    expect(race.state.rival.xM).toBe(0);
+    const at: Record<string, number> = {};
+    for (let k = 1; k < 500; k++)
+      for (const e of race.advance(START_T + k * DT_MS)) {
+        const key = e.type === 'beat' ? `beat${e.beat}` : e.type;
+        at[key] ??= (k - 1) * DT_MS;
+      }
+    expect(at.introDone).toBeCloseTo(300, 6);
+    expect(at.beat2).toBeCloseTo(1100, 6);
+    expect(at.beat1).toBeCloseTo(1900, 6);
   });
 });
 

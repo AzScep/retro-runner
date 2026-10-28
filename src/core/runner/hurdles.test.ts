@@ -158,3 +158,27 @@ describe('airborne physics and outcomes (design 13.2)', () => {
     expect(new PlayerBody('110mh').canJump()).toBe(true);
   });
 });
+
+describe('player knock timing (in-race EARLY / LATE / TOO EARLY / JUMP!)', () => {
+  const knock = (log: RaceEvent[]): RaceEvent | undefined =>
+    log.find((e) => e.type === 'hurdleClip' || e.type === 'hurdleHit');
+
+  it.each([
+    [0.1035, 'hurdleClip', 'late'], // still rising at the bar
+    [0.05, 'hurdleClip', 'late'],
+    [0.2965, 'hurdleClip', 'early'], // already falling at the bar
+    [0.39, 'hurdleClip', 'early'],
+    [0.41, 'hurdleHit', 'early'], // landed before the hurdle
+  ])('takeoff %s s before the hurdle: %s, %s', (beforeS, type, timing) => {
+    expect(knock(takeoff(beforeS).log)).toMatchObject({ type, timing });
+  });
+
+  it('a HIT with no jump since the last hurdle carries no timing', () => {
+    const b = new PlayerBody('110mh');
+    b.v = 10;
+    b.x = H1 - 0.05;
+    const log: RaceEvent[] = [];
+    b.step(0, 0, log);
+    expect(knock(log)).toEqual({ type: 'hurdleHit', lane: 0, index: 0 });
+  });
+});

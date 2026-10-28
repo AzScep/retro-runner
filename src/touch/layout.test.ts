@@ -40,6 +40,16 @@ const iphoneApp: LayoutInput = {
   hurdles: false,
 };
 
+// iPad (gen 7) landscape Home Screen app: 4:3, so the bars are above and below the canvas.
+const ipad: LayoutInput = {
+  viewW: 1080,
+  viewH: 810,
+  insets: { top: 0, right: 0, bottom: 20, left: 0 },
+  canvas: { x: 0, y: 95, w: 1080, h: 607.5 },
+  gamePx: 1080 / 320,
+  hurdles: false,
+};
+
 describe('computeLayout', () => {
   it('puts the pads in wide side bars, bottom aligned 8 px above the bottom inset', () => {
     const l = computeLayout(pixel7);
@@ -59,32 +69,87 @@ describe('computeLayout', () => {
     expect(l.pads.R).toEqual({ x: 1000, y: 472, w: 256, h: 192 });
   });
 
-  it('measures bars inside the safe area (notch insets push pads over the canvas)', () => {
+  it('notch insets: pads use the side bars including the insets, never the track', () => {
     const l = computeLayout(iphoneApp);
-    expect(l.padsOverCanvas).toBe(true);
+    expect(l.placement).toBe('insetBars');
+    expect(l.padsOverCanvas).toBe(false);
+    // Left bar 12-95, right bar 756-840: pads 75 px wide (bar 83 - 8), centred, off the canvas.
+    expect(l.pads.L).toEqual({ x: 16, y: 308, w: 75, h: 56 });
+    expect(l.pads.L.x + l.pads.L.w).toBeLessThanOrEqual(95);
+    expect(l.pads.R.x).toBeGreaterThanOrEqual(757);
+    expect(l.pads.R.x + l.pads.R.w).toBeLessThanOrEqual(852 - 12);
+    // Bottom aligned 8 px above the home indicator inset.
+    expect(l.pads.R.y + l.pads.R.h).toBe(393 - 21 - 8);
+    // The zones reach out to the pads (12 px from the screen edge), so the whole pad is live.
+    expect(inside(l.pads.L, l.zones.L)).toBe(true);
+    expect(inside(l.pads.R, l.zones.R)).toBe(true);
+  });
+
+  it('notch insets in hurdles: the jump pad stays over the canvas, clear of the island', () => {
+    const l = computeLayout({ ...iphoneApp, hurdles: true });
+    expect(l.jumpOverCanvas).toBe(true);
+    const gp = 372 / 180;
+    expect(l.pads.jump).toEqual({
+      x: Math.round(95 + 250 * gp),
+      y: Math.round(62 * gp),
+      w: Math.round(64 * gp),
+      h: Math.round(40 * gp),
+    });
+    expect(l.zones.R.y).toBe(Math.round(393 * 0.58));
+    // The RIGHT pad no longer covers the track where the player's next hurdles appear.
+    expect(l.pads.R.x).toBeGreaterThanOrEqual(95 + 661);
+  });
+
+  it('4:3 iPad: pads in the bar under the canvas, in line with the over-canvas corners', () => {
+    const l = computeLayout(ipad);
+    expect(l.placement).toBe('bottomBar');
+    expect(l.padsOverCanvas).toBe(false);
+    const canvasBottom = 95 + 607.5;
+    // Bar 790 - 702.5 = 87.5: pads 71 tall (bar - 2 x 8, whole px), 64:48.
+    for (const pad of [l.pads.L, l.pads.R]) {
+      expect(pad.y).toBeGreaterThanOrEqual(canvasBottom);
+      expect(pad.y + pad.h).toBe(810 - 20 - 8);
+      expect(pad.h).toBeGreaterThanOrEqual(44);
+    }
+    expect(l.pads.L.x).toBe(Math.round((6 * 1080) / 320));
+    expect(l.pads.R.x + l.pads.R.w).toBe(Math.round((314 * 1080) / 320));
+    const h = computeLayout({ ...ipad, hurdles: true });
+    expect(h.jumpOverCanvas).toBe(true);
+    expect(h.pads.jump?.y).toBe(Math.round(95 + 62 * (1080 / 320)));
   });
 
   it('zones are halves below the top strip, inside edge margins and the bottom inset', () => {
-    const l = computeLayout(iphoneApp);
-    expect(l.zones.L.x).toBe(59 + 12);
-    expect(l.zones.L.y).toBe(Math.round(393 * 0.22));
-    expect(l.zones.L.y + l.zones.L.h).toBe(393 - 21);
+    const l = computeLayout(tablet);
+    expect(l.zones.L.x).toBe(12);
+    expect(l.zones.L.y).toBe(Math.round(720 * 0.22));
+    expect(l.zones.L.y + l.zones.L.h).toBe(720);
     expect(l.zones.L.x + l.zones.L.w).toBe(l.zones.R.x);
-    expect(l.zones.R.x + l.zones.R.w).toBe(852 - 59 - 12);
+    expect(l.zones.R.x + l.zones.R.w).toBe(1280 - 12);
+    // With safe-area insets and the pads inside them, the zones start 12 px inside the insets.
+    const notch = computeLayout({ ...iphoneApp, canvas: { x: 59, y: 0, w: 734, h: 413 }, viewH: 434 });
+    expect(notch.placement).toBe('canvas');
+    expect(notch.zones.L.x).toBe(59 + 12);
+    expect(notch.zones.R.x + notch.zones.R.w).toBe(852 - 59 - 12);
+    expect(notch.zones.L.y + notch.zones.L.h).toBe(434 - 21);
   });
 
   it('every pad sits inside the zone it names and never under the insets', () => {
-    for (const base of [pixel7, tablet, iphoneApp]) {
+    for (const base of [pixel7, tablet, iphoneApp, ipad]) {
       for (const hurdles of [false, true]) {
         const l = computeLayout({ ...base, hurdles });
+        // insetBars pads may use the side insets (down to the 12 px edge margin), never the bottom one.
+        const side = l.placement === 'insetBars';
         const safe: Rect = {
-          x: base.insets.left,
+          x: side ? 12 : base.insets.left,
           y: base.insets.top,
-          w: base.viewW - base.insets.left - base.insets.right,
+          w: base.viewW - (side ? 24 : base.insets.left + base.insets.right),
           h: base.viewH - base.insets.top - base.insets.bottom,
         };
         for (const pad of [l.pads.L, l.pads.R, l.pads.jump]) if (pad) expect(inside(pad, safe)).toBe(true);
         expect(inside(l.pause, safe)).toBe(true);
+        // The pause button never lands in a side inset (rounded corners, the island).
+        expect(l.pause.x).toBeGreaterThanOrEqual(base.insets.left);
+        expect(l.pause.x + l.pause.w).toBeLessThanOrEqual(base.viewW - base.insets.right);
         if (l.padsOverCanvas || base === pixel7) {
           // Over the canvas the pads are inside their zones; in bars only the edge margin may differ.
           expect(l.pads.R.y).toBeGreaterThanOrEqual(l.zones.R.y);

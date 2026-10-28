@@ -26,6 +26,8 @@ export interface RaceSceneData {
   readonly opponent: OpponentId;
   /** 'g' runs the race as part of App.gauntlet (design 32); default ladder. */
   readonly mode?: RaceMode;
+  /** RETRY on the results card or RESTART on the pause menu: start at the blocks, no meet card. */
+  readonly retry?: boolean;
 }
 
 const STEP_SFX_MIN_MS = 40;
@@ -82,7 +84,14 @@ export class RaceScene extends Phaser.Scene {
     // Meet card (31.1): the long card on the first race of a tier in a session, short on retries.
     const tier = tierOf(this.event, this.opponent);
     const meetKey = `${this.event}:${tier}`;
-    const meetMs = app.meetsSeen.has(meetKey) ? TUNING.MEET_CARD_SHOW_RETRY_MS : TUNING.MEET_CARD_SHOW_MS;
+    // An immediate retry starts at the blocks with no meet card (countdown and false starts as ever);
+    // the first race of an event keeps the walk-in, which carries its tip (18.5).
+    const retry = data.retry === true && !firstRace;
+    const meetMs = retry
+      ? 0
+      : app.meetsSeen.has(meetKey)
+        ? TUNING.MEET_CARD_SHOW_RETRY_MS
+        : TUNING.MEET_CARD_SHOW_MS;
     app.meetsSeen.add(meetKey);
 
     this.cameras.main.setBackgroundColor(paletteColor(PAL.ink));
@@ -98,6 +107,7 @@ export class RaceScene extends Phaser.Scene {
       seed,
       startT: performance.now(),
       mode: this.mode,
+      ...(retry ? { introMs: TUNING.RETRY_INTRO_MS } : {}),
       ...(app.tripOverride !== null ? { trip: app.tripOverride } : {}),
     });
     app.race = this.race;
@@ -176,6 +186,7 @@ export class RaceScene extends Phaser.Scene {
     setCrowd(0);
     this.scene.pause(SceneKey.Race);
     this.scene.pause(SceneKey.Hud);
+    this.hud.setPausedLook(true);
     this.scene.launch(SceneKey.Pause, { event: this.event, opponent: this.opponent, mode: this.mode });
   }
 
@@ -186,6 +197,7 @@ export class RaceScene extends Phaser.Scene {
     this.paused = false;
     this.lastCrowd = -1;
     this.scene.stop(SceneKey.Pause);
+    this.hud.setPausedLook(false);
     this.scene.resume(SceneKey.Hud);
     this.scene.resume(SceneKey.Race);
   }
@@ -298,6 +310,8 @@ export class RaceScene extends Phaser.Scene {
     this.resultShown = true;
     const app = getApp();
     const at = new Date();
+    // The card covers the race; the HUD's top row and meters would poke out around it (R9, M9).
+    this.scene.setVisible(false, SceneKey.Hud);
     const record = app.records.record(outcome, at);
     if (record.unlocked) app.ladderCursor[outcome.event] = record.unlocked;
     if (record.becameChampion) app.championPending = outcome.event;

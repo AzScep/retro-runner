@@ -17,12 +17,18 @@ import {
   hurdlesRow,
   isToggle,
   optionValue,
+  pbGapText,
+  RESULT_FACTS_W,
+  resultFacts,
   resultTimeText,
   resultTitle,
   splitPopup,
   splitsRow,
   titlePrompt,
+  unlockHint,
+  type FactLine,
 } from './screenText.ts';
+import { miniTextWidth } from './miniFont.ts';
 
 const base: RaceOutcome = {
   event: '100m',
@@ -61,7 +67,8 @@ function standing(lane: number, ms: number | null, place: number | null): Standi
 describe('results card text (design 6.6)', () => {
   it('titles every outcome with the design colours', () => {
     expect(resultTitle(base)).toEqual({ text: 'YOU WIN!', color: PAL.gold });
-    expect(resultTitle({ ...base, photoFinish: true, marginMs: 0 })).toEqual({
+    // photoFinish is the core's 50 ms rule (a win by 0.05 or less), not only an exact tie.
+    expect(resultTitle({ ...base, photoFinish: true, marginMs: -40 })).toEqual({
       text: 'PHOTO FINISH',
       color: PAL.gold,
     });
@@ -137,12 +144,13 @@ describe('v2 copy (design 12-18)', () => {
     expect(firstRaceTip('110mh', 'keyboard')).toBe('UP TO JUMP');
     expect(firstRaceTip('110mh', 'touch')).toBe('TAP JUMP');
     expect(firstRaceTip('400m', 'touch')).toBe('WATCH STAMINA. STEADY BEATS FAST.');
-    expect(firstRaceTip('100m', 'keyboard')).toBeNull();
+    expect(firstRaceTip('100m', 'keyboard')).toBe('ALTERNATE LEFT + RIGHT');
   });
 
   it('builds the results event rows and HUD split popups', () => {
-    expect(hurdlesRow(0)).toEqual({ text: 'CLEAN RACE!', color: PAL.gold });
-    expect(hurdlesRow(2)).toEqual({ text: 'HIT 2/10', color: PAL.white });
+    // Never `HIT` for the total: in-race HIT! means one kind of knock only (R4).
+    expect(hurdlesRow(0)).toEqual({ text: 'CLEAN 10/10', color: PAL.gold });
+    expect(hurdlesRow(2)).toEqual({ text: 'KNOCKED 2/10', color: PAL.white });
     expect(splitsRow([13920, 26100, 38250])).toBe('100 13.92  200 26.10  300 38.25');
     expect(splitsRow([13920])).toBe('100 13.92  200 --  300 --');
     expect(splitPopup(1, 26100)).toBe('200M 26.10');
@@ -198,19 +206,17 @@ describe('v3 results, HUD and card text (design 27-32)', () => {
       revealPending: false,
       newBestPlace: null,
       rivalName: 'PIP',
-      bestPlace: 2,
     };
-    expect(medalRow({ ...facts, revealPending: true }).text).toBe('CHAMPIONSHIP WON!');
-    expect(medalRow({ ...facts, unlockedName: 'JESS' }).text).toBe('JESS UNLOCKED!');
+    expect(medalRow({ ...facts, revealPending: true })?.text).toBe('CHAMPIONSHIP WON!');
+    expect(medalRow({ ...facts, unlockedName: 'JESS' })?.text).toBe('JESS UNLOCKED!');
     expect(medalRow({ ...facts, newBestPlace: 2 })).toMatchObject({ text: 'SILVER!', medal: 2 });
     expect(medalRow({ ...facts, newBestPlace: 3 })).toMatchObject({ text: 'BRONZE!', medal: 3 });
-    expect(medalRow(facts)).toMatchObject({ text: 'BEAT PIP!', color: PAL.white });
+    // Ahead of the rival but not 1st is praise, not the unlock goal (M1).
+    expect(medalRow(facts)).toMatchObject({ text: 'AHEAD OF PIP', color: PAL.white });
+    // No grey `BEST <place>` filler: it read like a claim about this race (R3).
     const behind = { ...lose, place: 4, standings: [standing(1, 11000, 1), standing(0, 11500, 4)] };
-    expect(medalRow({ ...facts, outcome: behind, bestPlace: null })).toMatchObject({
-      text: 'BEST --',
-      color: PAL.midGrey,
-    });
-    expect(medalRow({ ...facts, outcome: behind, bestPlace: 2 }).text).toBe('BEST 2ND');
+    expect(medalRow({ ...facts, outcome: behind })).toBeNull();
+    expect(medalRow({ ...facts, outcome: base })).toBeNull();
   });
 
   it('adds the place digit only for 6-runner history entries', () => {
@@ -251,5 +257,130 @@ describe('v3 results, HUD and card text (design 27-32)', () => {
       'OUT AT CITY OPEN - DQ',
     );
     expect(gauntletOutLine('NEON CUP', null)).toBe('ABANDONED AT NEON CUP');
+  });
+});
+
+/** Every fact line fits the 116 px right column in its font (8 px PS glyphs or the mini font). */
+function expectFits(lines: readonly FactLine[]): void {
+  expect(lines.length).toBeLessThanOrEqual(3);
+  for (const l of lines) {
+    const w = l.big ? l.text.length * 8 : miniTextWidth(l.text);
+    expect(w, l.text).toBeLessThanOrEqual(RESULT_FACTS_W);
+  }
+}
+
+describe('results coaching facts (R3, R4, R5, R8)', () => {
+  const texts = (lines: readonly FactLine[]): string[] => lines.map((l) => l.text);
+
+  it('100 m: pace and fumbles on a win, one actionable line on a loss', () => {
+    // 100 valid steps in 12.00 s: 8.3 alternations per second.
+    const win: RaceOutcome = { ...base, ms: 12000, steps: 100, fumbles: 0 };
+    const w = resultFacts(win);
+    expect(w).toEqual([
+      { text: 'PACE 8.3/S', color: PAL.white, big: true },
+      { text: 'FUMBLES 0', color: PAL.lightGrey, big: false },
+    ]);
+    expectFits(w);
+    // Lost 13.10 to 12.60: T = 100 / r + 2 asks for 100 / 10.6 - 100 / 11.1 = 0.43 -> +0.5/S.
+    const lose: RaceOutcome = {
+      ...base,
+      result: 'lose',
+      place: 3,
+      ms: 13100,
+      winMs: 12600,
+      steps: 110,
+      fumbles: 3,
+    };
+    const l = resultFacts(lose);
+    expect(texts(l)).toEqual(['PACE 8.4/S', 'FUMBLES 3', '+0.5/S TO WIN']);
+    expect(l[1]?.color).toBe(PAL.red);
+    expectFits(l);
+    // Many fumbles (10 % of steps or more) are the lesson instead of the rate.
+    expect(texts(resultFacts({ ...lose, fumbles: 25 }))[2]).toBe('FUMBLES COST YOU');
+  });
+
+  it('hurdles: knocked count, fumbles and what cost the race', () => {
+    const h: RaceOutcome = { ...base, event: '110mh', hit: 0, ms: 15000, steps: 120, fumbles: 1 };
+    expect(texts(resultFacts(h))).toEqual(['CLEAN 10/10', 'FUMBLES 1']);
+    const lose: RaceOutcome = { ...h, result: 'lose', place: 2, winMs: 14800, hit: 4 };
+    const l = resultFacts(lose);
+    expect(texts(l)).toEqual(['KNOCKED 4/10', 'FUMBLES 1', 'HURDLES COST YOU']);
+    expect(l[0]?.big).toBe(true);
+    expectFits(l);
+    expect(texts(resultFacts({ ...lose, hit: 0 }))).toEqual(['CLEAN 10/10', 'FUMBLES 1']);
+    expect(texts(resultFacts({ ...lose, fumbles: 30 }))[2]).toBe('FUMBLES COST YOU');
+  });
+
+  it('400 m: time of each 100 m (not cumulative) and where stamina ran out', () => {
+    const q: RaceOutcome = {
+      ...base,
+      event: '400m',
+      ms: 59550,
+      splits: [10360, 25410, 42460],
+      staminaEmptyM: 140,
+    };
+    const l = resultFacts(q);
+    expect(texts(l)).toEqual(['EACH 100M', '10.36 15.05 17.05 17.09', 'EMPTY AT 140M']);
+    expect(l[2]?.color).toBe(PAL.red);
+    expectFits(l);
+    // Never emptied, or an outcome from before the field existed.
+    expect(texts(resultFacts({ ...q, staminaEmptyM: null }))).toHaveLength(2);
+    const { staminaEmptyM: _unused, ...old } = q;
+    expect(texts(resultFacts(old))).toHaveLength(2);
+    // Widest possible line: four 2-digit segments.
+    expectFits(resultFacts({ ...q, ms: 99990, splits: [28880, 57760, 86640] }));
+    // A DNF gives the reason first, then where stamina ran out.
+    expect(
+      texts(resultFacts({ ...q, result: 'dnf', ms: null, place: null, splits: [20000], steps: 300 })),
+    ).toEqual(['TOO SLOW', 'LIMIT 1:30.00', 'EMPTY AT 140M']);
+  });
+
+  it('DNF and DQ say why', () => {
+    const dnf: RaceOutcome = { ...base, result: 'dnf', ms: null, place: null, steps: 1, fumbles: 239 };
+    const d = resultFacts(dnf);
+    expect(texts(d)).toEqual(['NO SPEED', 'ALTERNATE KEYS', 'FUMBLES 239']);
+    expect(d[0]).toMatchObject({ color: PAL.red, big: true });
+    expectFits(d);
+    expect(texts(resultFacts({ ...dnf, input: 't' }))[1]).toBe('TAP LEFT, RIGHT, LEFT');
+    expectFits(resultFacts({ ...dnf, input: 't' }));
+    // Pressing nothing at all is the same lesson.
+    expect(texts(resultFacts({ ...dnf, steps: 0, fumbles: 0 }))).toEqual(['NO SPEED', 'ALTERNATE KEYS']);
+    expect(texts(resultFacts({ ...dnf, steps: 150, fumbles: 2 }))).toEqual([
+      'TOO SLOW',
+      'LIMIT 30.00',
+      'FUMBLES 2',
+    ]);
+    expect(texts(resultFacts({ ...dnf, event: '400m', steps: 400, fumbles: 0, splits: [] }))[1]).toBe(
+      'LIMIT 1:30.00',
+    );
+    const dq = resultFacts({ ...base, result: 'dq', ms: null, place: null, falseStarts: 2 });
+    expect(dq).toEqual([
+      { text: '2 FALSE STARTS', color: PAL.red, big: true },
+      { text: 'WAIT FOR GO!', color: PAL.lightGrey, big: false },
+    ]);
+    expectFits(dq);
+  });
+
+  it('shows the gap to the PB when the race was not a new PB', () => {
+    expect(pbGapText(18130, 18010)).toBe('+0.12 OFF PB');
+    expect(pbGapText(18010, 18010)).toBe('EQUALS PB');
+    expect(pbGapText(null, 18010)).toBeNull();
+    expect(pbGapText(18130, null)).toBeNull();
+    // A faster time is always a new PB, so there is nothing to show.
+    expect(pbGapText(18000, 18010)).toBeNull();
+  });
+
+  it('tells a non-winner what unlocks the next tier, without spoiling tier 7 (M1)', () => {
+    const lose: RaceOutcome = { ...base, result: 'lose', place: 2 };
+    expect(unlockHint(lose, { name: 'JESS', hidden: false })).toEqual(['WIN 1ST TO UNLOCK', 'JESS']);
+    expect(unlockHint(lose, { name: 'ZYX', hidden: true })).toEqual(['WIN 1ST FOR THE', 'CHAMPIONSHIP']);
+    expect(
+      unlockHint({ ...lose, result: 'dnf', place: null }, { name: 'JESS', hidden: false }),
+    ).not.toBeNull();
+    expect(unlockHint(base, { name: 'JESS', hidden: false })).toBeNull();
+    expect(unlockHint(lose, null)).toBeNull();
+    for (const line of unlockHint(lose, { name: 'VALENTINA', hidden: false }) ?? []) {
+      expect(miniTextWidth(line)).toBeLessThanOrEqual(RESULT_FACTS_W);
+    }
   });
 });

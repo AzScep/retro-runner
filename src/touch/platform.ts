@@ -7,8 +7,6 @@ export interface PlatformFacts {
   readonly userAgent: string;
   /** `(pointer: coarse)` */
   readonly coarse: boolean;
-  /** `(any-pointer: coarse)` or maxTouchPoints > 0 */
-  readonly anyTouch: boolean;
   /** Element fullscreen can actually be requested (not just `fullscreenEnabled`). */
   readonly canRequestFullscreen: boolean;
   /** Running as a Home Screen web app (standalone or fullscreen display mode). */
@@ -19,9 +17,19 @@ export function isAndroid(f: PlatformFacts): boolean {
   return /Android/i.test(f.userAgent);
 }
 
-/** Touch device: shows the rotate prompt in portrait. */
-export function isTouchDevice(f: PlatformFacts): boolean {
-  return f.coarse || f.anyTouch;
+/**
+ * Rotate prompt (17.6): portrait on a device whose primary pointer is a finger, while the player is
+ * using touch. A touchscreen laptop or a touch monitor has a fine primary pointer (`any-pointer:
+ * coarse` alone is not enough), and a phone driven from a keyboard has keyboard modality: both get
+ * the letterboxed game instead of a prompt they cannot act on.
+ */
+export function wantsRotatePrompt(s: {
+  readonly portrait: boolean;
+  /** `(pointer: coarse)`, read live (an iPad gains a fine pointer with a trackpad). */
+  readonly coarse: boolean;
+  readonly modality: 'touch' | 'keyboard';
+}): boolean {
+  return s.portrait && s.coarse && s.modality === 'touch';
 }
 
 /** iPhone Safari tab: coarse pointer, no element fullscreen, not a Home Screen app (17.6). */
@@ -42,7 +50,6 @@ export function readPlatform(win: Window): PlatformFacts {
   return {
     userAgent: win.navigator.userAgent,
     coarse: mq('(pointer: coarse)'),
-    anyTouch: mq('(any-pointer: coarse)') || win.navigator.maxTouchPoints > 0,
     canRequestFullscreen:
       typeof root.requestFullscreen === 'function' || typeof root.webkitRequestFullscreen === 'function',
     standalone:

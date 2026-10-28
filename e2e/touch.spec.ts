@@ -550,8 +550,14 @@ test.describe('touch v3', () => {
     await page.waitForTimeout(300);
     expect((race(await getState(page)) as unknown as { trip?: string })?.trip).toBe('none');
     await touchMashToFinish(page, touch);
-    const between = await waitForState(page, (s) => s.texts.includes('MEET 1 WON!'), 'between card', 10_000);
-    test.skip(between.gauntlet === null, 'touch mashing lost meet 1');
+    // Touch mashing under a loaded CI machine can lose meet 1, which ends the run: skip, not fail.
+    const between = await waitForState(
+      page,
+      (s) => s.texts.includes('MEET 1 WON!') || s.texts.includes('GAUNTLET OVER'),
+      'between or over card',
+      10_000,
+    );
+    test.skip(!between.texts.includes('MEET 1 WON!'), 'touch mashing lost meet 1');
     // A tap advances at once.
     await page.waitForTimeout(300);
     await touch.tap(await gamePoint(page, 160, 90));
@@ -594,9 +600,13 @@ test.describe('iPhone Add to Home Screen hint', () => {
     const ok = page.locator('[data-touch="hint-ok"]');
     await expect(ok).toBeVisible();
     await expect(page.locator('.touch-hint')).toContainText('ADD TO HOME SCREEN');
+    // The tap that opens the hint does not also start the game.
+    expect((await getState(page)).scene).toBe('Title');
     await page.screenshot({ path: test.info().outputPath(`${browserName}-hint.png`) });
     const box = await ok.boundingBox();
     expect(box && box.width >= 44 && box.height >= 44).toBe(true);
+    // OK ignores taps for its first 250 ms, so iOS's follow-up click from the opening tap cannot close it.
+    await page.waitForTimeout(300);
     await touch.tap(await centre(page, '[data-touch="hint-ok"]'));
     await expect(ok).toBeHidden();
     const saved = await page.evaluate(() => localStorage.getItem('retroRunner.save.v3'));

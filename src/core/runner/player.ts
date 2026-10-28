@@ -1,4 +1,4 @@
-import type { EventId, RaceEvent } from '../index.ts';
+import type { EventId, HurdleTiming, RaceEvent } from '../index.ts';
 import { DT_MS, DT_S, ticks } from '../clock/clock.ts';
 import { EVENT_COURSE, EVENTS, hurdlePositions } from '../events.ts';
 import { TUNING, WORLD } from '../roster.ts';
@@ -36,6 +36,15 @@ export function hurdleOutcome(airTicks: number | null, xPrev: number, xNow: numb
   const f = (h - xPrev) / (xNow - xPrev);
   const s = (airTicks + f) / AIR_TICKS;
   return arcHeight(s) >= TUNING.HURDLE_HEIGHT_M ? 'clean' : 'clip';
+}
+
+/**
+ * Which way a knocked jump was off: the arc phase at the bar below half way is still rising (took
+ * off too late), above half way already falling (too early). Same interpolation as hurdleOutcome.
+ */
+export function knockTiming(airTicks: number, xPrev: number, xNow: number, h: number): HurdleTiming {
+  const f = (h - xPrev) / (xNow - xPrev);
+  return (airTicks + f) / AIR_TICKS < 0.5 ? 'late' : 'early';
 }
 
 /** 400 m speed cap for stamina S (design 14.1). */
@@ -78,6 +87,10 @@ export class PlayerBody {
 
   /** 400 m: stamina 0-1, else null. */
   stamina: number | null;
+  /** 400 m: whole metre where a step first emptied the stamina, else null. */
+  emptyAtM: number | null = null;
+  /** A jump was taken since the last hurdle passed (a grounded HIT after it was TOO EARLY). */
+  private jumpedSinceHurdle = false;
   readonly splits: number[] = [];
   private lowTicks = 0;
   private lastEmptyMs = Number.NEGATIVE_INFINITY;
@@ -117,6 +130,7 @@ export class PlayerBody {
 
   jump(): void {
     this.airTicks = 0;
+    this.jumpedSinceHurdle = true;
   }
 
   /** Current speed cap (V_MAX outside the 400 m). */
@@ -140,6 +154,7 @@ export class PlayerBody {
       this.lastEmptyMs = tMs;
       out?.push({ type: 'staminaEmpty' });
     }
+    if (before > 0 && this.stamina === 0 && this.emptyAtM === null) this.emptyAtM = Math.round(this.x);
     const vCap = staminaCap(this.stamina);
     if (this.v < vCap) this.v = Math.min(this.v + TUNING.STEP_IMPULSE, vCap);
     return true;
@@ -203,6 +218,8 @@ export class PlayerBody {
     if (h === undefined || !(this.xPrev < h && h <= this.x)) return;
     this.nextHurdle += 1;
     const result = hurdleOutcome(this.airTicks, this.xPrev, this.x, h);
+    const jumped = this.jumpedSinceHurdle;
+    this.jumpedSinceHurdle = false;
     if (result === 'clean') {
       out?.push({ type: 'hurdleClear', lane: 0, index: i });
       return;
@@ -215,12 +232,18 @@ export class PlayerBody {
     }
     if (result === 'clip') {
       this.v *= TUNING.CLIP_KEEP;
-      out?.push({ type: 'hurdleClip', lane: 0, index: i });
+      const timing = knockTiming(this.airTicks ?? 0, this.xPrev, this.x, h);
+      out?.push({ type: 'hurdleClip', lane: 0, index: i, timing });
     } else {
       this.v *= TUNING.HIT_KEEP;
       this.stumbleTicks = STUMBLE_TICKS;
       this.lockTicks = Math.max(this.lockTicks, STUMBLE_TICKS);
-      out?.push({ type: 'hurdleHit', lane: 0, index: i });
+      // Grounded at the bar: a jump since the last hurdle landed short of it.
+      out?.push(
+        jumped
+          ? { type: 'hurdleHit', lane: 0, index: i, timing: 'early' }
+          : { type: 'hurdleHit', lane: 0, index: i },
+      );
     }
   }
 
@@ -269,6 +292,8 @@ export class PlayerBody {
     c.splits.push(...this.splits);
     c.lowTicks = this.lowTicks;
     c.lastEmptyMs = this.lastEmptyMs;
+    c.emptyAtM = this.emptyAtM;
+    c.jumpedSinceHurdle = this.jumpedSinceHurdle;
     return c;
   }
 }

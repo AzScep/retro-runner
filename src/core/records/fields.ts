@@ -20,6 +20,16 @@ export const DEFAULT_SETTINGS: Settings = {
   haptics: true,
 };
 
+/**
+ * Settings for a save created now. A player whose OS asks for reduced motion
+ * (`prefers-reduced-motion: reduce`, read by the caller) starts with reduced flashing on and screen
+ * shake off; they can still change both in Options. Existing saves keep their own settings.
+ */
+export function defaultSettings(prefersReducedMotion: boolean): Settings {
+  if (!prefersReducedMotion) return DEFAULT_SETTINGS;
+  return { ...DEFAULT_SETTINGS, reducedFlashing: true, screenShake: false };
+}
+
 /** PB_RANGE_MS per event (design 16.3). */
 export const PB_RANGE_MS: Readonly<Record<EventId, readonly [number, number]>> = {
   '100m': [5000, 30000],

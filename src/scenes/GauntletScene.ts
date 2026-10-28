@@ -14,12 +14,14 @@ import { FONT_MINI } from '../ui/fonts.ts';
 import {
   furthestText,
   GAUNTLET_TIERS,
+  gauntletQuitLine,
   gauntletTotal,
   newGauntletRun,
+  showBestFurthest,
   type GauntletRun,
 } from '../ui/gauntlet.ts';
 import { PAL } from '../ui/hudMath.ts';
-import { EVENT_TAB, gauntletOutLine, ordinal } from '../ui/screenText.ts';
+import { EVENT_TITLE, gauntletOutLine, ordinal } from '../ui/screenText.ts';
 import { registerTapTarget } from '../ui/tapTargets.ts';
 import { Label } from '../ui/text.ts';
 import { addPanel, ButtonRow, UI_DEPTH } from '../ui/widgets.ts';
@@ -39,6 +41,8 @@ export interface GauntletData {
   readonly end: GauntletOutcome | null;
   /** Drawn over the finished race (RaceScene still running), else on its own stadium. */
   readonly overRace: boolean;
+  /** over: ABANDON RUN on the between-race card, before the run's next meet was raced. */
+  readonly quitBefore?: boolean;
 }
 
 type ButtonId = 'start' | 'back' | 'newRun' | 'map';
@@ -188,12 +192,15 @@ export class GauntletScene extends Phaser.Scene {
     text: (y: number, s: string, o?: ConstructorParameters<typeof Label>[4]) => Label,
   ): void {
     const g = getApp().records.gauntlet(this.cardData.event);
-    text(10, `${EVENT_TAB[this.cardData.event]} GAUNTLET`, { scale: 2, color: PAL.gold });
-    text(36, '7 MEETS. LOSE ONCE', {});
-    text(48, 'AND IT ENDS.', {});
-    text(72, `BEST ${g.best ? formatLadderTotal(g.best.ms) : '-:--.--'}`, { color: PAL.gold });
-    text(86, furthestText(g.furthest));
-    text(104, isTouch() ? 'TAP START' : 'ENTER: START   ESC: BACK', {
+    // `GAUNTLET` at 2x with the event under it at 1x: `HURDLES GAUNTLET` at 2x is the panel's full
+    // width (M4). Same layout for every event.
+    text(8, 'GAUNTLET', { scale: 2, color: PAL.gold });
+    text(28, EVENT_TITLE[this.cardData.event]);
+    text(44, '7 MEETS. LOSE ONCE', {});
+    text(56, 'AND IT ENDS.', {});
+    text(74, `BEST ${g.best ? formatLadderTotal(g.best.ms) : '-:--.--'}`, { color: PAL.gold });
+    text(88, furthestText(g.furthest));
+    text(106, isTouch() ? 'TAP START' : 'ENTER: START   ESC: BACK', {
       font: FONT_MINI,
       color: PAL.lightGrey,
     });
@@ -236,14 +243,18 @@ export class GauntletScene extends Phaser.Scene {
   }
 
   private buildOver(text: (y: number, s: string, o?: ConstructorParameters<typeof Label>[4]) => Label): void {
-    const { run, outcome, end } = this.cardData;
+    const { run, outcome, end, quitBefore } = this.cardData;
+    const meetName = meet(run.tier).name;
     text(10, 'GAUNTLET OVER', { scale: 2, color: PAL.red });
-    text(38, gauntletOutLine(meet(run.tier).name, outcome));
+    text(38, quitBefore === true ? gauntletQuitLine(meetName) : gauntletOutLine(meetName, outcome));
     text(56, `TOTAL ${formatLadderTotal(gauntletTotal(run.times))}`);
     text(70, furthestText(run.times.length));
-    if (end?.newFurthest === true) text(88, 'NEW FURTHEST!', { color: PAL.gold });
-    const best = getApp().records.gauntlet(this.cardData.event).furthest;
-    text(104, `BEST ${furthestText(best)}`, { font: FONT_MINI, color: PAL.lightGrey });
+    const newFurthest = end?.newFurthest === true;
+    if (newFurthest) text(88, 'NEW FURTHEST!', { color: PAL.gold });
+    if (showBestFurthest(newFurthest)) {
+      const best = getApp().records.gauntlet(this.cardData.event).furthest;
+      text(90, `BEST ${furthestText(best)}`, { font: FONT_MINI, color: PAL.lightGrey });
+    }
   }
 
   private buildClear(
@@ -308,6 +319,8 @@ export class GauntletScene extends Phaser.Scene {
     if (this.leaving || this.pausedAt !== null) return;
     this.pausedAt = this.game.loop.time;
     playSfx('menu_back');
+    // Enter means RESUME while the pause menu is up, so the advance line goes (M9).
+    this.countLabel?.setVisible(false);
     this.scene.pause();
     const data: PauseData = {
       event: this.cardData.event,
@@ -323,6 +336,7 @@ export class GauntletScene extends Phaser.Scene {
     if (this.pausedAt === null) return;
     this.advanceAt += this.game.loop.time - this.pausedAt;
     this.pausedAt = null;
+    this.countLabel?.setVisible(true);
     this.scene.stop(SceneKey.Pause);
     this.scene.resume();
   }
@@ -342,7 +356,15 @@ export class GauntletScene extends Phaser.Scene {
       { cleared: false, furthest: run.times.length, times: run.times },
       new Date(),
     );
-    const data: GauntletData = { kind: 'over', event: run.event, run, outcome: null, end, overRace: false };
+    const data: GauntletData = {
+      kind: 'over',
+      event: run.event,
+      run,
+      outcome: null,
+      end,
+      overRace: false,
+      quitBefore: true,
+    };
     this.scene.stop(SceneKey.Pause);
     goTo(this, SceneKey.Gauntlet, data);
   }

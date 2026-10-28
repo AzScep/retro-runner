@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Retro Runner",
   "short_name": "Retro Runner",
-  "description": "Pixel-art track and field: mash left and right to beat seven rivals in three events.",
+  "description": "Pixel-art track and field: alternate left and right to win six-runner meets in the 100 m, hurdles and 400 m, then run the Gauntlet.",
   "lang": "en",
   "start_url": "./",
   "scope": "./",

@@ -65,3 +65,26 @@ export function lastCell(
   const timeX = Math.round(centre - w / 2);
   return { timeX, placeX: timeX + tw + PLACE_GAP, w };
 }
+
+/** A column header: left-aligned at `x`, or centred on it. */
+export interface RecordsHeader {
+  readonly text: string;
+  readonly x: number;
+  readonly align: 'left' | 'center';
+}
+
+/**
+ * Column headers in left-to-right order. `BEST` labels the status column (pip and place, 29.2.1),
+ * so a bare `-` on a fresh save reads as "no placing yet".
+ */
+export function recordsHeaders(event: EventId): readonly RecordsHeader[] {
+  const col = RECORDS_COLUMNS[event];
+  return [
+    { text: 'RIVAL', x: col.name, align: 'left' },
+    { text: 'BEST', x: col.pip, align: 'left' },
+    { text: 'PB', x: col.pb, align: 'center' },
+    ...(col.hit !== null ? [{ text: 'HIT', x: col.hit, align: 'center' } as const] : []),
+    { text: 'TARGET', x: col.target, align: 'center' },
+    { text: 'LAST 3', x: col.last[1] ?? 0, align: 'center' },
+  ];
+}

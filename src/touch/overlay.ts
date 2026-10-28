@@ -20,6 +20,20 @@ const ROTATE_CSS = 128;
 const art = touchArtUrl;
 /** Rotate prompt: 4 frames at 4 fps (design 17.6). */
 const ROTATE_FRAME_MS = 250;
+/**
+ * The hint opens on the release of a Title tap. iOS fires its compatibility click right after that
+ * release at the same point, which may now be the OK button: ignore OK this soon after opening.
+ */
+const HINT_OK_GUARD_MS = 250;
+/**
+ * Add to Home Screen copy, 24 characters per line at most (200 game px panel). Safari's compact tab
+ * bar (iOS 26) keeps Share behind the `...` button, hence both routes.
+ */
+export const HINT_LINES: readonly string[] = [
+  'FOR FULL SCREEN, TAP',
+  'SHARE (OR ... > SHARE)',
+  '> ADD TO HOME SCREEN',
+];
 
 /** Integer art scale that covers `cssW` CSS px on this screen without upscaling blur. */
 function artScale(cssW: number, artW: number): number {
@@ -133,6 +147,10 @@ export class Overlay {
       if (!r) continue;
       place(this.pads[c], r);
       place(this.frames[c], r);
+      // Over the canvas a pad is a thin frame (27.6.4); in a bar it is the full art.
+      const over = c === 'jump' ? l.jumpOverCanvas : l.padsOverCanvas;
+      this.pads[c].dataset['over'] = over ? 'canvas' : 'bar';
+      this.frames[c].dataset['over'] = over ? 'canvas' : 'bar';
       this.padScale[c] = artScale(r.w, PAD_ART_W);
       this.shown[c] = '';
     }
@@ -143,6 +161,7 @@ export class Overlay {
     this.renderPause();
     this.root.classList.toggle('hurdles', hurdles);
     this.root.dataset['pads'] = l.padsOverCanvas ? 'canvas' : 'bars';
+    this.root.dataset['placement'] = l.placement;
   }
 
   /** Pad images and visibility for one frame. */
@@ -178,8 +197,8 @@ export class Overlay {
     this.pauseImg.src = art('pause', this.pausePressed ? 'pressed' : 'idle', this.pauseScale);
   }
 
-  /** Shows or hides the rotate prompt; the phone turns in 4 frames unless reduced flashing is on. */
-  setRotate(visible: boolean, reducedFlashing: boolean): void {
+  /** Shows or hides the rotate prompt; the phone turns in 4 frames unless `still` (reduced flashing or motion). */
+  setRotate(visible: boolean, still: boolean): void {
     const win = this.rotate.ownerDocument.defaultView;
     const scale = artScale(ROTATE_CSS, ROTATE_ART_W);
     const draw = (): void => {
@@ -190,7 +209,7 @@ export class Overlay {
     this.rotateFrame = 0;
     if (visible) {
       draw();
-      if (!reducedFlashing && win) {
+      if (!still && win) {
         this.rotateTimer = win.setInterval(() => {
           this.rotateFrame = (this.rotateFrame + 1) % 4;
           draw();
@@ -208,7 +227,7 @@ export class Overlay {
   showHint(canvas: Rect, gamePx: number, onOk: () => void): void {
     const doc = this.hintPanel.ownerDocument;
     this.hintPanel.replaceChildren();
-    for (const line of ['FOR FULL SCREEN:', 'SHARE >', 'ADD TO HOME SCREEN']) {
+    for (const line of HINT_LINES) {
       const p = doc.createElement('p');
       p.textContent = line;
       this.hintPanel.append(p);
@@ -219,8 +238,9 @@ export class Overlay {
     ok.textContent = 'OK';
     ok.dataset['touch'] = 'hint-ok';
     // Release closes it like every other tap in the game (click covers mouse and keyboard).
+    const shownAt = performance.now();
     const close = (): void => {
-      if (!this.hintVisible) return;
+      if (!this.hintVisible || performance.now() - shownAt < HINT_OK_GUARD_MS) return;
       this.hintBackdrop.classList.remove('visible');
       onOk();
     };

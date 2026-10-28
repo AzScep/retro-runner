@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EventId, KeyValueStorage, OpponentId, RaceOutcome, RaceResult, SaveData } from '../index.ts';
-import { LADDERS, RecordsStore, SAVE_KEY, SAVE_KEY_V1, SAVE_KEY_V2 } from '../index.ts';
+import { defaultSettings, LADDERS, RecordsStore, SAVE_KEY, SAVE_KEY_V1, SAVE_KEY_V2 } from '../index.ts';
 
 // Design 30.1 (reveal state), 32.5 (Gauntlet records), 34 (records v3: schema, validation,
 // migration, best placings).
@@ -516,5 +516,21 @@ describe('Gauntlet records (design 32.5)', () => {
     const r = store.recordGauntletEnd('400m', { cleared: true, furthest: 7, times: [1, 2, 3] }, AT);
     expect(r.newBest).toBe(false);
     expect(store.gauntlet('400m')).toEqual({ runs: 2, clears: 1, furthest: 7, best: null });
+  });
+});
+
+describe('fresh-save settings (OS reduced motion)', () => {
+  const DEFAULT_SETTINGS = defaultSettings(false);
+  const reduced = defaultSettings(true);
+
+  it('a first save takes the given defaults, and so does storage that is unavailable', () => {
+    expect(RecordsStore.load(new MemStorage(), reduced).data.settings).toEqual(reduced);
+    expect(RecordsStore.load(null, reduced).data.settings).toEqual(reduced);
+  });
+
+  it('an existing save keeps its own settings', () => {
+    const s = new MemStorage();
+    RecordsStore.load(s).updateSettings({ volume: 7 });
+    expect(RecordsStore.load(s, reduced).data.settings).toEqual({ ...DEFAULT_SETTINGS, volume: 7 });
   });
 });

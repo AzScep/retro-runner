@@ -3,7 +3,7 @@ import type { RaceEvent } from '../core/index.ts';
 import { hapticPattern, PULSE } from './haptics.ts';
 import { initialModality, nextModality } from './modality.ts';
 import { PadStates, type PadRaceState } from './padState.ts';
-import { isAndroid, wantsHomeScreenHint, type PlatformFacts } from './platform.ts';
+import { isAndroid, wantsHomeScreenHint, wantsRotatePrompt, type PlatformFacts } from './platform.ts';
 
 describe('modality', () => {
   it('starts from the coarse pointer query, overridable with ?touch=', () => {
@@ -127,7 +127,6 @@ describe('platform', () => {
   const iphoneTab: PlatformFacts = {
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1',
     coarse: true,
-    anyTouch: true,
     canRequestFullscreen: false,
     standalone: false,
   };
@@ -138,6 +137,15 @@ describe('platform', () => {
     expect(wantsHomeScreenHint({ ...iphoneTab, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 7)' })).toBe(
       false,
     );
+  });
+  it('shows the rotate prompt only for a finger-first device in touch modality (17.6)', () => {
+    const phone = { portrait: true, coarse: true, modality: 'touch' } as const;
+    expect(wantsRotatePrompt(phone)).toBe(true);
+    expect(wantsRotatePrompt({ ...phone, portrait: false })).toBe(false);
+    // Touchscreen laptop or touch monitor: the primary pointer is the trackpad or mouse.
+    expect(wantsRotatePrompt({ ...phone, coarse: false })).toBe(false);
+    // A phone driven from a keyboard plays letterboxed instead of being blocked.
+    expect(wantsRotatePrompt({ ...phone, modality: 'keyboard' })).toBe(false);
   });
   it('detects Android', () => {
     expect(isAndroid({ ...iphoneTab, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 7)' })).toBe(true);

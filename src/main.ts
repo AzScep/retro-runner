@@ -27,13 +27,14 @@ import { installTouch, readSafeArea, type TouchHandle } from './touch/index.ts';
 import { installFullscreen } from './ui/fullscreen.ts';
 import { fitZoom } from './ui/hudMath.ts';
 import { PREVENT_DEFAULT_CODES } from './ui/keys.ts';
+import { canReloadForUpdate, markUpdateReload, sessionStorageOrNull } from './ui/updateReload.ts';
 
 // Art bakes in a worker while Phaser boots and the font loads (BootScene awaits it).
 void prepareArt();
 
 const UPDATE_CHECK_MS = 60 * 60 * 1000;
-/** A new version never reloads the page while one of these runs (Race carries every race overlay). */
-const UPDATE_BUSY_SCENES = [SceneKey.Boot, SceneKey.Race, SceneKey.Reveal, SceneKey.Champion] as const;
+/** How often a pending update reload re-checks whether the game has reached a safe screen. */
+const UPDATE_RETRY_MS = 1000;
 
 const parent = document.getElementById('app');
 if (!parent) throw new Error('#app missing from index.html');
@@ -130,8 +131,9 @@ game.events.once(Phaser.Core.Events.READY, () => {
     setHint: (name, v) => {
       if (hasApp()) getApp().records.setHint(name, v);
     },
-    // Before the save is loaded the hint waits (it is shown after the first tap anyway).
-    hintSeen: () => !hasApp() || getApp().records.data.hints.addToHomeScreen,
+    // Shown on the Title only (17.6); before the save is loaded it waits for a later tap.
+    hintDue: () =>
+      hasApp() && !getApp().records.data.hints.addToHomeScreen && game.scene.isActive(SceneKey.Title),
   });
   fitCanvas();
   canvas.focus();
@@ -174,8 +176,9 @@ window.addEventListener(
 if (import.meta.env.VITE_TEST_HOOKS === '1') installTestHook(game);
 
 // Offline play from the Home Screen (research-mobile 5). Never in test builds or dev.
-// A new deploy's service worker activates at once (vite.config.ts skipWaiting); an open page then
-// reloads into it, but only on a menu screen so a race, the reveal or a Gauntlet run is never cut.
+// A new deploy's service worker activates at once (vite.config.ts skipWaiting + clientsClaim); an
+// open page then reloads into it, but only on a visible menu screen (ui/updateReload.ts), so a race
+// (running or paused), the reveal or a Gauntlet run is never cut.
 if (import.meta.env.PROD && import.meta.env.VITE_TEST_HOOKS !== '1') {
   void import('virtual:pwa-register').then(({ registerSW }) =>
     registerSW({
@@ -184,6 +187,10 @@ if (import.meta.env.PROD && import.meta.env.VITE_TEST_HOOKS !== '1') {
       onRegisteredSW: (_url, registration) => {
         if (registration) window.setInterval(() => void registration.update(), UPDATE_CHECK_MS);
       },
+      // With registerType 'prompt', vite-plugin-pwa reloads the page itself (window.location.reload)
+      // when a worker found by a later update check takes control, unless onNeedReload is given.
+      // Route that through the same guarded reload as the controllerchange listener below.
+      onNeedReload: reloadWhenSafe,
     }),
   );
   // The first install also claims the page; only a replaced worker means a new version.
@@ -193,16 +200,29 @@ if (import.meta.env.PROD && import.meta.env.VITE_TEST_HOOKS !== '1') {
   });
 }
 
-/** Reloads now if no race-like scene runs, else retries every second until one ends. */
+let reloadPending = false;
+
+/** Reloads into the new version as soon as the game is on a visible menu screen. */
 function reloadWhenSafe(): void {
-  const busy = (): boolean => UPDATE_BUSY_SCENES.some((key) => game.scene.isActive(key));
-  if (!busy()) {
+  if (reloadPending) return;
+  reloadPending = true;
+  const safe = (): boolean => {
+    const app = hasApp() ? getApp() : null;
+    return canReloadForUpdate({
+      hidden: document.visibilityState === 'hidden',
+      raceExists: app?.race != null,
+      gauntletRun: app?.gauntlet != null,
+      scenes: Object.values(SceneKey).filter((key) => game.scene.isActive(key) || game.scene.isPaused(key)),
+    });
+  };
+  const tryReload = (): boolean => {
+    if (!safe()) return false;
+    markUpdateReload(sessionStorageOrNull());
     window.location.reload();
-    return;
-  }
+    return true;
+  };
+  if (tryReload()) return;
   const timer = window.setInterval(() => {
-    if (busy()) return;
-    window.clearInterval(timer);
-    window.location.reload();
-  }, 1000);
+    if (tryReload()) window.clearInterval(timer);
+  }, UPDATE_RETRY_MS);
 }

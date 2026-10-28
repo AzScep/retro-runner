@@ -22,8 +22,15 @@ export interface TapRect {
   readonly h: number;
 }
 
-/** Minimum tap rectangle in game px (design 17.5.2, MENU_TAP_MIN). */
-export const MENU_TAP_MIN = 20;
+/**
+ * Minimum tap rectangle and touch row pitch in game px (design 17.5.2, MENU_TAP_MIN). Phones in
+ * landscape show 1.8-2.3 CSS px per game px, so 24 game px is 44 CSS px from 1.84 up (43 in an
+ * iPhone Safari tab with both toolbars showing, the smallest scale measured).
+ */
+export const MENU_TAP_MIN = 24;
+
+/** Smallest canvas scale (CSS px per game px) at which MENU_TAP_MIN still reaches 44 CSS px. */
+export const MENU_TAP_MIN_SCALE = 44 / MENU_TAP_MIN;
 
 /** Extra reach in game px for a tap that lands just outside every target. */
 export const TAP_SLOP = 4;

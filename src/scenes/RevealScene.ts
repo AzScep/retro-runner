@@ -44,7 +44,7 @@ const GLITCH = { top: 40, bottom: 140, band: 4, shift: 2 } as const;
 const START_X = 96;
 const ZYX_HEAD = 46;
 /** Final card in the sky, above the squad's heads (lane 5 heads reach up to y ~64). */
-const FINAL = { x: 48, y: 6, w: 224, h: 56 } as const;
+const FINAL = { x: 48, y: 6, w: 224, h: 58 } as const;
 const BOSS_DELAY_MS = 1500;
 /** The drones' shared landing pose (ART: field frame 'hurdle3'). */
 const LANDING_FRAME = 'hurdle3';
@@ -354,18 +354,25 @@ export class RevealScene extends Phaser.Scene {
 
     const depth = UI_DEPTH + 10;
     addPanel(this, FINAL.x, FINAL.y, FINAL.w, FINAL.h, depth);
-    new Label(this, 160, FINAL.y + 8, meet(7).name, {
+    new Label(this, 160, FINAL.y + 6, meet(7).name, {
       scale: 2,
       color: PAL.tealGlow,
       align: 'center',
       depth: depth + 1,
     });
-    new Label(this, 160, FINAL.y + 28, 'ZYX UNLOCKED!', {
+    new Label(this, 160, FINAL.y + 24, 'ZYX UNLOCKED!', {
       color: PAL.gold,
       align: 'center',
       depth: depth + 1,
     });
-    new Label(this, 160, FINAL.y + 42, isTouch() ? 'TAP' : 'PRESS ENTER', {
+    // The reveal also opens this event's Gauntlet (isGauntletUnlocked = isRevealed, design 32.5).
+    new Label(this, 160, FINAL.y + 35, 'GAUNTLET MODE OPEN', {
+      font: FONT_MINI,
+      color: PAL.gold,
+      align: 'center',
+      depth: depth + 1,
+    });
+    new Label(this, 160, FINAL.y + 46, isTouch() ? 'TAP' : 'PRESS ENTER', {
       font: FONT_MINI,
       color: PAL.lightGrey,
       align: 'center',

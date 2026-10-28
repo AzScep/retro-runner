@@ -14,9 +14,10 @@ import { FONT_MINI } from '../ui/fonts.ts';
 import { PAL } from '../ui/hudMath.ts';
 import type { MenuAction } from '../ui/keys.ts';
 import { furthestText } from '../ui/gauntlet.ts';
-import { lastCell, RECORDS_COLUMNS } from '../ui/recordsLayout.ts';
+import { ladderTotalProgress } from '../ui/menuText.ts';
+import { lastCell, RECORDS_COLUMNS, recordsHeaders } from '../ui/recordsLayout.ts';
 import { EVENT_TAB, hitCell, historyCell, historyPlace, ordinal, splitsRow } from '../ui/screenText.ts';
-import { registerTapTarget } from '../ui/tapTargets.ts';
+import { MENU_TAP_MIN, registerTapTarget } from '../ui/tapTargets.ts';
 import { Label } from '../ui/text.ts';
 import { ButtonRow, drawPanel, fillRect, UI_DEPTH } from '../ui/widgets.ts';
 import {
@@ -49,10 +50,11 @@ const HEAD_Y = 23;
 const ROW_Y = 32;
 const ROW_H = 16;
 // Footer (29.2.4): ladder total, the Gauntlet line, 400 m splits, help (touch: BACK at the left).
-const TOTAL_Y = 148;
-const GAUNTLET_Y = 158;
-const SPLITS_Y = 166;
-const HELP_Y = 173;
+// One empty row between lines and one under the help line, which keeps it off the canvas edge.
+const TOTAL_Y = 147;
+const GAUNTLET_Y = 156;
+const SPLITS_Y = 164;
+const HELP_Y = 172;
 const BACK_Y = 167;
 
 /** S6 Records v2 (design 4.5, 18.7): event tabs, per-rival PB table, last results, ladder total. */
@@ -90,7 +92,7 @@ export class RecordsScene extends Phaser.Scene {
         color: sel ? PAL.gold : PAL.midGrey,
         depth: UI_DEPTH + 1,
       });
-      registerTapTarget(this, { x, y: TAB.y - 3, w: TAB.w, h: 20 }, () => this.selectTab(e));
+      registerTapTarget(this, { x, y: TAB.y - 4, w: TAB.w, h: MENU_TAP_MIN }, () => this.selectTab(e));
     });
 
     const bg = this.add.graphics().setDepth(UI_DEPTH);
@@ -123,13 +125,14 @@ export class RecordsScene extends Phaser.Scene {
     const rec = getApp().records;
     const event = this.event;
     const col = RECORDS_COLUMNS[event];
-    const head = { font: FONT_MINI, color: PAL.lightGrey, depth: UI_DEPTH + 2 } as const;
-    const headCentre = { ...head, align: 'center' } as const;
-    new Label(this, col.name, HEAD_Y, 'RIVAL', head);
-    new Label(this, col.pb, HEAD_Y, 'PB', headCentre);
-    if (col.hit !== null) new Label(this, col.hit, HEAD_Y, 'HIT', headCentre);
-    new Label(this, col.target, HEAD_Y, 'TARGET', headCentre);
-    new Label(this, col.last[1] ?? 0, HEAD_Y, 'LAST 3', headCentre);
+    for (const h of recordsHeaders(event)) {
+      new Label(this, h.x, HEAD_Y, h.text, {
+        font: FONT_MINI,
+        color: PAL.lightGrey,
+        depth: UI_DEPTH + 2,
+        align: h.align,
+      });
+    }
 
     visibleLadderIds(rec, event).forEach((id, i) => {
       const y = ROW_Y + i * ROW_H;
@@ -171,16 +174,21 @@ export class RecordsScene extends Phaser.Scene {
         new Label(this, at.timeX, y + 5, time, cell);
         if (digit !== '') new Label(this, at.placeX, y + 5, digit, { ...cell, color: PAL.midGrey });
       });
-      // Rows are list items (17.5.3): first tap selects, a tap on the selected row shows splits.
+      // Rows are list items (17.5.3): first tap selects, a tap on the selected row shows splits, so
+      // the 16 px pitch (under MENU_TAP_MIN) can only mis-select, never act.
       registerTapTarget(this, { x: 4, y, w: 312, h: ROW_H }, () => this.tapRow(i));
     });
 
+    // Ladder total (16.5), or progress toward it: a PB against every rival, from any placing.
     const total = rec.ladderTotalMs(event);
+    const pbs = visibleLadderIds(rec, event).filter((id) => rec.bestMs(event, id) !== null).length;
     new Label(
       this,
       160,
       TOTAL_Y,
-      total === null ? 'BEAT EVERY RIVAL FOR A LADDER TOTAL' : `LADDER TOTAL ${formatLadderTotal(total)}`,
+      total === null
+        ? ladderTotalProgress(pbs, rec.isRevealed(event))
+        : `LADDER TOTAL ${formatLadderTotal(total)}`,
       { align: 'center', color: total === null ? PAL.lightGrey : PAL.gold },
     );
     // Gauntlet footer (29.2.4).

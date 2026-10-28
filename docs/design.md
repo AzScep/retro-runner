@@ -1,6 +1,6 @@
 # Retro Runner - Game Design Document
 
-Status: v1 design, engine-agnostic, shipped; v2 expansion (three events, touch) shipped, specified in sections 12-22; **[v3]** multi-runner expansion specified in sections 23-38.
+Status: v1 design, engine-agnostic, shipped; v2 expansion (three events, touch) shipped, specified in sections 12-22; **[v3]** multi-runner expansion specified in sections 23-38; **[v3.1]** UX pass in section 39, which overrides earlier sections where they differ.
 Owner: Game Director.
 All numbers in this document are the source of truth for tuning.
 Section 11 collects every tunable constant in one table so implementers can put them in a single config module.
@@ -50,7 +50,7 @@ The player mashes Left and Right alternately to sprint against a ladder of seven
 2. Winning against tier N unlocks tier N+1 immediately and moves the map cursor to it.
 3. Unlocks are permanent. Losing never re-locks anything.
 4. Every unlocked rival can be raced any number of times, and every completed race records a time.
-5. Locked rivals show a black silhouette, "???" as name and "Beat <previous name> to unlock".
+5. Locked rivals show a black silhouette, "???" as name and "Beat <previous name> to unlock". **[v3.1]** Copy is `FINISH 1ST VS <PREVIOUS>` / `TO UNLOCK`, or the meet when the previous tier is also locked (39.3).
 6. First win against Zyx (tier 7) sets `champion: true` and shows S9 once.
 7. "Ladder total" = sum of PBs against all 7 rivals, shown only when all 7 have a PB.
 
@@ -70,7 +70,7 @@ Rule 7's ladder total is unchanged: PBs count from any placing.
 5. If the player has not finished by t = 30.00 s, the race ends as DNF: loss, no time recorded, no PB.
    **[v2]** The cap is per event: 30.00 s (100 m), 40.00 s (hurdles), 90.00 s (400 m); in rules 2 and 7, 100.000 m means the event distance (12.1).
 6. Win if player ms < opponent ms.
-   Equal ms is a dead heat and counts as a win, shown as "PHOTO FINISH".
+   Equal ms is a dead heat and counts as a win, shown as "PHOTO FINISH". **[v3.1]** Any win by 50 ms or less is titled `PHOTO FINISH` (39.1).
 7. Both runners keep running past the line into a 20 m run-out and decelerate (player: input ignored after crossing; AI: target speed 0 with its tau).
 
 **[v3]** Rules 3, 4 and 6 apply to all 5 AI runners: everyone not finished 1.5 s after the player crosses is simulated off-screen, and the win rule becomes 1st place (24.1).
@@ -837,7 +837,7 @@ Per-rival AI numbers (REACTION, TAU, V_TOP, pClip, landKeep, pace segments) live
 | TOUCH_BAR_PADS_MIN | 56 CSS px side bar | 17.4 |
 | RUN_PAD | 64 x 48 game px | 17.4 |
 | JUMP_PAD | 64 x 40 game px | 17.4 |
-| MENU_TAP_MIN | 20 x 20 game px | 17.5 |
+| MENU_TAP_MIN | 24 x 24 game px (**[v3.1]**, was 20; 39.4) | 17.5 |
 | HAPTIC_FUMBLE | 30 ms | 17.7 |
 | HAPTIC_FALSE_START | 40, gap 60, 40 ms | 17.7 |
 | HAPTIC_HIT | 40 ms | 17.7 |
@@ -914,8 +914,8 @@ The finish crossing rule uses the event distance in place of 100 m.
 | Event | Unlocked when | Locked card text |
 |---|---|---|
 | 100 m | Always (fresh save). | - |
-| 110 m hurdles | First 100 m win against Marco (100 m tier 3). | `BEAT MARCO IN 100M` |
-| 400 m | First 100 m win against Kofi (100 m tier 4), or first hurdles win against Marco (hurdles tier 3), whichever comes first. | `BEAT KOFI IN 100M` / `OR MARCO IN HURDLES` |
+| 110 m hurdles | First 100 m win against Marco (100 m tier 3). | `WIN TIER 3 IN 100M` (**[v3.1]**) |
+| 400 m | First 100 m win against Kofi (100 m tier 4), or first hurdles win against Marco (hurdles tier 3), whichever comes first. | `WIN TIER 4 IN 100M` / `OR TIER 3 IN HURDLES` (**[v3.1]**) |
 
 Justification:
 
@@ -1438,6 +1438,7 @@ The 6.4 prompt rules (both bright before the first step, `MASH!` after 0.5 s idl
 
 Never per step.
 Setting `HAPTICS ON/OFF` in Options, default ON, listed only where `navigator.vibrate` exists (Android Chrome); iOS shows no haptics row.
+**[v3.1]** It also requires a coarse primary pointer, so desktop Chromium shows no haptics row.
 
 ### 17.8 Modality
 
@@ -2018,7 +2019,7 @@ These replace the single rival arrow of 6.2.
 
 1. The player is never covered (nearest lane, drawn last).
 2. The named rival is the next lane up, 14 px above the player's feet row with a +10 px offset, so its head and shoulders stay clear of Rio when level (prototype).
-3. If playtests still lose the rival in a bunched pack, the fallback is a 5x3 chevron in the rival's kit colour above its head; it is "later" unless the acceptance check of 38 fails.
+3. If playtests still lose the rival in a bunched pack, the fallback is a 5x3 chevron in the rival's kit colour above its head; it is "later" unless the acceptance check of 38 fails. **[v3.1]** Built: the chevron shows while the rival is within 24 px of Rio.
 
 ### 27.6 Touch layout impact
 
@@ -2041,10 +2042,10 @@ Two columns: placings table on the left (x 8-176 inside the panel), race facts o
 | Title | 6 | `YOU WIN!`, `2ND PLACE`, `3RD PLACE`, `4TH PLACE` ... (index 22 for 1st, index 8 for 2nd-3rd, index 17 for 4th-6th), `PHOTO FINISH`, `DISQUALIFIED`, `DID NOT FINISH`, 2x, centred across the panel | - |
 | Table rows | 28, 44, 60, 76, 92, 108 (6 rows of 16 px) | place (`1ST`, mini font), 16x16 portrait, name (8 px), time right-aligned (14.4 format); DQ/DNF player row last with `DQ`/`DNF` in the time column | - |
 | Margin | 28 | - | Player 1st: `AHEAD -0.12` (to 2nd). Otherwise: `TO 1ST +0.31` (to the winner). Hidden on DQ/DNF. |
-| Event facts | 40-62 | - | Hurdles `CLEAN RACE!` or `HIT 2/10`; 400 m splits on 3 lines (`100 13.92`, `200 26.10`, `300 38.25`); 100 m empty. |
-| PB | 68 | - | `NEW PB!` (2x, flashing 2 Hz, 1 Hz reduced) or `PB 11.52`; `OLD 12.10` below at 86. |
-| Medal / unlock | 98 | - | First 1st vs this rival: `<NEXT> UNLOCKED!` (index 22). New best 2nd or 3rd: `SILVER!` or `BRONZE!` plus a 8x8 medal. Lost but ahead of the named rival: `BEAT <RIVAL>!` (index 8). Else `BEST <PLACE>` (index 6). |
-| Event unlock | 110 | - | `NEW EVENT: 110M HURDLES` in mini font (18.6). |
+| Event facts | 40-62 | - | **[v3.1]** Replaced by the facts block of 39.2. |
+| PB | 70 | - | `NEW PB!` (2x, swapping gold and white at 2 Hz, 1 Hz reduced, never blank) or `PB 11.52` with `+0.12 OFF PB` at 80; `OLD 12.10` below at 88 (**[v3.1]**). |
+| Medal / unlock | 98 | - | First 1st vs this rival: `<NEXT> UNLOCKED!` (index 22). New best 2nd or 3rd: `SILVER!` or `BRONZE!` plus a 8x8 medal. Lost but ahead of the named rival: `AHEAD OF <RIVAL>` (index 8). Else nothing (**[v3.1]**). |
+| Event unlock | 110 | - | `NEW EVENT: 110M HURDLES` in mini font (18.6). **[v3.1]** Otherwise, after a non-1st finish while the next tier is locked: `WIN 1ST TO UNLOCK` / `<NEXT>` (`CHAMPIONSHIP` while tier 7 is hidden). |
 | Buttons | 134 | `NEXT` (only if the next tier is unlocked), `RETRY`, `MAP`, centred across the panel; default focus `NEXT` after 1st, `RETRY` otherwise. Touch: tap targets (17.5). | |
 
 ### 28.2 Row styling
@@ -2170,7 +2171,7 @@ Tier 7 starter wears a 1-frame space helmet overlay; no other variants.
 
 1. S2 menu row item `GAUNTLET`, per event.
 2. Locked until that event's `revealed` is true; selecting it while locked plays `menu_back` and shows `WIN THE NEON CUP FIRST` (no spoiler).
-3. Confirm opens the Gauntlet intro card (S11): `<EVENT> GAUNTLET`, `7 MEETS. LOSE ONCE AND IT ENDS.`, best total and furthest tier, buttons `START` (default) and `BACK`.
+3. Confirm opens the Gauntlet intro card (S11): `<EVENT> GAUNTLET` (**[v3.1]** `GAUNTLET` at 2x with the event title under it at 1x), `7 MEETS. LOSE ONCE AND IT ENDS.`, best total and furthest tier, buttons `START` (default) and `BACK`.
 
 ### 32.2 Flow
 
@@ -2510,3 +2511,60 @@ Sections 10 and 22 still apply with "win" meaning 1st place.
 - [ ] Loading a v1-only save migrates through v2 to v3 without writing the v2 key.
 - [ ] Replacing the v3 value with `not json` backs it up to `retroRunner.save.corrupt` and re-migrates from v2.
 - [ ] Reset records removes the v3, v2 and v1 keys and hides tier 7 again in every event.
+
+## 39. [v3.1] UX pass
+
+A playtest review of menus, races and touch found where players get lost, miss feedback or lose progress.
+This section records the resulting rules; it overrides earlier sections where they differ.
+Copy helpers live in `src/ui/screenText.ts`, `src/ui/menuText.ts`, `src/ui/hudMath.ts` and `src/ui/gauntlet.ts`, and their tests pin the exact strings and widths.
+
+### 39.1 Race
+
+1. First-race tips stay up from the end of the meet card until GO, in a panel at y 95-113 clear of the countdown plate. The 100 m tip is `ALTERNATE LEFT + RIGHT` (touch: `TAP LEFT, RIGHT, LEFT...`).
+2. Key prompt (6.4): after 2 or more fumbles since the last valid step, `ALTERNATE!` (index 17) replaces `MASH!`, the expected key stays steadily bright and the repeated key is red. `MASH!` is only for a player pressing nothing.
+3. With reduced flashing, only the expected key is lit for the first 4 steps and for 4 steps after any fumble.
+4. The fumble look lasts 200 ms by time (not 4 frames), with the 3 Hz restart cap kept; Rio plays 160 ms of the stumble pose on a fumble, at most 3 times a second. Speed is unaffected.
+5. Hurdle popups sit just above the player on a dark plate: `CLEAN`, `EARLY` / `LATE` for a clip (from the arc phase), `TOO EARLY` for a knock after landing short, `JUMP!` for no jump.
+6. 400 m HUD: the stamina box is 92 px wide at x 224 with the draining arrow inside it; a full-height divider marks steady pace after the 6th speed segment, and segments above it turn red while stamina drains. Split popups add the last 100 m, e.g. `200M 25.58 (+15.22)`.
+7. Countdown digits 3/2/1 sit on a dark plate; `GO!` has none so the pistol stays visible. The starter official stands 24 px further from the line.
+8. Off-screen runner markers sit on dark plates with no extra `<` / `>`.
+9. Finish: from Rio's crossing until the card, the centre shows the place at 4x and the time at 2x on a dark plate. `PHOTO!` and the shutter sound show when Rio is within PHOTO_FINISH_MS (50 ms) of the runner just ahead or behind.
+10. A win by PHOTO_FINISH_MS or less is titled `PHOTO FINISH` (was: equal ms only).
+11. First false start: a second line `ONE MORE AND YOU ARE OUT` and a red strike pip beside the timer. A DQ holds the `DISQUALIFIED` banner for 1.5 s before the card.
+12. The HUD hides while a results or Gauntlet card is up; countdown, meet card, banners, tip, bubble and finish callout hide while paused.
+13. An immediate RETRY or RESTART of the same race starts at the blocks with a RETRY_INTRO_MS (300 ms) intro and no meet card; the first race of an event keeps the full walk-in.
+
+### 39.2 Results card facts block
+
+The facts block (rows 40-62, at most 3 lines that fit the 116 px right column) explains the result:
+
+| Case | Lines |
+|---|---|
+| 100 m | `PACE 8.3/S` (valid steps per second), `FUMBLES n` (index 17 when above 0). On a loss: `FUMBLES COST YOU` when fumbles are at least 10% of steps, else `+0.5/S TO WIN` from T = 100 / r + 2. |
+| Hurdles | `CLEAN 10/10` (index 22) or `KNOCKED n/10`, `FUMBLES n`, and on a loss `FUMBLES COST YOU` or `HURDLES COST YOU`. |
+| 400 m | `EACH 100M` over the time of each 100 m (e.g. `10.36 15.05 17.05 17.09`), then `EMPTY AT 140M` when stamina ran out (outcome field `staminaEmptyM`). |
+| DNF | `NO SPEED` / `ALTERNATE KEYS` when fumbles are at least the valid steps, else `TOO SLOW` / `LIMIT 30.00`. |
+| DQ | `2 FALSE STARTS` / `WAIT FOR GO!`; the table shows only the player's DQ row and `RACE NOT RUN`. |
+
+### 39.3 Menus and progression
+
+1. Lock copy names only what the player has seen and always says 1st place is needed: `FINISH 1ST VS <PREVIOUS>` / `TO UNLOCK`, or `FINISH 1ST AT <MEET>` when the previous tier is also locked; event locks per 12.2's table.
+2. Rival cards show the tier's meet name under `TIER n`. On an event with nothing won yet, the flavour line becomes `6 RUNNERS. FINISH 1ST` / `TO UNLOCK THE NEXT RIVAL`.
+3. On keyboard, Event Select and the Ladder show a key hint strip at y 170-179 (`ARROWS: CHOOSE   ENTER: OPEN   ESC: BACK`; `UP/DOWN: RIVAL   LEFT/RIGHT: MENU   ENTER: GO   ESC: BACK`).
+4. The Ladder remembers its focused menu button per event across Records and Options; it resets to RACE when a race or Gauntlet run starts.
+5. GAUNTLET shows a `NEW!` badge while it is unlocked and has no runs. The reveal's final card adds `GAUNTLET MODE OPEN`.
+6. Event cards add `PBS n/6` (or `/7` after the reveal). The Records footer shows `PBS SET 4/6` before the reveal and `SET A PB VS ALL 7: 5/7` after; Records has a `BEST` column header.
+7. Gauntlet over card: `QUIT BEFORE <MEET>` when abandoned on the between-race card; `BEST FURTHEST` only when this run did not set a new furthest.
+
+### 39.4 Touch, platform and accessibility
+
+1. MENU_TAP_MIN is 24 game px so tap targets reach 44 CSS px on phones; Options uses 21 px rows only when Android's seventh HAPTICS row is listed. Records rows stay at 16 px because the first tap only selects.
+2. Pads: side bars inside the safe area (most Android phones); on notched iPhones the side bars include the insets, down to 12 px from the edge, and run zones reach into them; on 4:3 iPads a bottom bar under the canvas; otherwise over the canvas.
+3. The rotate prompt shows only in a portrait window with a coarse primary pointer in touch modality, so touchscreen laptops are not blocked. Its phone icon is static under `prefers-reduced-motion`.
+4. A first save takes reduced flashing on and screen shake off when the OS asks for reduced motion. While reduced flashing is on, SCREEN SHAKE shows `OFF` in grey and is skipped by the cursor.
+5. On touch, Options shows the focused row's help beside BACK.
+6. Audio resumes from any state other than running or closed (including iOS `interrupted`) on input and on becoming visible.
+7. The Add to Home Screen hint opens only on the Title, and the tap that opens it does not start the game. Copy: `FOR FULL SCREEN, TAP` / `SHARE (OR ... > SHARE)` / `> ADD TO HOME SCREEN`.
+8. The Title prompt sits on a panel and is visible 750 ms of every second, steady with reduced flashing; the storage warning adds `PRIVATE BROWSING OR BLOCKED STORAGE`. The version label reads `V3.0` and the speaker sits clear of the fullscreen button.
+9. Pause draws a 1 px checker of the ink colour behind its panel; the Gauntlet between-race advance line hides while paused.
+10. Update reloads (service worker) wait until no race exists (running, paused or on results), no Gauntlet run is in progress, no Boot, Race, Results, Pause, Gauntlet, Reveal or Champion scene is up, and the page is visible. The Title then shows `UPDATED` once.

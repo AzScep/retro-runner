@@ -34,8 +34,9 @@ export default defineConfig({
     phaserFlags(),
     // Precaching service worker for offline play from the Home Screen (research-mobile 5).
     // The manifest is the hand-written public/manifest.webmanifest, linked from index.html.
-    // main.ts registers the worker (never in test builds); `prompt` means no skipWaiting, so a new
-    // version takes over on the next cold launch and never reloads the page mid-race.
+    // main.ts registers the worker (never in test builds). The plugin's register code reloads the
+    // page itself when an updated worker takes control unless onNeedReload is given, so main.ts
+    // passes one that waits for a menu screen.
     VitePWA({
       strategies: 'generateSW',
       registerType: 'prompt',
@@ -45,7 +46,8 @@ export default defineConfig({
       workbox: {
         // A new deploy's worker takes over as soon as it is installed, so a returning visitor
         // (including one stuck on an older build that waited for a cold launch) gets it on the
-        // next load; main.ts reloads an open page into it only on a menu screen.
+        // next load; main.ts reloads an open page into it only on a visible menu screen, never
+        // over a race (running or paused) or a Gauntlet run (src/ui/updateReload.ts).
         skipWaiting: true,
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,png,svg,woff2,webmanifest}'],

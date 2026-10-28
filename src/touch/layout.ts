@@ -3,13 +3,23 @@
  * in viewport CSS px so they may use the letterbox bars.
  *
  * Zones are screen halves below a top strip (22 % of the height), 12 CSS px inside the left and
- * right safe-area insets and above the bottom inset. Pads sit in the side bars when the bars are
- * at least 56 CSS px wide, otherwise over the canvas at the design's game-px positions.
+ * right safe-area insets and above the bottom inset. The LEFT and RIGHT pads go to the first
+ * placement that has room (a bar at least 56 CSS px deep):
+ * - `sideBars`: the side bars inside the safe area (most Android phones).
+ * - `insetBars`: the side bars measured out to 12 CSS px from the screen edge, so they include the
+ *   side safe-area insets (notched iPhones, whose 59 px insets leave under 56 px of safe bar). The
+ *   insets are touchable, so the zones reach out there too; only the island blocks touch, and it is
+ *   centred on its edge, well above the bottom-aligned pads.
+ * - `bottomBar`: the bar under the canvas (4:3 iPads), pads under the canvas's bottom corners.
+ * - `canvas`: over the canvas at the design's game-px positions (16:9 tablets).
  *
- * In hurdles the line between JUMP (above) and RIGHT (below) is 58 % of the height when the pads
- * are over the canvas (between the jump pad at game y 62-102 and the right pad at y 118). With pads
- * in a bar the jump pad sits directly above the right pad, so the line moves to the middle of the
- * 8 px gap between them: the zone under each pad graphic is the zone that graphic names.
+ * The JUMP pad stacks above the RIGHT pad in `sideBars`; everywhere else it sits over the canvas
+ * at its design position (a stack in an iPhone side inset would reach the island).
+ *
+ * In hurdles the line between JUMP (above) and RIGHT (below) is 58 % of the height when the jump
+ * pad is over the canvas (between the jump pad at game y 62-102 and the right pad at y 118). With
+ * both in a side bar the jump pad sits directly above the right pad, so the line moves to the middle
+ * of the 8 px gap between them: the zone under each pad graphic is the zone that graphic names.
  */
 
 export interface Rect {
@@ -63,6 +73,8 @@ export interface LayoutInput {
   readonly hurdles: boolean;
 }
 
+export type PadPlacement = 'sideBars' | 'insetBars' | 'bottomBar' | 'canvas';
+
 export interface TouchLayout {
   readonly zones: { readonly L: Rect; readonly R: Rect; readonly jump: Rect | null };
   readonly pads: { readonly L: Rect; readonly R: Rect; readonly jump: Rect | null };
@@ -70,7 +82,11 @@ export interface TouchLayout {
   readonly pause: Rect;
   /** Pause icon size in CSS px (centred in the hit area). */
   readonly pauseIcon: number;
+  readonly placement: PadPlacement;
+  /** The LEFT and RIGHT pads cover the canvas (the HUD moves its meters, 17.4). */
   readonly padsOverCanvas: boolean;
+  /** The JUMP pad covers the canvas (drawn as a thin frame, 27.6.4); false outside hurdles. */
+  readonly jumpOverCanvas: boolean;
 }
 
 const r = (x: number, y: number, w: number, h: number): Rect => ({
@@ -87,64 +103,106 @@ export function sideBar(viewW: number, insets: Insets, canvas: Rect): number {
   return Math.max(0, Math.min(left, right));
 }
 
+/** Width of the narrower side bar out to the edge margin, side safe-area insets included. */
+export function outerSideBar(viewW: number, canvas: Rect): number {
+  const left = canvas.x - LAYOUT.edgeMargin;
+  const right = viewW - LAYOUT.edgeMargin - (canvas.x + canvas.w);
+  return Math.max(0, Math.min(left, right));
+}
+
+/** Depth of the bar under the canvas, above the bottom safe-area inset. */
+export function bottomBar(viewH: number, insets: Insets, canvas: Rect): number {
+  return Math.max(0, viewH - insets.bottom - (canvas.y + canvas.h));
+}
+
+export function padPlacement(viewW: number, viewH: number, insets: Insets, canvas: Rect): PadPlacement {
+  if (sideBar(viewW, insets, canvas) >= LAYOUT.minBar) return 'sideBars';
+  if (outerSideBar(viewW, canvas) >= LAYOUT.minBar) return 'insetBars';
+  if (bottomBar(viewH, insets, canvas) >= LAYOUT.minBar) return 'bottomBar';
+  return 'canvas';
+}
+
 export function computeLayout(input: LayoutInput): TouchLayout {
   const { viewW, viewH, insets, canvas, gamePx, hurdles } = input;
   const gp = gamePx > 0 && Number.isFinite(gamePx) ? gamePx : 1;
-  const bar = sideBar(viewW, insets, canvas);
-  const inBars = bar >= LAYOUT.minBar;
+  const placement = padPlacement(viewW, viewH, insets, canvas);
   const bottom = viewH - insets.bottom;
+  const inSideBar = placement === 'sideBars' || placement === 'insetBars';
+  // Zones reach into the side insets only when the pads do (insetBars).
+  const zoneLeft = placement === 'insetBars' ? 0 : insets.left;
+  const zoneRight = placement === 'insetBars' ? 0 : insets.right;
 
   // Pads.
+  const overCanvas = (p: { x: number; y: number }, size: { w: number; h: number }): Rect =>
+    r(
+      canvas.x + p.x * gp,
+      canvas.y + p.y * gp,
+      Math.max(LAYOUT.minTap, size.w * gp),
+      Math.max(LAYOUT.minTap, size.h * gp),
+    );
   let padL: Rect;
   let padR: Rect;
   let padJump: Rect | null = null;
-  if (inBars) {
+  if (inSideBar) {
+    // Each bar spans from the safe inset (sideBars) or the edge margin (insetBars) to the canvas.
+    const leftBarX = placement === 'sideBars' ? insets.left : LAYOUT.edgeMargin;
+    const rightBarX = canvas.x + canvas.w;
+    const rightBarEnd = placement === 'sideBars' ? viewW - insets.right : viewW - LAYOUT.edgeMargin;
+    const bar = Math.min(canvas.x - leftBarX, rightBarEnd - rightBarX);
     const w = Math.min(bar - LAYOUT.padGap, LAYOUT.runPad.w * gp);
     const h = Math.max(LAYOUT.minTap, (w * LAYOUT.runPad.h) / LAYOUT.runPad.w);
     const y = bottom - LAYOUT.padGap - h;
-    const leftBarX = insets.left;
-    const rightBarX = canvas.x + canvas.w;
-    const rightBarW = viewW - insets.right - rightBarX;
     padL = r(leftBarX + (canvas.x - leftBarX - w) / 2, y, w, h);
-    padR = r(rightBarX + (rightBarW - w) / 2, y, w, h);
-    if (hurdles) {
+    padR = r(rightBarX + (rightBarEnd - rightBarX - w) / 2, y, w, h);
+    if (hurdles && placement === 'sideBars') {
       const jh = Math.max(LAYOUT.minTap, (w * LAYOUT.jumpPad.h) / LAYOUT.jumpPad.w);
       padJump = r(padR.x, padR.y - LAYOUT.padGap - jh, padR.w, jh);
     }
+  } else if (placement === 'bottomBar') {
+    // Under the canvas's bottom corners, outer edges in line with the over-canvas pads.
+    // Whole px, so the pad's bottom edge lands exactly padGap above the inset after rounding.
+    const h = Math.floor(
+      Math.max(
+        LAYOUT.minTap,
+        Math.min(bottomBar(viewH, insets, canvas) - 2 * LAYOUT.padGap, LAYOUT.runPad.h * gp),
+      ),
+    );
+    const w = (h * LAYOUT.runPad.w) / LAYOUT.runPad.h;
+    const y = bottom - LAYOUT.padGap - h;
+    const rightEdge = canvas.x + (LAYOUT.overCanvas.R.x + LAYOUT.runPad.w) * gp;
+    padL = r(canvas.x + LAYOUT.overCanvas.L.x * gp, y, w, h);
+    padR = r(rightEdge - w, y, w, h);
   } else {
-    const at = (p: { x: number; y: number }, size: { w: number; h: number }): Rect =>
-      r(
-        canvas.x + p.x * gp,
-        canvas.y + p.y * gp,
-        Math.max(LAYOUT.minTap, size.w * gp),
-        Math.max(LAYOUT.minTap, size.h * gp),
-      );
-    padL = at(LAYOUT.overCanvas.L, LAYOUT.runPad);
-    padR = at(LAYOUT.overCanvas.R, LAYOUT.runPad);
-    if (hurdles) padJump = at(LAYOUT.overCanvas.jump, LAYOUT.jumpPad);
+    padL = overCanvas(LAYOUT.overCanvas.L, LAYOUT.runPad);
+    padR = overCanvas(LAYOUT.overCanvas.R, LAYOUT.runPad);
   }
+  if (hurdles && !padJump) padJump = overCanvas(LAYOUT.overCanvas.jump, LAYOUT.jumpPad);
 
   // Zones.
   const top = Math.round(viewH * LAYOUT.topStrip);
   const mid = Math.round(viewW / 2);
-  const leftX = insets.left + LAYOUT.edgeMargin;
-  const rightEnd = viewW - insets.right - LAYOUT.edgeMargin;
+  const leftX = zoneLeft + LAYOUT.edgeMargin;
+  const rightEnd = viewW - zoneRight - LAYOUT.edgeMargin;
   const zoneL = r(leftX, top, mid - leftX, bottom - top);
   let zoneR = r(mid, top, rightEnd - mid, bottom - top);
   let zoneJump: Rect | null = null;
   if (hurdles && padJump) {
-    const split = inBars ? Math.round(padR.y - LAYOUT.padGap / 2) : Math.round(viewH * LAYOUT.jumpSplit);
+    const split =
+      placement === 'sideBars'
+        ? Math.round(padR.y - LAYOUT.padGap / 2)
+        : Math.round(viewH * LAYOUT.jumpSplit);
     const s = Math.min(Math.max(split, top + LAYOUT.minTap), bottom - LAYOUT.minTap);
     zoneJump = r(mid, top, rightEnd - mid, s - top);
     zoneR = r(mid, s, rightEnd - mid, bottom - s);
   }
 
-  // Pause: icon 16 game px, hit area at least 44 CSS px, top right inside the safe area.
+  // Pause: icon 16 game px, hit area at least 44 CSS px, top right inside the safe area. It uses
+  // the right bar only inside the safe area (an inset corner is rounded and may hold the island).
   const icon = Math.round(LAYOUT.pauseIcon * gp);
   const size = Math.max(LAYOUT.minTap, icon);
   let px: number;
   let py: number;
-  if (inBars) {
+  if (placement === 'sideBars') {
     const rightBarX = canvas.x + canvas.w;
     const rightBarW = viewW - insets.right - rightBarX;
     px = rightBarX + (rightBarW - size) / 2;
@@ -163,7 +221,9 @@ export function computeLayout(input: LayoutInput): TouchLayout {
     pads: { L: padL, R: padR, jump: padJump },
     pause: r(px, py, size, size),
     pauseIcon: icon,
-    padsOverCanvas: !inBars,
+    placement,
+    padsOverCanvas: placement === 'canvas',
+    jumpOverCanvas: hurdles && placement !== 'sideBars',
   };
 }
 

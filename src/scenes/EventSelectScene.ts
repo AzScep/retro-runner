@@ -6,10 +6,11 @@ import { FONT_MINI } from '../ui/fonts.ts';
 import { PAL } from '../ui/hudMath.ts';
 import type { MenuAction } from '../ui/keys.ts';
 import { MINI_LINE_HEIGHT, wrapMini } from '../ui/miniFont.ts';
+import { EVENTS_HELP, ladderTotalProgressShort } from '../ui/menuText.ts';
 import { EVENT_CARD_NAME } from '../ui/screenText.ts';
 import { registerTapTarget } from '../ui/tapTargets.ts';
 import { Label } from '../ui/text.ts';
-import { ButtonRow, drawPanel, UI_DEPTH } from '../ui/widgets.ts';
+import { ButtonRow, drawPanel, fillRect, UI_DEPTH } from '../ui/widgets.ts';
 import {
   applyCrt,
   getApp,
@@ -20,6 +21,7 @@ import {
   restartOnModalityChange,
   SceneKey,
   settings,
+  visibleLadderIds,
 } from './app.ts';
 
 type MenuId = 'back' | 'records' | 'options';
@@ -27,10 +29,19 @@ type MenuId = 'back' | 'records' | 'options';
 /** Design 18.2: three 96 x 120 cards at x 8, 112, 216, y 30; menu row at y 160. */
 const CARD_W = 96;
 const CARD_H = 120;
-const CARD_Y = 30;
 const CARD_X: readonly number[] = [8, 112, 216];
-const MENU_Y = 160;
-const MENU_BAR = { x: 56, y: 154, w: 208, h: 22 } as const;
+const MENU_BAR_X = 56;
+const MENU_BAR_W = 208;
+/**
+ * Touch keeps the 18.2 layout. Keyboard adds a key hint line at the bottom (M2), so the cards move
+ * up 2 px and the menu bar loses 2 px of padding to make room for it.
+ */
+const LAYOUT = {
+  touch: { cardY: 30, barY: 154, barH: 22, menuY: 160 },
+  keyboard: { cardY: 28, barY: 150, barH: 20, menuY: 156 },
+} as const;
+const HELP_STRIP_Y = 170;
+const HELP_Y = 172;
 const SCROLL_PX_PER_S = 8;
 const SHAKE_FRAMES = 4;
 
@@ -51,6 +62,7 @@ export class EventSelectScene extends Phaser.Scene {
   private t0 = 0;
   private shakeCard = -1;
   private shakeFrames = 0;
+  private cardY: number = LAYOUT.touch.cardY;
 
   constructor() {
     super(SceneKey.Events);
@@ -67,6 +79,9 @@ export class EventSelectScene extends Phaser.Scene {
     this.shakeFrames = 0;
     const start = EVENT_IDS.indexOf(rec.data.lastEvent);
     this.cursor = start >= 0 ? start : 0;
+    const touch = isTouch();
+    const layout = touch ? LAYOUT.touch : LAYOUT.keyboard;
+    this.cardY = layout.cardY;
 
     // Background: stadium of the highest unlocked 100 m tier, scrolling slowly.
     const tier = Math.max(1, ...ladderIds('100m').map((id, i) => (rec.isUnlocked('100m', id) ? i + 1 : 1)));
@@ -82,8 +97,7 @@ export class EventSelectScene extends Phaser.Scene {
     EVENT_IDS.forEach((event, i) => this.buildCard(event, CARD_X[i] ?? 0, i));
 
     const bar = this.add.graphics().setDepth(UI_DEPTH);
-    drawPanel(bar, MENU_BAR.x, MENU_BAR.y, MENU_BAR.w, MENU_BAR.h);
-    const touch = isTouch();
+    drawPanel(bar, MENU_BAR_X, layout.barY, MENU_BAR_W, layout.barH);
     this.menu = new ButtonRow<MenuId>(
       this,
       [
@@ -91,9 +105,14 @@ export class EventSelectScene extends Phaser.Scene {
         { id: 'records', label: 'RECORDS' },
         { id: 'options', label: 'OPTIONS' },
       ],
-      { centerX: 160, y: MENU_Y, gap: -4, initial: 'records' },
+      { centerX: 160, y: layout.menuY, gap: -4, initial: 'records' },
     );
     this.menu.enableTaps(this, (id) => this.confirmMenu(id));
+    // Key hints (M2) on a dark strip over the stadium; touch has BACK and tap targets instead.
+    if (!touch) {
+      fillRect(bar, 0, HELP_STRIP_Y, 320, 180 - HELP_STRIP_Y, PAL.ink);
+      new Label(this, 160, HELP_Y, EVENTS_HELP, { font: FONT_MINI, align: 'center', color: PAL.grey });
+    }
     this.refresh();
 
     this.t0 = this.game.loop.time;
@@ -116,15 +135,16 @@ export class EventSelectScene extends Phaser.Scene {
     };
     const depth = UI_DEPTH + 2;
     const cx = x + CARD_W / 2;
+    const y = this.cardY;
     keep(
       this.add
-        .image(x + 32, CARD_Y + 8, eventIconKey(event, 32, !unlocked))
+        .image(x + 32, y + 8, eventIconKey(event, 32, !unlocked))
         .setOrigin(0, 0)
         .setDepth(depth),
     );
     EVENT_CARD_NAME[event].forEach((line, i) => {
       keepLabel(
-        new Label(this, cx, CARD_Y + 46 + i * 10, line, {
+        new Label(this, cx, y + 46 + i * 10, line, {
           align: 'center',
           color: unlocked ? PAL.white : PAL.grey,
           depth,
@@ -136,41 +156,56 @@ export class EventSelectScene extends Phaser.Scene {
       const er = rec.data.events[event];
       keep(
         this.add
-          .image(x + 18, CARD_Y + 68, iconKey('trophy'))
+          .image(x + 18, y + 68, iconKey('trophy'))
           .setOrigin(0, 0)
           .setDepth(depth),
       );
       // 1st places out of the rivals the player can know about (29.3.1).
       const tiers = rec.isRevealed(event) ? 7 : 6;
-      keepLabel(new Label(this, x + 38, CARD_Y + 72, `${er.beaten.length}/${tiers}`, { depth }));
+      keepLabel(new Label(this, x + 38, y + 72, `${er.beaten.length}/${tiers}`, { depth }));
       if (er.champion) {
         keep(
           this.add
-            .image(x + 72, CARD_Y + 72, iconKey('crown'))
+            .image(x + 72, y + 72, iconKey('crown'))
             .setOrigin(0, 0)
             .setDepth(depth),
         );
       }
+      // The ladder total, or `--` with how many of its PBs are set (from any placing, 16.5); the
+      // block moves up 4 px to fit the extra line.
+      const total = rec.ladderTotalMs(event);
+      const totalY = y + (total === null ? 88 : 92);
       keepLabel(
-        new Label(this, cx, CARD_Y + 92, 'TOTAL', {
+        new Label(this, cx, totalY, 'TOTAL', {
           font: FONT_MINI,
           align: 'center',
           color: PAL.lightGrey,
           depth,
         }),
       );
-      const total = rec.ladderTotalMs(event);
       keepLabel(
-        new Label(this, cx, CARD_Y + 102, total === null ? '--' : formatLadderTotal(total), {
+        new Label(this, cx, totalY + 10, total === null ? '--' : formatLadderTotal(total), {
           align: 'center',
           color: total === null ? PAL.lightGrey : PAL.gold,
           depth,
         }),
       );
+      if (total === null) {
+        const ids = visibleLadderIds(rec, event);
+        const pbs = ids.filter((id) => rec.bestMs(event, id) !== null).length;
+        keepLabel(
+          new Label(this, cx, totalY + 20, ladderTotalProgressShort(pbs, rec.isRevealed(event)), {
+            font: FONT_MINI,
+            align: 'center',
+            color: PAL.midGrey,
+            depth,
+          }),
+        );
+      }
       if (!rec.data.seenEvents.includes(event)) {
         keep(
           this.add
-            .image(x + CARD_W - 27, CARD_Y + 3, iconKey('newBadge'))
+            .image(x + CARD_W - 27, y + 3, iconKey('newBadge'))
             .setOrigin(0, 0)
             .setDepth(depth + 1),
         );
@@ -180,7 +215,7 @@ export class EventSelectScene extends Phaser.Scene {
       // the block so the last line stays inside the card's bottom border.
       const lines = EVENT_LOCK_TEXT[event].flatMap((l) => wrapMini(l, CARD_W - 12));
       const textH = lines.length * (MINI_LINE_HEIGHT + 1) - 1;
-      const textTop = Math.min(CARD_Y + 86, CARD_Y + CARD_H - 4 - textH);
+      const textTop = Math.min(y + 86, y + CARD_H - 4 - textH);
       keep(
         this.add
           .image(cx - 8, textTop - 20, iconKey('lock'))
@@ -201,7 +236,7 @@ export class EventSelectScene extends Phaser.Scene {
     this.cards.push({ event, x, objs });
 
     // List item (design 17.5.3): first tap selects, a tap on the selected card confirms.
-    registerTapTarget(this, { x, y: CARD_Y, w: CARD_W, h: CARD_H }, () => {
+    registerTapTarget(this, { x, y, w: CARD_W, h: CARD_H }, () => {
       if (this.row === 'cards' && this.cursor === index) {
         this.confirmCard();
         return;
@@ -296,7 +331,7 @@ export class EventSelectScene extends Phaser.Scene {
       drawPanel(
         g,
         c.x + this.shakeOffset(i),
-        CARD_Y,
+        this.cardY,
         CARD_W,
         CARD_H,
         selected ? PAL.gold : unlocked ? PAL.white : PAL.grey,

@@ -48,10 +48,11 @@ export class RecordsStore {
     this.doc = doc;
   }
 
-  /** Design 34.4 load order. */
-  static load(storage: KeyValueStorage | null): RecordsStore {
-    if (storage === null) return new RecordsStore(null, freshSave());
-    const store = new RecordsStore(storage, freshSave());
+  /** Design 34.4 load order. `settings` seeds a fresh save only; a stored save keeps its own. */
+  static load(storage: KeyValueStorage | null, settings: Settings = DEFAULT_SETTINGS): RecordsStore {
+    const fresh = (): SaveData => freshSave({ settings, hints: freshSave().hints });
+    if (storage === null) return new RecordsStore(null, fresh());
+    const store = new RecordsStore(storage, fresh());
     const raw = store.read(SAVE_KEY);
     if (raw === undefined) return store; // reads throw: in-memory only
     if (raw !== null) {

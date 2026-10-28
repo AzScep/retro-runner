@@ -48,10 +48,10 @@ html[data-input='touch'] .touch-root.live .touch-pad {
   pointer-events: none;
   border: calc(var(--gp, 1px) * 1) solid #9b98b3;
 }
-html[data-input='touch'] .touch-root.live[data-pads='canvas'] .touch-pad-frame {
+html[data-input='touch'] .touch-root.live .touch-pad-frame[data-over='canvas'] {
   display: block;
 }
-.touch-root[data-pads='canvas'] .touch-pad {
+.touch-pad[data-over='canvas'] {
   clip-path: inset(calc(var(--gp, 1px) * 6));
 }
 .touch-pad-frame[data-state='expected'],
@@ -122,7 +122,7 @@ html[data-input='touch'] .touch-root.show-pause .touch-pause {
   image-rendering: crisp-edges;
 }
 
-/* Add to Home Screen hint: panel 200 x 64 game px at (60, 100), fill index 2, border index 8. */
+/* Add to Home Screen hint: panel 200 x 64 game px (it grows to fit the copy) at (60, 100), fill index 2, border index 8. */
 .touch-hint-backdrop {
   position: fixed;
   inset: 0;

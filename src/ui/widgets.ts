@@ -144,20 +144,33 @@ export class MenuList<Id extends string = string> {
   }
 
   /**
-   * Tap targets (design 17.5): one rectangle per row, `width` px wide from the cursor column and one
-   * line height tall (centred on the 8 px text), so rows never overlap. A tap focuses the row and
-   * calls `onTap`. Rows listed in `skip` get no target (their scene registers its own).
+   * Tap rectangle of row `i`: `width` px wide from 4 px left of the cursor column and one line height
+   * tall (centred on the 8 px text), so rows never overlap. Touch layouts use MENU_TAP_MIN rows.
+   */
+  rowRect(i: number, width: number): TapRect {
+    return { x: this.#x - 4, y: this.rowY(i) + 4 - this.#lh / 2, w: width, h: this.#lh };
+  }
+
+  /**
+   * Tap targets (design 17.5): one rowRect per row. A tap on an enabled row focuses it and calls
+   * `onTap`. Rows listed in `skip` get no target (their scene registers its own).
    */
   enableTaps(scene: Phaser.Scene, width: number, onTap: (id: Id) => void, skip: readonly Id[] = []): void {
     this.model.items.forEach((item, i) => {
       if (skip.includes(item.id)) return;
-      const rect = { x: this.#x - 4, y: this.rowY(i) + 4 - this.#lh / 2, w: width, h: this.#lh };
-      registerTapTarget(scene, rect, () => {
-        if (item.enabled === false) return;
+      registerTapTarget(scene, this.rowRect(i, width), () => {
+        // The model's copy, not `item`: setEnabled replaces items.
+        if (this.model.items[i]?.enabled === false) return;
         if (this.model.focus(item.id)) this.refresh();
         onTap(item.id);
       });
     });
+  }
+
+  /** Enables or disables a row (drawn grey, skipped by the cursor and by taps). */
+  setEnabled(id: Id, enabled: boolean): void {
+    this.model.setEnabled(id, enabled);
+    this.refresh();
   }
 }
 
@@ -171,13 +184,17 @@ export class ButtonRow<Id extends string = string> {
   readonly #dimmed = new Set<Id>();
   /** Bracket slot of each button: left and right edge and text y. */
   readonly #slots: { readonly x0: number; readonly x1: number; readonly y: number }[] = [];
+  /** Tap rectangle height: MENU_TAP_MIN, or the line pitch when wrapped lines sit closer. */
+  readonly #tapH: number;
   readonly #untaps: (() => void)[] = [];
   #active = true;
 
   /**
    * `centerX`: buttons are laid out centred on this x, `gap` px apart (between bracket edges).
    * A negative gap lets neighbours overlap their bracket slots (only one button is focused at a time).
-   * `perLine` wraps the buttons into centred lines `lineStep` px apart (touch menus with a BACK item).
+   * `perLine` wraps the buttons into centred lines `lineStep` px apart (touch menus with a BACK item);
+   * the default step is MENU_TAP_MIN, so wrapped lines get full-height tap rectangles that touch
+   * without overlapping.
    */
   constructor(
     scene: Phaser.Scene,
@@ -195,7 +212,8 @@ export class ButtonRow<Id extends string = string> {
     this.model = new MenuModel(items, opts.initial ?? null);
     const gap = opts.gap ?? 8;
     const perLine = Math.max(1, opts.perLine ?? items.length);
-    const lineStep = opts.lineStep ?? 20;
+    const lineStep = opts.lineStep ?? MENU_TAP_MIN;
+    this.#tapH = perLine < items.length ? Math.min(MENU_TAP_MIN, lineStep) : MENU_TAP_MIN;
     for (let start = 0; start < items.length; start += perLine) {
       const line = items.slice(start, start + perLine);
       const y = opts.y + (start / perLine) * lineStep;
@@ -266,8 +284,9 @@ export class ButtonRow<Id extends string = string> {
 
   /**
    * Tap rectangles in game px: each button's bracket slot, split at the midpoint where neighbours'
-   * slots overlap or leave a gap, MENU_TAP_MIN px tall, centred on the 8 px text (design 17.5.2).
-   * `dy` shifts them (the results card slides in, its targets sit at the final position).
+   * slots overlap or leave a gap, MENU_TAP_MIN px tall (less only between wrapped lines closer than
+   * that), centred on the 8 px text (design 17.5.2). `dy` shifts them (the results card slides in,
+   * its targets sit at the final position).
    */
   tapRects(dy = 0): readonly TapRect[] {
     return this.#slots.map((s, i) => {
@@ -275,7 +294,7 @@ export class ButtonRow<Id extends string = string> {
       const next = this.#slots[i + 1];
       const left = prev && prev.y === s.y ? Math.round((prev.x1 + s.x0) / 2) : s.x0;
       const right = next && next.y === s.y ? Math.round((s.x1 + next.x0) / 2) : s.x1;
-      return { x: left, y: s.y + 4 - MENU_TAP_MIN / 2 + dy, w: right - left, h: MENU_TAP_MIN };
+      return { x: left, y: s.y + 4 - this.#tapH / 2 + dy, w: right - left, h: this.#tapH };
     });
   }
 

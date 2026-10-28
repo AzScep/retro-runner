@@ -9,7 +9,7 @@
  * bell official at 300 m in the 400 m.
  */
 import type Phaser from 'phaser';
-import { EVENTS, hurdlePositions, ladderEntry, TUNING } from '../../core/index.ts';
+import { EVENTS, hurdlePositions, ladderEntry, RIVAL_KIT, TUNING } from '../../core/index.ts';
 import type {
   EventId,
   LaneCharacter,
@@ -28,6 +28,7 @@ import {
   MARKING_TOP,
   rowOffsetPx,
 } from '../stadium/layers.ts';
+import { paletteColor } from '../palette.ts';
 import { AIR_SHADOW_SIZES, airShadowIndex, HURDLE_FRAME } from '../stadium/props.ts';
 import { cameraScroll, finishXPx, VIEW, worldX } from '../view/camera.ts';
 import { hurdleVisible, laneDepth, laneFeetY, runnerScreenX, type LaneDepths } from '../view/lanes.ts';
@@ -58,7 +59,11 @@ const BOARD_FOOT_Y = LAYERS.track.y + 1;
 const FAR_OFFSET = laneOffsetPx(LANE_COUNT - 1);
 /** Far-side officials: px right of their line's far end (where the far line meets it). */
 const LINE_FAR_END = rowOffsetPx(MARKING_TOP);
-const STARTER_DX = LINE_FAR_END + 20;
+/**
+ * The starter stands 44 px past the line's far end, so the HUD's dark plate behind the 3-2-1 digit
+ * (x 141-182 at the start) never hides him; he is still the nearest official to the line.
+ */
+const STARTER_DX = LINE_FAR_END + 44;
 /** The starter fires for this long, then lowers the pistol. */
 const FIRE_MS = 450;
 /** Judges' bench starts just past the finish line; judges sit 14 px apart. */
@@ -68,6 +73,20 @@ const JUDGE_SPACING = 14;
 const JUDGE_STAND_MS = 1000;
 /** Photo-finish camera pole sits on the finish line's far end. */
 const CAMERA_DX = LINE_FAR_END + 2;
+/**
+ * A fumble shows on Rio (R2): the first stumble frames for this long, restarted at most 3 times a
+ * second like the HUD's red key, so same-key spam reads as flailing in the blocks.
+ */
+const FUMBLE_STUMBLE_MS = 160;
+const FUMBLE_RESTART_MS = 1000 / 3;
+/**
+ * Design 27.5.3 fallback (R6): a 5x3 chevron in the rival's kit colour (1 px ink edge) above the
+ * named rival's head while the rival is level with Rio, where Rio's head would hide the rival's.
+ */
+const CHEVRON = ['kkkkkkk', 'kccccck', '.kccck.', '..kck..', '...k...'] as const;
+const CHEVRON_LEVEL_PX = 24;
+const CHEVRON_GAP = 2;
+const CHEVRON_DEPTH = DEPTH.playerFx + 1;
 
 interface Hurdle {
   readonly sprite: Phaser.GameObjects.Sprite;
@@ -151,6 +170,8 @@ export class RaceViewImpl {
   private lastDust = -Infinity;
   private shakeUntil = 0;
   private coastFromM: number | null = null;
+  private lastFumbleStumble = -Infinity;
+  private readonly chevron: Phaser.GameObjects.Graphics;
   private destroyed = false;
 
   constructor(scene: Phaser.Scene, event: EventId, opponent: OpponentId, opts: RaceViewOptions) {
@@ -225,6 +246,18 @@ export class RaceViewImpl {
     // Lanes far to near; textures are bound on the first update from state.runners.
     const hurdleM = hurdlePositions(event);
     for (let lane = 0; lane < LANE_COUNT; lane++) this.lanes.push(this.makeLane(lane, hurdleM));
+
+    // Rival chevron, drawn once at (0, 0) and moved.
+    this.chevron = scene.add.graphics().setScrollFactor(0).setDepth(CHEVRON_DEPTH).setVisible(false);
+    const kit = paletteColor(RIVAL_KIT[opponent]);
+    const ink = paletteColor(1);
+    CHEVRON.forEach((row, y) => {
+      for (let x = 0; x < row.length; x++) {
+        const ch = row[x];
+        if (ch === '.') continue;
+        this.chevron.fillStyle(ch === 'k' ? ink : kit, 1).fillRect(x, y, 1, 1);
+      }
+    });
   }
 
   private addBoard(key: string, y: number, x: number): void {
@@ -346,11 +379,39 @@ export class RaceViewImpl {
       this.drawHurdles(r, lr.state);
       this.drawRunner(r, lr.state, dtMs, now);
     }
+    this.drawChevron(state);
+  }
+
+  /** R6 / design 27.5.3: the chevron over the named rival while level with Rio (whose head hides it). */
+  private drawChevron(state: RaceState): void {
+    const rio = this.lanes[0] as Runner;
+    const rival = this.lanes[1] as Runner;
+    const live = state.phase === 'running' || state.phase === 'finished';
+    const level =
+      live &&
+      rival.sprite.visible &&
+      rio.sprite.visible &&
+      Math.abs(rival.screenX - rio.screenX) <= CHEVRON_LEVEL_PX;
+    if (!level) {
+      this.chevron.setVisible(false);
+      return;
+    }
+    const id = rival.who?.kind === 'char' ? rival.who.id : '';
+    const a = frameAnchors(id, String(rival.sprite.frame.name));
+    const top = rival.sprite.y - 47 + (a ? a.headTop[1] : 4);
+    const x = rival.screenX - 24 + (a ? a.headTop[0] : 24) - (CHEVRON[0].length >> 1);
+    this.chevron.setPosition(Math.round(x), Math.round(top - CHEVRON_GAP - CHEVRON.length)).setVisible(true);
   }
 
   private onEvent(e: RaceEvent, state: RaceState, now: number): void {
     const player = this.lanes[0] as Runner;
     switch (e.type) {
+      case 'fumble':
+        if (now - this.lastFumbleStumble >= FUMBLE_RESTART_MS) {
+          this.lastFumbleStumble = now;
+          player.stumbleUntil = now + FUMBLE_STUMBLE_MS;
+        }
+        break;
       case 'step':
         // Steps in the air give no impulse and no dust (design 13.2).
         if (e.airborne !== true && state.player.airM <= 0 && now - this.lastDust >= DUST_MIN_MS) {
@@ -587,7 +648,12 @@ export class RaceViewImpl {
     const id = who.id as Parameters<typeof pickRunnerView>[0];
     const rival = r.lane === 1;
     if (this.coastFromM !== null && rival && s.xM > this.coastFromM + 20) this.coastFromM = null;
-    const pick = pickRunnerView(id, s, dtMs, r.vs, { coasting: rival && this.coastFromM !== null });
+    // Rio's fumble stumble (R2) shows over the run cycle and the crouch, never over a jump or fall.
+    const fumbling =
+      r.lane === 0 && now < r.stumbleUntil && (s.anim === 'run' || s.anim === 'tired' || s.anim === 'ready2');
+    const pick = fumbling
+      ? ({ kind: 'anim', anim: 'stumble' } as const)
+      : pickRunnerView(id, s, dtMs, r.vs, { coasting: rival && this.coastFromM !== null });
     this.apply(r, pick, (name) => KEYS.anim(id, name));
     this.overlays(r, id, s, visible, x, raise, now);
   }
@@ -732,6 +798,7 @@ export class RaceViewImpl {
     this.bench.destroy();
     for (const j of this.judges) j.sprite.destroy();
     this.camera.destroy();
+    this.chevron.destroy();
     this.bell?.destroy();
     for (const b of this.boards) b.img.destroy();
     for (const r of this.lanes) {

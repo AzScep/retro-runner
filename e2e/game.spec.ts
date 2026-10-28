@@ -76,7 +76,7 @@ test('beat Pip: win, recorded time, Jess unlocked, PB persists after reload, rec
   }
   expectText(res, 'YOU WIN!');
   expectText(res, 'JESS UNLOCKED!');
-  // NEW PB! flashes at 2 Hz, so wait for an "on" frame.
+  // NEW PB! appears once the card has drawn its PB row.
   await waitForState(page, (s) => s.texts.includes('NEW PB!'), 'NEW PB! flash', 2000);
   expect(res.records?.events['100m'].best['pip']?.ms).toBe(playerMs);
   expect(res.records?.events['100m'].beaten).toContain('pip');
@@ -208,6 +208,15 @@ test('two false starts disqualify, record DQ and no time', async ({ page }) => {
     'retry',
   );
   expect(retry.race?.phase).not.toBe('finished');
+  // An immediate retry starts at the blocks: no meet card, countdown well inside the 1.5 s walk-in.
+  const counting = await waitForState(
+    page,
+    (s) => s.race?.phase === 'countdown' || s.hud?.meet != null,
+    'retry countdown',
+    1200,
+  );
+  expect(counting.hud?.meet ?? null).toBeNull();
+  expect(counting.race?.phase).toBe('countdown');
 });
 
 test('Esc pauses the race clock and resume continues without a jump', async ({ page }) => {
@@ -342,7 +351,7 @@ test('locked rivals cannot be raced', async ({ page }) => {
   await titleToLadder(page);
   await page.keyboard.press('ArrowUp');
   const s = await waitForState(page, (st) => st.ladderCursor === 'jess', 'cursor on Jess');
-  expectText(s, 'BEAT PIP TO UNLOCK');
+  expectText(s, 'FINISH 1ST VS PIP');
   await page.keyboard.press('Enter');
   await page.waitForTimeout(300);
   const after = await getState(page);

@@ -2,7 +2,17 @@
  * Pure layout and display maths for the race HUD and screens (design 6.2-6.5).
  * No Phaser imports so it runs under Vitest in Node.
  */
-import { EVENTS, hurdlePositions, WORLD, type EventId, type OpponentId } from '../core/index.ts';
+import {
+  EVENTS,
+  formatTime,
+  hurdlePositions,
+  TUNING,
+  WORLD,
+  type EventId,
+  type HurdleTiming,
+  type RaceOutcome,
+  type Side,
+} from '../core/index.ts';
 import { MINI_HEIGHT, miniTextWidth } from './miniFont.ts';
 
 // ---------------------------------------------------------------------------
@@ -32,21 +42,8 @@ export const PAL = {
   tealGlow: 37,
 } as const;
 
-/**
- * Named rival's kit base colour (design 3.3, 15.5, 27.1-27.4): the rival badge frame, the progress
- * bar head and the off-screen markers. Chrome UNIT-7 uses metal base, which still reads apart from
- * the field's index 7.
- */
-export const RIVAL_KIT: Readonly<Record<OpponentId, number>> = {
-  pip: 26,
-  jess: 29,
-  marco: 33,
-  kofi: 26,
-  valentina: 29,
-  unit7: 5,
-  zyx: 33,
-  sol: 21,
-};
+/** Named rival's kit base colour (design 27.1-27.5); one table in core, shared with the world chevron. */
+export { RIVAL_KIT } from '../core/index.ts';
 
 // ---------------------------------------------------------------------------
 // Speed meter (design 6.2)
@@ -65,6 +62,22 @@ export function segmentColorIndex(i: number): number {
   if (i <= 5) return PAL.green;
   if (i <= 8) return PAL.gold;
   return PAL.redLight;
+}
+
+/** Segments lit at the 400 m sustain speed (SUSTAIN_RATE alt/s = 7 m/s): 6. */
+export function sustainSegments(): number {
+  return litSegments(SUSTAIN_SPEED_MPS);
+}
+
+/**
+ * 400 m segment colour: up to the sustain speed green; above it is over pace, red while the meter
+ * drains (the player is stepping above SUSTAIN_RATE) and gold while coasting down. Other events use
+ * the 6.2 ramp, where red means flat out.
+ */
+export function speedSegmentColor(i: number, event: EventId, draining: boolean): number {
+  if (event !== '400m') return segmentColorIndex(i);
+  if (i <= sustainSegments()) return PAL.green;
+  return draining ? PAL.redLight : PAL.gold;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +197,11 @@ export function staminaLabelColor(stamina: number, elapsedMs: number, reducedFla
   if (stamina * 100 >= 30) return PAL.white;
   if (reducedFlashing) return PAL.redLight;
   return flashOn(elapsedMs, flashHz(1, false)) ? PAL.redLight : PAL.white;
+}
+
+/** x offset (into the segment track) of the 1 px gap just after the sustain segments: 35. */
+export function sustainDividerOffset(pitch = 6): number {
+  return sustainSegments() * pitch - 1;
 }
 
 /** Sustain tick x offset into the speed segments: round(7.0 / 12.5 * 60) = 34 (design 18.4). */
@@ -462,4 +480,113 @@ export function bubbleBox(
   const y = y0;
   const tailX = Math.round(Math.min(Math.max(ax - 1, x + PAD), x + w - PAD - TAIL));
   return { x, y, w, h, tailX, tailY: y + h - 1 };
+}
+
+// ---------------------------------------------------------------------------
+// Key prompt (design 6.4, R1): MASH! for an idle player, ALTERNATE! for a one-key masher.
+// ---------------------------------------------------------------------------
+
+/** No valid step for this long during the race shows a prompt (6.4.3). */
+export const MASH_IDLE_MS = 500;
+/** Fumbles since the last valid step that turn MASH! into ALTERNATE!. */
+export const ALTERNATE_AFTER_FUMBLES = 2;
+/**
+ * Reduced flashing: the expected key alone stays lit for this many valid steps after GO and after
+ * any fumble, then both keys stay bright (the swap would alternate faster than 1 Hz).
+ */
+export const GUIDE_STEPS = 4;
+
+export type PromptKeyLook = 'dim' | 'bright' | 'wrong';
+
+export interface KeyPromptInput {
+  readonly running: boolean;
+  readonly idleMs: number;
+  readonly fumblesSinceStep: number;
+  /** Valid steps since GO or since the last fumble, whichever is later. */
+  readonly stepsSinceGuide: number;
+  readonly expectedSide: Side | null;
+  readonly reducedFlashing: boolean;
+}
+
+export interface KeyPrompt {
+  readonly text: 'MASH!' | 'ALTERNATE!' | null;
+  readonly L: PromptKeyLook;
+  readonly R: PromptKeyLook;
+}
+
+/**
+ * Key prompt while the race is on (6.4, 6.5). A player pressing the same key over and over gets
+ * ALTERNATE! with the next key steadily bright and the repeated one in the wrong look, instead of
+ * a MASH! pulse that lit both keys; MASH! stays for a player who presses nothing at all.
+ */
+export function keyPrompt(k: KeyPromptInput): KeyPrompt {
+  if (!k.running) return { text: null, L: 'dim', R: 'dim' };
+  const exp = k.expectedSide;
+  if (k.fumblesSinceStep >= ALTERNATE_AFTER_FUMBLES && exp !== null) {
+    return exp === 'L'
+      ? { text: 'ALTERNATE!', L: 'bright', R: 'wrong' }
+      : { text: 'ALTERNATE!', L: 'wrong', R: 'bright' };
+  }
+  if (k.idleMs >= MASH_IDLE_MS && k.fumblesSinceStep < ALTERNATE_AFTER_FUMBLES) {
+    const on = flashOn(k.idleMs - MASH_IDLE_MS, flashHz(2, k.reducedFlashing));
+    return on ? { text: 'MASH!', L: 'bright', R: 'bright' } : { text: null, L: 'dim', R: 'dim' };
+  }
+  if (exp === null) return { text: null, L: 'bright', R: 'bright' };
+  if (k.reducedFlashing && k.stepsSinceGuide >= GUIDE_STEPS) return { text: null, L: 'bright', R: 'bright' };
+  return exp === 'L' ? { text: null, L: 'bright', R: 'dim' } : { text: null, L: 'dim', R: 'bright' };
+}
+
+/** The wrong-key look after a fumble lasts this long, whatever the display rate (R2). */
+export const FUMBLE_LOOK_MS = 200;
+
+// ---------------------------------------------------------------------------
+// Hurdle popups (R4): which way a knocked jump was off, and a clean clear.
+// ---------------------------------------------------------------------------
+
+/** Popup text and colour for the player's hurdle result. */
+export function hurdlePopup(
+  kind: 'clear' | 'clip' | 'hit',
+  timing: HurdleTiming | undefined,
+): { readonly text: string; readonly color: number } {
+  if (kind === 'clear') return { text: 'CLEAN', color: PAL.green };
+  if (kind === 'clip') return { text: timing === 'late' ? 'LATE' : 'EARLY', color: PAL.gold };
+  return timing === 'early'
+    ? { text: 'TOO EARLY', color: PAL.redLight }
+    : { text: 'JUMP!', color: PAL.redLight };
+}
+
+// ---------------------------------------------------------------------------
+// 400 m split popup (R5): cumulative time plus the last 100 m segment.
+// ---------------------------------------------------------------------------
+
+/** `100M 10.36`, then `200M 25.41 (+15.05)` with the last 100 m segment time. */
+export function splitPopupText(index: number, splits: readonly number[]): string {
+  const ms = splits[index] ?? 0;
+  const head = `${(index + 1) * 100}M ${formatTime(ms)}`;
+  const prev = index > 0 ? splits[index - 1] : undefined;
+  return prev === undefined ? head : `${head} (+${formatTime(ms - prev)})`;
+}
+
+// ---------------------------------------------------------------------------
+// Finish moment (R7)
+// ---------------------------------------------------------------------------
+
+/**
+ * Centre callout once the player crosses: `1ST!` gold, `2ND`/`3RD` white, `4TH`-`6TH` red, and
+ * `photo` when the player's time is within PHOTO_FINISH_MS of the runner just ahead or behind.
+ */
+export function finishCall(
+  outcome: RaceOutcome,
+): { readonly text: string; readonly color: number; readonly photo: boolean } | null {
+  if (outcome.place === null || outcome.ms === null) return null;
+  const place = outcome.place;
+  const suffix = place === 1 ? 'ST' : place === 2 ? 'ND' : place === 3 ? 'RD' : 'TH';
+  const text = place === 1 ? '1ST!' : `${place}${suffix}`;
+  const color = place === 1 ? PAL.gold : place <= 3 ? PAL.white : PAL.redLight;
+  const timed = outcome.standings.filter((s) => s.ms !== null);
+  const i = timed.findIndex((s) => s.lane === 0);
+  const ms = outcome.ms;
+  const near = (s: (typeof timed)[number] | undefined): boolean =>
+    s !== undefined && s.ms !== null && Math.abs(s.ms - ms) <= TUNING.PHOTO_FINISH_MS;
+  return { text, color, photo: near(timed[i - 1]) || near(timed[i + 1]) };
 }

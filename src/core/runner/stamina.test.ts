@@ -137,3 +137,25 @@ describe('stamina events (design 14.1, 20.1)', () => {
     expect(log).toEqual([]);
   });
 });
+
+describe('stamina empty point (results EMPTY AT <m>M)', () => {
+  it('records the whole metre where a step first reaches 0, and keeps it', () => {
+    const b = new PlayerBody('400m');
+    expect(b.emptyAtM).toBeNull();
+    b.x = 137.6;
+    b.stamina = 0.01;
+    b.impulse(0, null);
+    expect(b.emptyAtM).toBe(138);
+    b.x = 250;
+    b.stamina = 0.01;
+    b.impulse(5000, null);
+    expect(b.emptyAtM).toBe(138);
+    expect(b.clone().emptyAtM).toBe(138);
+  });
+
+  it('stays null outside the 400 m', () => {
+    const b = new PlayerBody('100m');
+    b.impulse(0, null);
+    expect(b.emptyAtM).toBeNull();
+  });
+});

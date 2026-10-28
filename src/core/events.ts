@@ -36,7 +36,8 @@ export const EVENT_COURSE: Readonly<Record<EventId, EventCourse>> = {
     boardStepM: 10,
     splitsM: [],
     bellAtM: null,
-    firstRaceTip: null,
+    // The core skill of every event: the expected key alternates (R1).
+    firstRaceTip: { keyboard: 'ALTERNATE LEFT + RIGHT', touch: 'TAP LEFT, RIGHT, LEFT...' },
   },
   '110mh': {
     leanFromM: 108,
@@ -71,9 +72,12 @@ export function hurdlePositions(event: EventId): readonly number[] {
   return event === '110mh' ? HURDLES_110 : [];
 }
 
-/** Design 12.2: unlock card text for a locked event. */
+/**
+ * Design 12.2: unlock card text for a locked event. Only 1st place is a win (24.1), and the rival may
+ * still be a `???` silhouette, so the text names the tier, which every ladder card shows.
+ */
 export const EVENT_LOCK_TEXT: Readonly<Record<EventId, readonly string[]>> = {
   '100m': [],
-  '110mh': ['BEAT MARCO IN 100M'],
-  '400m': ['BEAT KOFI IN 100M', 'OR MARCO IN HURDLES'],
+  '110mh': ['WIN TIER 3 IN 100M'],
+  '400m': ['WIN TIER 4 IN 100M', 'OR TIER 3 IN HURDLES'],
 };
