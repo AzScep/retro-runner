@@ -20,15 +20,15 @@ _A 100 m race in progress at the World Games meet. Screenshot of the running gam
 
 ![The event select screen: 100 m unlocked, while the 110 m hurdles and 400 m cards are locked with their unlock conditions.](docs/assets/events.png)
 
-_Event select on a fresh profile. Beating rivals in the 100 m unlocks the hurdles and the 400 m._
+_Event select on a fresh profile. Winning higher tiers of the 100 m unlocks the hurdles and the 400 m._
 
-![The 100 m ladder with Kofi selected: his tier, target time, best placing of 2nd, and medal pips on the rivals already raced.](docs/assets/ladder.png)
+![The 100 m ladder with Kofi selected: his tier, his meet (City Open), target time, best placing of 2nd, and medal pips on the rivals already raced.](docs/assets/ladder.png)
 
 _The ladder. Medal pips show your best placing against each rival._
 
-![A results card for a six-runner race, listing every runner's place and time, with the player's row highlighted in 6th.](docs/assets/results.png)
+![A results card for a six-runner race: every runner's place and time with the player's row highlighted in 6th, then the player's pace, fumbles, the extra pace needed to win, the gap to their PB and the rival a win would unlock.](docs/assets/results.png)
 
-_Every race ends with the full field's places and times._
+_Every race ends with the full field's places and times, and what to change to win next time._
 
 ## Play it locally
 
