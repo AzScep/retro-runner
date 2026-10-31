@@ -64,6 +64,17 @@ export default tseslint.config(
     ]),
   },
   {
+    files: ['src/landing/**/*.ts'],
+    rules: restrict([
+      { group: ['phaser', 'phaser/*', 'phaser-src/*'], message: 'The landing page never loads Phaser.' },
+      {
+        group: ['**/scenes/**', '**/ui/**'],
+        message: 'The landing page does not use game scenes or game UI.',
+      },
+      noTouch,
+    ]),
+  },
+  {
     files: ['src/touch/**/*.ts'],
     rules: restrict([
       {

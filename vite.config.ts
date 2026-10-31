@@ -72,5 +72,15 @@ export default defineConfig({
   },
   // The main chunk is ~920 KB with the trimmed Phaser build (1.6 MB with the full dist file), so a
   // warning here means the bundle has regressed.
-  build: { target: 'es2023', chunkSizeWarningLimit: 1000 },
+  build: {
+    target: 'es2023',
+    chunkSizeWarningLimit: 1000,
+    // The game at / and the landing page at /welcome/ (src/landing/README.md).
+    rolldownOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        welcome: fileURLToPath(new URL('./welcome/index.html', import.meta.url)),
+      },
+    },
+  },
 });
