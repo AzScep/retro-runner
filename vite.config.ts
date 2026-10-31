@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { PAGE_META } from './src/landing/content/meta.ts';
 
 /** Phaser's build-time feature flags (its own webpack config sets them with DefinePlugin). */
 const PHASER_FLAGS: Readonly<Record<string, boolean>> = {
@@ -28,10 +29,44 @@ function resolvePhaserFlags(code: string, id: string): { code: string; map: null
   return out === code ? null : { code: out, map: null };
 }
 
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * Fills the landing page head from its copy (src/landing/content/meta.ts), so crawlers and link
+ * previews, which do not run the page's script, read the same text the page shows.
+ */
+function landingMeta(): Plugin {
+  const m = PAGE_META;
+  const og = new URL('../og.png', m.url).href;
+  const tags = [
+    `<title>${escapeHtml(m.title)}</title>`,
+    `<meta name="description" content="${escapeHtml(m.description)}" />`,
+    `<link rel="canonical" href="${escapeHtml(m.url)}" />`,
+    `<meta property="og:type" content="website" />`,
+    `<meta property="og:site_name" content="${escapeHtml(m.siteName)}" />`,
+    `<meta property="og:title" content="${escapeHtml(m.ogTitle)}" />`,
+    `<meta property="og:description" content="${escapeHtml(m.ogDescription)}" />`,
+    `<meta property="og:url" content="${escapeHtml(m.url)}" />`,
+    `<meta property="og:image" content="${og}" />`,
+    `<meta property="og:image:width" content="1200" />`,
+    `<meta property="og:image:height" content="630" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
+  ].join('\n    ');
+  return {
+    name: 'landing-meta',
+    transformIndexHtml: {
+      order: 'pre',
+      handler: (html) => html.replace('%LANDING_META%', tags),
+    },
+  };
+}
+
 export default defineConfig({
   base: './',
   plugins: [
     phaserFlags(),
+    landingMeta(),
     // Precaching service worker for offline play from the Home Screen (research-mobile 5).
     // The manifest is the hand-written public/manifest.webmanifest, linked from index.html.
     // main.ts registers the worker (never in test builds). The plugin's register code reloads the
@@ -52,6 +87,8 @@ export default defineConfig({
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,png,svg,woff2,webmanifest}'],
         navigateFallback: 'index.html',
+        // The landing page is precached as welcome/index.html; never answer its URLs with the game.
+        navigateFallbackDenylist: [/^\/welcome(\/|$)/],
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
