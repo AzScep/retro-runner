@@ -1,0 +1,11 @@
+/*
+ * The landing page's one stylesheet: import it once from the entry. Fonts first, then tokens,
+ * base styles and components.
+ * Both fonts are self-hosted from @fontsource, like the game's: Press Start 2P for display text and
+ * Pixelify Sans (SIL OFL 1.1) for body copy.
+ */
+@import '@fontsource/press-start-2p/latin-400.css';
+@import '@fontsource-variable/pixelify-sans/index.css';
+@import './tokens.css';
+@import './base.css';
+@import './retro.css';

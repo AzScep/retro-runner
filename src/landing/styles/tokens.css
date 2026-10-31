@@ -1,0 +1,170 @@
+/*
+ * Design tokens of the /welcome/ landing page. Every colour is a master palette value
+ * (design 5.2, src/art/palette.ts); the comment after each one is its palette index.
+ * Only role names live here: components use these tokens, never raw hex values.
+ * The page is dark only (the game's letterbox is index 1), so there is no light theme.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces. */
+  --rr-color-bg: #0b0b14; /* 1 ink: page background, as the game's letterbox */
+  --rr-color-outline: #0b0b14; /* 1 ink: every 1-art-pixel outline (design 5.3) */
+  --rr-color-panel: #1d1b2e; /* 2 ink: UI panel fill (design 6.1) */
+  --rr-color-panel-raised: #2e2a45; /* 3 ink: bevel highlight, raised rows */
+  --rr-color-rim: #4a4766; /* 4 neutral: decoration only, never text (1.91:1 on panel) */
+  --rr-color-rim-light: #6e6b8c; /* 5 neutral: frame rims, decoration only (3.32:1 on panel) */
+  --rr-color-shell: #9b98b3; /* 6 neutral: cartridge shell */
+  --rr-color-shell-shade: #6e6b8c; /* 5 neutral: cartridge grip ridges */
+  --rr-color-night: #142a5c; /* 28 blue: floodlit night sky (tier 4) */
+  --rr-color-space: #0a1430; /* 42 accent: orbit sky (tier 7) */
+
+  /* Text. All pairs on bg and panel pass WCAG AA (4.5:1) at body size. */
+  --rr-color-text: #f4f2ff; /* 8 white: 17.7:1 on bg, 15.2:1 on panel */
+  --rr-color-text-soft: #c9c7d9; /* 7 light grey: 10.1:1 on panel */
+  --rr-color-text-muted: #9b98b3; /* 6 metal light: 7.0:1 on bg, 6.0:1 on panel */
+  --rr-color-text-on-light: #0b0b14; /* 1 ink: text on yellow, shell and accent fills */
+  --rr-color-link: #9cd2ff; /* 31 sky light: 12.2:1 on bg */
+
+  /* Call to action: the yellow of the game's GO text, with its orange ramp as the button side. */
+  --rr-color-cta: #ffd23f; /* 22 yellow */
+  --rr-color-cta-light: #fff1a8; /* 23 pale yellow: bevel highlight, hover fill */
+  --rr-color-cta-mid: #e89a1c; /* 21 orange base: bevel shade */
+  --rr-color-cta-side: #a85a12; /* 20 orange shadow: the button's side */
+  --rr-color-secondary: #2456b8; /* 29 blue base: white text 6.1:1 */
+  --rr-color-secondary-light: #4b8df0; /* 30 sky: bevel highlight */
+  --rr-color-secondary-side: #142a5c; /* 28 navy */
+
+  /* Accents. */
+  --rr-color-player: #e8503f; /* 18 red light: player kit, 1UP (5.3:1 on bg) */
+  --rr-color-player-shadow: #b02a32; /* 17 red base */
+  --rr-color-player-deep: #6b1525; /* 16 red shadow: last step of the marquee extrusion */
+  --rr-color-success: #a6e86b; /* 27 green highlight: meter fill, beaten */
+  --rr-color-warning: #ff8f6b; /* 19 red highlight: text on dark only */
+  --rr-color-neon: #b05ce0; /* 34 purple light: 5.1:1 on bg, decoration only on panel */
+  --rr-color-pink: #ff7aa8; /* 41 sunset pink: flashbulb accents */
+  --rr-color-focus: #6ef2c2; /* 37 teal glow: focus ring, 14.1:1 on bg */
+  --rr-color-star: #f4f2ff; /* 8 white: star pixels */
+  --rr-color-star-glow: #6ef2c2; /* 37 teal glow: star pixels */
+  --rr-color-floodlight: #fff1a8; /* 23 pale yellow: floodlight bulbs and beams */
+
+  /* Track (design 5.7 tartan ramp) and grass. */
+  --rr-color-tartan: #8f3f2a; /* 39 tartan base */
+  --rr-color-tartan-shadow: #5c2a1e; /* 38 tartan shadow */
+  --rr-color-tartan-light: #c4613c; /* 40 tartan light */
+  --rr-color-chalk: #f4f2ff; /* 8 white: lane lines */
+  --rr-color-grass: #2e7a3a; /* 25 grass base */
+
+  /* Event accents (cartridge labels). Ink text on each passes AA. */
+  --rr-color-event-100m: #e8503f; /* 18 red light: ink 5.3:1 */
+  --rr-color-event-hurdles: #4b8df0; /* 30 sky: ink 5.9:1 */
+  --rr-color-event-400m: #b05ce0; /* 34 purple light: ink 5.1:1 */
+
+  /* Stadium skies per tier (design 5.8), as hard bands: no smooth gradients. */
+  --rr-sky-1: linear-gradient(#4b8df0 0 55%, #9cd2ff 55% 85%, #f4f2ff 85%); /* 30, 31, 8 morning */
+  --rr-sky-2: linear-gradient(#2456b8 0 45%, #ff7aa8 45% 75%, #e89a1c 75%); /* 29, 41, 21 dusk */
+  --rr-sky-3: linear-gradient(#4b8df0 0 60%, #9cd2ff 60%); /* 30, 31 day */
+  --rr-sky-4: linear-gradient(#142a5c 0 60%, #1d1b2e 60%); /* 28, 2 night */
+  --rr-sky-5: linear-gradient(#ff7aa8 0 40%, #e89a1c 40% 75%, #ffd23f 75%); /* 41, 21, 22 sunset */
+  --rr-sky-6: linear-gradient(#3b1d5c 0 60%, #1d1b2e 60%); /* 32, 2 cyber arena */
+  --rr-sky-7: linear-gradient(#0a1430 0 60%, #0b0b14 60%); /* 42, 1 orbit */
+
+  /*
+   * Type. Press Start 2P is drawn on an 8 px grid, so display sizes are multiples of 8.
+   * Body copy uses Pixelify Sans, a pixel face that stays readable in paragraphs.
+   */
+  --rr-font-display: 'Press Start 2P', ui-monospace, 'Courier New', monospace;
+  --rr-font-body: 'Pixelify Sans Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --rr-text-8: 8px; /* native glyph size: decoration only, never sentences */
+  --rr-text-12: 12px; /* phone-only labels in tight tiles: exact 3x on 2x screens */
+  --rr-text-16: 16px; /* labels, buttons, HUD */
+  --rr-text-24: 24px; /* h3, large button */
+  --rr-text-32: 32px; /* h2, phone h1 */
+  --rr-text-48: 48px; /* tablet h1, countdown */
+  --rr-text-64: 64px; /* desktop h1 */
+  --rr-text-body: 18px;
+  --rr-text-small: 16px;
+  --rr-leading-display: 1.5; /* 16 px text on a 24 px line */
+  --rr-leading-tight: 1.25;
+  --rr-leading-body: 1.5;
+  --rr-measure: 60ch;
+
+  /* Spacing on a 4 px grid. The suffix is the multiple of 4. */
+  --rr-space-1: 4px;
+  --rr-space-2: 8px;
+  --rr-space-3: 12px;
+  --rr-space-4: 16px;
+  --rr-space-6: 24px;
+  --rr-space-8: 32px;
+  --rr-space-10: 40px;
+  --rr-space-12: 48px;
+  --rr-space-16: 64px;
+  --rr-space-20: 80px;
+  --rr-space-24: 96px;
+  --rr-space-32: 128px;
+  --rr-gutter: 16px;
+  --rr-max-width: 1152px;
+  --rr-tap-min: 48px; /* above the 44 px minimum tap target */
+  --rr-hud-height: 56px;
+
+  /*
+   * Pixel geometry. One art pixel on the page is 2 CSS px. Outlines are hard and 1-2 art
+   * pixels wide, never blurred, and nothing has a border radius.
+   */
+  --rr-px: 2px;
+  --rr-px-2: 4px;
+  --rr-radius: 0;
+  --rr-border: var(--rr-px) solid var(--rr-color-outline);
+  --rr-border-rim: var(--rr-px) solid var(--rr-color-rim-light);
+  --rr-shadow-drop: 4px 4px 0 0 var(--rr-color-outline);
+  --rr-shadow-bevel:
+    inset var(--rr-px) var(--rr-px) 0 0 var(--rr-color-panel-raised),
+    inset calc(-1 * var(--rr-px)) calc(-1 * var(--rr-px)) 0 0 var(--rr-color-outline);
+  --rr-shadow-text: var(--rr-px) var(--rr-px) 0 var(--rr-color-outline); /* design 6.1 */
+  /* Corners cut in two 2 px steps, like a 16-bit window. Clips outlines, so never on focusables. */
+  --rr-clip-notch: polygon(
+    0 4px,
+    2px 4px,
+    2px 2px,
+    4px 2px,
+    4px 0,
+    calc(100% - 4px) 0,
+    calc(100% - 4px) 2px,
+    calc(100% - 2px) 2px,
+    calc(100% - 2px) 4px,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 2px) calc(100% - 4px),
+    calc(100% - 2px) calc(100% - 2px),
+    calc(100% - 4px) calc(100% - 2px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    4px calc(100% - 2px),
+    2px calc(100% - 2px),
+    2px calc(100% - 4px),
+    0 calc(100% - 4px)
+  );
+  /* Ring colour is --rr-color-focus, which components on light fills override. */
+  --rr-focus-width: 4px;
+  --rr-focus-offset: 4px;
+
+  /* Layers. */
+  --rr-z-base: 0;
+  --rr-z-raised: 10;
+  --rr-z-hud: 100;
+  --rr-z-toast: 200;
+  --rr-z-crt: 300; /* above content, pointer-events none */
+  --rr-z-skip: 400;
+
+  /*
+   * Motion. Blinks run at 1 Hz, inside the game's 3 Hz flashing limit and its 1 Hz
+   * reduced-flashing limit (design 6.5). Pixel motion steps instead of easing.
+   */
+  --rr-dur-press: 60ms;
+  --rr-dur-fast: 120ms;
+  --rr-dur-base: 240ms;
+  --rr-dur-slow: 480ms;
+  --rr-dur-blink: 1000ms;
+  --rr-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --rr-ease-pixel: steps(4, end);
+}

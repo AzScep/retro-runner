@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0b14" />
+    <title>Landing styles preview</title>
+    <link rel="stylesheet" href="../styles/index.css" />
+    <style>
+      /* Preview-only helpers. Not part of the design system. */
+      .pv-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: var(--rr-space-4);
+      }
+      .pv-swatch {
+        display: grid;
+        gap: var(--rr-space-1);
+        font-size: var(--rr-text-small);
+        line-height: var(--rr-leading-tight);
+      }
+      .pv-swatch span:first-child {
+        height: var(--rr-space-12);
+        border: var(--rr-border-rim);
+      }
+      .pv-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--rr-space-6) var(--rr-space-4);
+        padding-bottom: var(--rr-space-2);
+      }
+      .pv-stack {
+        display: grid;
+        gap: var(--rr-space-6);
+      }
+      .pv-space {
+        display: flex;
+        align-items: center;
+        gap: var(--rr-space-3);
+        font-size: var(--rr-text-small);
+      }
+      .pv-space span:first-child {
+        height: var(--rr-space-4);
+        background: var(--rr-color-success);
+      }
+      .pv-backdrop {
+        display: grid;
+        place-items: center;
+        min-height: 240px;
+        padding: var(--rr-space-6);
+        text-align: center;
+      }
+      .pv-two {
+        display: grid;
+        align-items: start;
+        gap: var(--rr-space-8);
+      }
+      .pv-stack > .rr-btn {
+        justify-self: start;
+      }
+      @media (min-width: 1024px) {
+        .pv-two {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="rr-skip-link" href="#tokens">Skip to tokens</a>
+
+    <header class="rr-hud">
+      <div class="rr-container rr-hud__inner">
+        <p class="rr-hud__score">
+          <span class="rr-hud__label">1UP</span>
+          <span class="rr-hud__value">004200</span>
+        </p>
+        <div
+          class="rr-meter"
+          role="progressbar"
+          aria-label="Page progress"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="40"
+          style="--rr-meter-value: 0.4"
+        >
+          <div class="rr-meter__fill"></div>
+        </div>
+        <ul class="rr-hud__badges" aria-label="Badges">
+          <li class="rr-badge rr-badge--earned"><img class="rr-sprite" data-ph alt="Starter badge" /></li>
+          <li class="rr-badge rr-badge--earned"><img class="rr-sprite" data-ph alt="Sprinter badge" /></li>
+          <li class="rr-badge"><span class="sr-only">Locked badge</span></li>
+        </ul>
+      </div>
+    </header>
+
+    <div class="rr-toast-stack" id="toasts"></div>
+    <div class="sr-only" aria-live="polite" id="toast-live"></div>
+
+    <main>
+      <section class="rr-section rr-backdrop--floodlit">
+        <div class="rr-container pv-stack">
+          <h1 class="rr-marquee">Retro Runner</h1>
+          <p>
+            Design system preview. Every token and component of <code>src/landing/styles/</code> is on this
+            page.
+          </p>
+          <div class="pv-row">
+            <a class="rr-btn rr-btn--lg rr-btn--coin" href="#tokens">
+              <span>Play</span>
+              <span class="rr-btn__sub">Insert coin</span>
+            </a>
+            <button class="rr-btn rr-btn--secondary" type="button" id="toast-btn">Pop a badge</button>
+          </div>
+          <label class="pv-space"><input type="checkbox" id="crt-toggle" checked /> CRT scanlines</label>
+        </div>
+      </section>
+
+      <div class="rr-track" aria-hidden="true"></div>
+
+      <section class="rr-section" id="tokens">
+        <div class="rr-container pv-stack">
+          <div class="rr-section__head">
+            <h2>Colour tokens</h2>
+            <p class="rr-muted">Master palette values by role. The number is the palette index.</p>
+          </div>
+          <div class="pv-grid" id="swatches"></div>
+
+          <h2>Stadium skies</h2>
+          <div class="pv-grid">
+            <div class="pv-swatch rr-tier-1">
+              <span style="background: var(--rr-sky)"></span><span>--rr-sky-1</span>
+            </div>
+            <div class="pv-swatch rr-tier-2">
+              <span style="background: var(--rr-sky)"></span><span>--rr-sky-2</span>
+            </div>
+            <div class="pv-swatch rr-tier-3">
+              <span style="background: var(--rr-sky)"></span><span>--rr-sky-3</span>
+            </div>
+            <div class="pv-swatch rr-tier-4">
+              <span style="background: var(--rr-sky)"></span><span>--rr-sky-4</span>
+            </div>
+            <div class="pv-swatch rr-tier-5">
+              <span style="background: var(--rr-sky)"></span><span>--rr-sky-5</span>
+            </div>
+            <div class="pv-swatch rr-tier-6">
+              <span style="background: var(--rr-sky)"></span><span>--rr-sky-6</span>
+            </div>
+            <div class="pv-swatch rr-tier-7">
+              <span style="background: var(--rr-sky)"></span><span>--rr-sky-7</span>
+            </div>
+          </div>
+
+          <h2>Type scale</h2>
+          <div class="pv-stack">
+            <p class="rr-h1">H1 64</p>
+            <p class="rr-h2">H2 32</p>
+            <p class="rr-h3">H3 24</p>
+            <p class="rr-label">Label 16 TIME 12.84</p>
+            <p>
+              Body 18 in Pixelify Sans. Mash left and right to sprint, tap jump to clear the hurdles, and pace
+              your stamina over one full lap.
+            </p>
+            <p class="rr-small rr-muted">Small 16, muted. Best times are saved on this device.</p>
+            <p><a href="#tokens">A text link</a></p>
+          </div>
+
+          <h2>Spacing</h2>
+          <div class="pv-stack" id="spacing" style="gap: var(--rr-space-2)"></div>
+        </div>
+      </section>
+
+      <div class="rr-track" aria-hidden="true"></div>
+
+      <section class="rr-section">
+        <div class="rr-container pv-stack">
+          <h2>Buttons</h2>
+          <div class="pv-row">
+            <button class="rr-btn" type="button">Play</button>
+            <button class="rr-btn is-pressed" type="button">Pressed</button>
+            <button class="rr-btn rr-btn--secondary" type="button">Records</button>
+            <button class="rr-btn" type="button" disabled>Locked</button>
+          </div>
+          <div class="pv-row">
+            <a class="rr-btn rr-btn--lg" href="#tokens">Play now</a>
+            <a class="rr-btn rr-btn--lg rr-btn--coin" href="#tokens">
+              <span>Play</span>
+              <span class="rr-btn__sub">Insert coin</span>
+            </a>
+          </div>
+          <a class="rr-btn rr-btn--block" href="#tokens">Block button</a>
+
+          <h2>Blink and caret</h2>
+          <p class="rr-label">
+            <span class="rr-blink">Press start</span> &nbsp; Ready<span
+              class="rr-caret"
+              aria-hidden="true"
+            ></span>
+          </p>
+          <div class="pv-row">
+            <span class="rr-key">A</span><span class="rr-key">D</span><span class="rr-key">Space</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="rr-section">
+        <div class="rr-container pv-two">
+          <div class="rr-panel pv-stack">
+            <h3>Panel</h3>
+            <p>Index 2 fill, a rim, a bevel and stepped corners.</p>
+            <div class="rr-panel rr-panel--inset">
+              <p class="rr-label">Inset well</p>
+            </div>
+          </div>
+          <div class="rr-panel rr-window">
+            <div class="rr-window__bar">Options</div>
+            <div class="rr-window__body pv-stack">
+              <p>A window frame with a title bar.</p>
+              <button class="rr-btn" type="button">OK</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rr-section">
+        <div class="rr-container pv-two">
+          <div class="rr-panel pv-backdrop rr-backdrop--floodlit">
+            <p class="rr-h2 rr-marquee">Floodlit</p>
+          </div>
+          <div class="rr-panel pv-backdrop rr-backdrop--space">
+            <p class="rr-h2">Space</p>
+          </div>
+        </div>
+      </section>
+
+      <div class="rr-track" aria-hidden="true"></div>
+
+      <section class="rr-section">
+        <div class="rr-container">
+          <div class="rr-section__head"><h2>Cartridges</h2></div>
+          <ul class="rr-cart-grid">
+            <li class="rr-cart rr-cart--100m">
+              <div class="rr-cart__label">
+                <img class="rr-cart__art rr-sprite" data-ph alt="" />
+                <h3 class="rr-cart__title">100M</h3>
+              </div>
+              <p class="rr-cart__text">Mash left and right as fast as you can. Do not jump the gun.</p>
+              <p><span class="rr-key">A</span> <span class="rr-key">D</span></p>
+            </li>
+            <li class="rr-cart rr-cart--hurdles">
+              <div class="rr-cart__label">
+                <img class="rr-cart__art rr-sprite rr-tier-3" data-ph alt="" />
+                <h3 class="rr-cart__title">Hurdles</h3>
+              </div>
+              <p class="rr-cart__text">Ten hurdles. Time each jump or clip the bar and lose speed.</p>
+              <p><span class="rr-key">Space</span> <a href="#tokens">How jumps work</a></p>
+            </li>
+            <li class="rr-cart rr-cart--400m">
+              <div class="rr-cart__label">
+                <img class="rr-cart__art rr-sprite rr-tier-5" data-ph alt="" />
+                <h3 class="rr-cart__title">400M</h3>
+              </div>
+              <p class="rr-cart__text">
+                One full lap. Spend your stamina too early and you fade on the bend.
+              </p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="rr-section">
+        <div class="rr-container">
+          <div class="rr-section__head"><h2>Rival select</h2></div>
+          <ul class="rr-rival-grid" id="rivals"></ul>
+        </div>
+      </section>
+
+      <section class="rr-section rr-backdrop--space">
+        <div class="rr-container pv-two">
+          <div>
+            <div class="rr-section__head"><h2>Ladder</h2></div>
+            <ol class="rr-ladder" id="ladder"></ol>
+          </div>
+          <div class="rr-panel">
+            <table class="rr-scores">
+              <caption>
+                Best times
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Rank</th>
+                  <th scope="col">Event</th>
+                  <th scope="col">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1st</td>
+                  <td>100M</td>
+                  <td>11.42</td>
+                </tr>
+                <tr>
+                  <td>2nd</td>
+                  <td>Hurdles</td>
+                  <td>15.08</td>
+                </tr>
+                <tr>
+                  <td>3rd</td>
+                  <td>400M</td>
+                  <td>58.71</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <div class="rr-track rr-track--finish" aria-hidden="true"></div>
+
+      <section class="rr-section rr-backdrop--floodlit">
+        <div class="rr-container rr-countdown">
+          <p class="rr-h2">Continue?</p>
+          <p class="rr-countdown__number" id="count">9</p>
+          <a class="rr-btn rr-btn--lg rr-btn--coin" href="#tokens">
+            <span>Play</span>
+            <span class="rr-btn__sub">Insert coin</span>
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <div class="rr-crt" aria-hidden="true" id="crt"></div>
+
+    <script type="module">
+      // Placeholder runner sprite until src/landing/art/ renders the real ones.
+      const svg =
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'>" +
+        "<rect x='6' y='1' width='4' height='4' fill='#b0774a'/><rect x='6' y='1' width='4' height='1' fill='#2b1a12'/>" +
+        "<rect x='6' y='5' width='4' height='5' fill='#e8503f'/><rect x='3' y='6' width='3' height='2' fill='#b0774a'/>" +
+        "<rect x='10' y='7' width='3' height='2' fill='#b0774a'/><rect x='6' y='10' width='4' height='2' fill='#142a5c'/>" +
+        "<rect x='4' y='12' width='3' height='2' fill='#b0774a'/><rect x='9' y='12' width='2' height='3' fill='#b0774a'/>" +
+        "<rect x='2' y='13' width='2' height='1' fill='#f4f2ff'/><rect x='10' y='15' width='3' height='1' fill='#f4f2ff'/></svg>";
+      const sprite = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+      const fill = (root) => root.querySelectorAll('img[data-ph]').forEach((img) => (img.src = sprite));
+
+      const colours = [
+        ['bg', 1],
+        ['panel', 2],
+        ['panel-raised', 3],
+        ['rim', 4],
+        ['rim-light', 5],
+        ['shell', 6],
+        ['night', 28],
+        ['space', 42],
+        ['text', 8],
+        ['text-soft', 7],
+        ['text-muted', 6],
+        ['link', 31],
+        ['cta', 22],
+        ['cta-light', 23],
+        ['cta-mid', 21],
+        ['cta-side', 20],
+        ['secondary', 29],
+        ['secondary-light', 30],
+        ['secondary-side', 28],
+        ['player', 18],
+        ['player-shadow', 17],
+        ['player-deep', 16],
+        ['success', 27],
+        ['warning', 19],
+        ['neon', 34],
+        ['pink', 41],
+        ['focus', 37],
+        ['tartan', 39],
+        ['tartan-shadow', 38],
+        ['tartan-light', 40],
+        ['grass', 25],
+        ['event-100m', 18],
+        ['event-hurdles', 30],
+        ['event-400m', 34],
+      ];
+      const css = getComputedStyle(document.documentElement);
+      document.getElementById('swatches').innerHTML = colours
+        .map(([name, idx]) => {
+          const v = `--rr-color-${name}`;
+          return `<div class="pv-swatch"><span style="background: var(${v})"></span><span>${v}</span><span class="rr-muted">${css.getPropertyValue(v).trim()} (${idx})</span></div>`;
+        })
+        .join('');
+
+      document.getElementById('spacing').innerHTML = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 32]
+        .map(
+          (n) =>
+            `<div class="pv-space"><span style="width: var(--rr-space-${n})"></span><span>--rr-space-${n} ${n * 4}px</span></div>`,
+        )
+        .join('');
+
+      const rivals = [
+        ['Pip', 'Tier 1', 1],
+        ['Jess', 'Tier 2', 2],
+        ['Marco', 'Tier 3', 3],
+        ['Kofi', 'Tier 4', 4],
+        ['Valentina', 'Tier 5', 5],
+        ['UNIT-7', 'Tier 6', 6],
+        ['Sol', '400M only', 5],
+        ['???', 'Locked', 7],
+      ];
+      document.getElementById('rivals').innerHTML = rivals
+        .map(([name, meta, tier], i) => {
+          const locked = name === '???';
+          return `<li><button type="button" class="rr-rival rr-tier-${tier}${locked ? ' rr-rival--locked' : ''}" aria-pressed="${i === 0}"${locked ? ' aria-disabled="true"' : ''}>
+            <span class="rr-rival__art"><img class="rr-rival__portrait rr-sprite" data-ph alt="" /></span>
+            <span class="rr-rival__plate"><span class="rr-rival__name">${name}</span><span class="rr-rival__meta">${meta}</span></span>
+          </button></li>`;
+        })
+        .join('');
+      document.getElementById('rivals').addEventListener('click', (e) => {
+        const btn = e.target.closest('.rr-rival');
+        if (!btn || btn.getAttribute('aria-disabled') === 'true') return;
+        document
+          .querySelectorAll('.rr-rival')
+          .forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+      });
+
+      const meets = [
+        ['Pip', 'Schoolyard. Beaten', 1, 'beaten'],
+        ['Jess', 'High school. Beaten', 2, 'beaten'],
+        ['Marco', 'University. Next race', 3, 'current'],
+        ['Kofi', 'City stadium', 4, ''],
+        ['Valentina', 'Olympic stadium', 5, ''],
+        ['UNIT-7', 'Cyber arena', 6, ''],
+        ['???', 'Locked', 7, 'locked'],
+      ];
+      document.getElementById('ladder').innerHTML = meets
+        .map(
+          ([
+            name,
+            meta,
+            tier,
+            state,
+          ]) => `<li class="rr-ladder__node${state ? ` rr-ladder__node--${state}` : ''}">
+            <span class="rr-ladder__frame rr-tier-${tier}"><img class="rr-ladder__portrait rr-sprite" data-ph alt="" /></span>
+            <span><span class="rr-ladder__name">${name}</span><br /><span class="rr-ladder__meta">${meta}</span></span>
+          </li>`,
+        )
+        .join('');
+      fill(document);
+
+      document.getElementById('crt-toggle').addEventListener('change', (e) => {
+        document.getElementById('crt').hidden = !e.target.checked;
+      });
+
+      let n = 0;
+      document.getElementById('toast-btn').addEventListener('click', () => {
+        n += 1;
+        const toast = document.createElement('div');
+        toast.className = 'rr-toast';
+        toast.innerHTML = `<span class="rr-badge rr-badge--lg rr-badge--earned"><img class="rr-sprite" data-ph alt="" /></span>
+          <span><span class="rr-toast__title">Badge ${n}</span><br /><span class="rr-toast__text">You found the preview</span></span>`;
+        fill(toast);
+        document.getElementById('toasts').append(toast);
+        document.getElementById('toast-live').textContent = `Badge ${n} earned`;
+        setTimeout(() => {
+          toast.classList.add('is-leaving');
+          toast.addEventListener('animationend', () => toast.remove(), { once: true });
+          // Reduced motion has no leave animation, so remove it on a timer too.
+          setTimeout(() => toast.remove(), 400);
+        }, 3000);
+      });
+
+      let count = 9;
+      setInterval(() => {
+        count = count === 0 ? 9 : count - 1;
+        document.getElementById('count').textContent = String(count);
+      }, 1000);
+    </script>
+  </body>
+</html>

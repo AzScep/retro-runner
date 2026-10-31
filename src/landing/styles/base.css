@@ -1,0 +1,223 @@
+/*
+ * Reset, page defaults and typography of the /welcome/ landing page. Tokens: tokens.css.
+ * Unlike the game page, this page scrolls and its text can be selected and zoomed.
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+}
+
+html {
+  background: var(--rr-color-bg);
+  color: var(--rr-color-text);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  /* Anchored sections land below the pinned HUD. */
+  scroll-padding-top: calc(var(--rr-hud-height) + var(--rr-space-4));
+}
+
+body {
+  min-height: 100dvh;
+  background: var(--rr-color-bg);
+  font-family: var(--rr-font-body);
+  font-size: var(--rr-text-body);
+  line-height: var(--rr-leading-body);
+  /* No horizontal scroll at 360 px: wide decoration is clipped, never scrolled to. */
+  overflow-x: clip;
+}
+
+img,
+picture,
+svg,
+canvas,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+ol,
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+/* Headings use the game's font at whole multiples of its 8 px grid. */
+h1,
+h2,
+h3,
+h4,
+.rr-h1,
+.rr-h2,
+.rr-h3,
+.rr-h4 {
+  font-family: var(--rr-font-display);
+  font-weight: 400;
+  line-height: var(--rr-leading-display);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+h1,
+.rr-h1 {
+  font-size: var(--rr-text-32);
+  line-height: var(--rr-leading-tight);
+}
+
+h2,
+.rr-h2 {
+  font-size: var(--rr-text-24);
+}
+
+h3,
+.rr-h3 {
+  font-size: var(--rr-text-16);
+}
+
+h4,
+.rr-h4 {
+  font-size: var(--rr-text-16);
+}
+
+@media (min-width: 768px) {
+  h1,
+  .rr-h1 {
+    font-size: var(--rr-text-48);
+  }
+
+  h2,
+  .rr-h2 {
+    font-size: var(--rr-text-32);
+  }
+
+  h3,
+  .rr-h3 {
+    font-size: var(--rr-text-24);
+  }
+}
+
+@media (min-width: 1024px) {
+  h1,
+  .rr-h1 {
+    font-size: var(--rr-text-64);
+  }
+}
+
+p {
+  max-width: var(--rr-measure);
+  text-wrap: pretty;
+}
+
+/* Short arcade labels in the game font: buttons, HUD, stats. Never for sentences. */
+.rr-label {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: var(--rr-leading-display);
+}
+
+.rr-small {
+  font-size: var(--rr-text-small);
+}
+
+.rr-muted {
+  color: var(--rr-color-text-muted);
+}
+
+a {
+  color: var(--rr-color-link);
+  text-decoration-thickness: var(--rr-px);
+  text-underline-offset: var(--rr-px-2);
+}
+
+a:hover {
+  color: var(--rr-color-text);
+}
+
+::selection {
+  background: var(--rr-color-cta);
+  color: var(--rr-color-text-on-light);
+}
+
+/* Sprites, stadium art and the mini-race canvas scale with nearest-neighbour only (design 5.1). */
+.rr-sprite,
+.rr-pixelated,
+canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* A thick teal ring with a gap: distinct from the yellow CTA, and never clipped to a radius. */
+:focus-visible {
+  outline: var(--rr-focus-width) solid var(--rr-color-focus);
+  outline-offset: var(--rr-focus-offset);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* First focusable element of the page: jumps past the hero mini-race to the content. */
+.rr-skip-link {
+  position: fixed;
+  top: var(--rr-space-2);
+  left: var(--rr-space-2);
+  z-index: var(--rr-z-skip);
+  padding: var(--rr-space-3) var(--rr-space-4);
+  background: var(--rr-color-cta);
+  color: var(--rr-color-text-on-light);
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  text-decoration: none;
+  transform: translateY(calc(-100% - var(--rr-space-4)));
+}
+
+.rr-skip-link:focus-visible {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Reduced motion: no animation or transition anywhere; components drop their blinks too. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

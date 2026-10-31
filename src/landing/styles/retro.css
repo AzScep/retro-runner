@@ -1,0 +1,1014 @@
+/*
+ * Reusable retro components of the /welcome/ landing page, all prefixed `rr-`.
+ * Layouts per section: WIREFRAME.md. Every component is checked in preview.html.
+ * Translucent fills use palette colours at an alpha: no colour outside the palette is drawn.
+ */
+
+/* ---- Layout ---------------------------------------------------------------------------- */
+
+.rr-container {
+  width: 100%;
+  max-width: calc(var(--rr-max-width) + 2 * var(--rr-gutter));
+  margin-inline: auto;
+  padding-inline: var(--rr-gutter);
+}
+
+.rr-section {
+  position: relative;
+  padding-block: var(--rr-space-16);
+}
+
+.rr-section__head {
+  display: grid;
+  gap: var(--rr-space-4);
+  margin-bottom: var(--rr-space-8);
+}
+
+@media (min-width: 1024px) {
+  .rr-section {
+    padding-block: var(--rr-space-24);
+  }
+
+  .rr-section__head {
+    margin-bottom: var(--rr-space-12);
+  }
+}
+
+/* Section divider: a strip of tartan track with chalk lane lines. Decorative: aria-hidden. */
+.rr-track {
+  position: relative;
+  height: var(--rr-space-12);
+  border-block: var(--rr-px-2) solid var(--rr-color-tartan-shadow);
+  background:
+    repeating-linear-gradient(var(--rr-color-chalk) 0 var(--rr-px), transparent var(--rr-px) 12px) 0
+      var(--rr-px) / 100% 100%,
+    var(--rr-color-tartan);
+}
+
+/* The last divider before the final CTA crosses a chequered finish line. */
+.rr-track--finish::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  right: 15%;
+  width: 16px;
+  background: repeating-conic-gradient(var(--rr-color-chalk) 0 25%, var(--rr-color-outline) 0 50%) 0 0 / 8px
+    8px;
+}
+
+/* ---- Marquee title ---------------------------------------------------------------------- */
+
+/* Yellow attract-screen title with a stepped orange-to-red extrusion. No blur. */
+.rr-marquee {
+  --rr-extrude: var(--rr-px);
+  font-family: var(--rr-font-display);
+  color: var(--rr-color-cta);
+  text-shadow:
+    var(--rr-extrude) var(--rr-extrude) 0 var(--rr-color-cta-mid),
+    calc(2 * var(--rr-extrude)) calc(2 * var(--rr-extrude)) 0 var(--rr-color-cta-side),
+    calc(3 * var(--rr-extrude)) calc(3 * var(--rr-extrude)) 0 var(--rr-color-player-deep);
+}
+
+@media (min-width: 1024px) {
+  .rr-marquee {
+    --rr-extrude: var(--rr-px-2);
+  }
+}
+
+/* ---- Panel and window frame -------------------------------------------------------------- */
+
+/* Game UI panel: index 2 fill, a rim, a 1-art-pixel bevel and stepped corners. */
+.rr-panel {
+  position: relative;
+  padding: var(--rr-space-6);
+  background: var(--rr-color-panel);
+  border: var(--rr-border-rim);
+  box-shadow: var(--rr-shadow-bevel);
+  clip-path: var(--rr-clip-notch);
+}
+
+/* Recessed well inside a panel: stats, the race canvas, records. */
+.rr-panel--inset {
+  background: var(--rr-color-bg);
+  border-color: var(--rr-color-rim);
+  box-shadow:
+    inset var(--rr-px) var(--rr-px) 0 0 var(--rr-color-outline),
+    inset calc(-1 * var(--rr-px)) calc(-1 * var(--rr-px)) 0 0 var(--rr-color-panel-raised);
+}
+
+/* Window: a panel with a title bar. Markup: .rr-panel.rr-window > .rr-window__bar + .rr-window__body. */
+.rr-window {
+  padding: 0;
+}
+
+.rr-window__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rr-space-3);
+  min-height: var(--rr-space-10);
+  padding: var(--rr-space-2) var(--rr-space-4);
+  background: var(--rr-color-secondary);
+  border-bottom: var(--rr-border);
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: 1;
+  color: var(--rr-color-text);
+  text-shadow: var(--rr-shadow-text);
+}
+
+/* Three title-bar lamps (decorative). */
+.rr-window__bar::after {
+  content: '';
+  flex: none;
+  width: 32px;
+  height: 8px;
+  background:
+    linear-gradient(90deg, var(--rr-color-cta) 0 8px, transparent 8px 12px, var(--rr-color-success) 12px 20px)
+      0 0 / 20px 8px no-repeat,
+    linear-gradient(var(--rr-color-player), var(--rr-color-player)) 24px 0 / 8px 8px no-repeat;
+}
+
+.rr-window__body {
+  padding: var(--rr-space-6);
+}
+
+/* ---- Buttons ----------------------------------------------------------------------------- */
+
+/*
+ * Arcade push button: yellow cap, bevelled top, orange side 6 px deep. Pressing sinks the cap
+ * into its side. Leave at least 8 px below a button for its side.
+ */
+.rr-btn {
+  --rr-btn-fill: var(--rr-color-cta);
+  --rr-btn-light: var(--rr-color-cta-light);
+  --rr-btn-shade: var(--rr-color-cta-mid);
+  --rr-btn-side: var(--rr-color-cta-side);
+  --rr-btn-text: var(--rr-color-text-on-light);
+  --rr-btn-depth: 6px;
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--rr-space-2);
+  min-width: var(--rr-tap-min);
+  min-height: var(--rr-tap-min);
+  padding: var(--rr-space-3) var(--rr-space-6);
+  border: var(--rr-border);
+  border-radius: var(--rr-radius);
+  background: var(--rr-btn-fill);
+  color: var(--rr-btn-text);
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: var(--rr-leading-display);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow:
+    inset var(--rr-px) var(--rr-px) 0 0 var(--rr-btn-light),
+    inset calc(-1 * var(--rr-px)) calc(-1 * var(--rr-px)) 0 0 var(--rr-btn-shade),
+    0 var(--rr-btn-depth) 0 0 var(--rr-btn-side),
+    0 var(--rr-btn-depth) 0 var(--rr-px) var(--rr-color-outline);
+  transform: translateY(0);
+  transition:
+    transform var(--rr-dur-press) steps(1, end),
+    box-shadow var(--rr-dur-press) steps(1, end);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.rr-btn:hover {
+  --rr-btn-fill: var(--rr-btn-light);
+  color: var(--rr-btn-text);
+}
+
+.rr-btn:active,
+.rr-btn.is-pressed {
+  transform: translateY(calc(var(--rr-btn-depth) - var(--rr-px)));
+  box-shadow:
+    inset var(--rr-px) var(--rr-px) 0 0 var(--rr-btn-shade),
+    0 var(--rr-px) 0 0 var(--rr-btn-side),
+    0 var(--rr-px) 0 var(--rr-px) var(--rr-color-outline);
+}
+
+.rr-btn:disabled,
+.rr-btn[aria-disabled='true'] {
+  --rr-btn-fill: var(--rr-color-panel-raised);
+  --rr-btn-light: var(--rr-color-rim);
+  --rr-btn-shade: var(--rr-color-panel);
+  --rr-btn-side: var(--rr-color-panel);
+  --rr-btn-text: var(--rr-color-text-muted);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.rr-btn--secondary {
+  --rr-btn-fill: var(--rr-color-secondary);
+  --rr-btn-light: var(--rr-color-secondary-light);
+  --rr-btn-shade: var(--rr-color-secondary-side);
+  --rr-btn-side: var(--rr-color-secondary-side);
+  --rr-btn-text: var(--rr-color-text);
+  text-shadow: var(--rr-shadow-text);
+}
+
+.rr-btn--secondary:hover {
+  --rr-btn-fill: var(--rr-color-secondary-light);
+  --rr-btn-light: var(--rr-color-link);
+}
+
+/* The page's PLAY buttons: one size up, 64 px tall. */
+.rr-btn--lg {
+  --rr-btn-depth: 8px;
+  min-height: var(--rr-space-16);
+  padding: var(--rr-space-4) var(--rr-space-8);
+  font-size: var(--rr-text-24);
+  line-height: var(--rr-leading-tight);
+}
+
+.rr-btn--block {
+  display: flex;
+  width: 100%;
+}
+
+/* Second line inside a button, such as INSERT COIN under PLAY. */
+.rr-btn__sub {
+  font-size: var(--rr-text-8);
+  line-height: 1;
+}
+
+.rr-btn--lg .rr-btn__sub {
+  font-size: var(--rr-text-16);
+}
+
+/*
+ * Attract-mode CTA: the cap flashes between yellow and pale yellow and the sub line blinks,
+ * both at 1 Hz. The label never blinks, so it stays readable. Static under reduced motion.
+ */
+.rr-btn--coin {
+  animation: rr-coin-flash var(--rr-dur-blink) steps(1, end) infinite;
+}
+
+.rr-btn--coin .rr-btn__sub {
+  animation: rr-blink var(--rr-dur-blink) steps(1, end) infinite;
+}
+
+@keyframes rr-coin-flash {
+  50% {
+    background: var(--rr-color-cta-light);
+  }
+}
+
+/* ---- Blink and caret --------------------------------------------------------------------- */
+
+/* Opacity, not visibility, so screen readers always read blinking text. */
+.rr-blink {
+  animation: rr-blink var(--rr-dur-blink) steps(1, end) infinite;
+}
+
+@keyframes rr-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Block caret after typed text: <span class="rr-caret" aria-hidden="true"></span>. */
+.rr-caret {
+  display: inline-block;
+  width: 0.75em;
+  height: 1em;
+  margin-left: 0.125em;
+  vertical-align: -0.125em;
+  background: currentColor;
+  animation: rr-blink var(--rr-dur-blink) steps(1, end) infinite;
+}
+
+/* ---- Backdrops --------------------------------------------------------------------------- */
+
+/* City stadium under floodlights (tier 4): night sky bands, two towers and flat light beams. */
+.rr-backdrop--floodlit {
+  /* Tower inset from each side and top. The beams start at the tower heads. */
+  --rr-flood-inset: 4%;
+  --rr-flood-top: 32px;
+  background-color: var(--rr-color-bg);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='120' shape-rendering='crispEdges'%3E%3Crect width='40' height='24' fill='%234a4766'/%3E%3Cg fill='%23fff1a8'%3E%3Crect x='4' y='4' width='8' height='6'/%3E%3Crect x='16' y='4' width='8' height='6'/%3E%3Crect x='28' y='4' width='8' height='6'/%3E%3Crect x='4' y='14' width='8' height='6'/%3E%3Crect x='16' y='14' width='8' height='6'/%3E%3Crect x='28' y='14' width='8' height='6'/%3E%3C/g%3E%3Crect x='18' y='24' width='4' height='96' fill='%234a4766'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='120' shape-rendering='crispEdges'%3E%3Crect width='40' height='24' fill='%234a4766'/%3E%3Cg fill='%23fff1a8'%3E%3Crect x='4' y='4' width='8' height='6'/%3E%3Crect x='16' y='4' width='8' height='6'/%3E%3Crect x='28' y='4' width='8' height='6'/%3E%3Crect x='4' y='14' width='8' height='6'/%3E%3Crect x='16' y='14' width='8' height='6'/%3E%3Crect x='28' y='14' width='8' height='6'/%3E%3C/g%3E%3Crect x='18' y='24' width='4' height='96' fill='%234a4766'/%3E%3C/svg%3E"),
+    conic-gradient(
+      from 0deg at calc(var(--rr-flood-inset) + 20px) calc(var(--rr-flood-top) + 24px),
+      transparent 0 118deg,
+      rgb(255 241 168 / 0.07) 118deg 142deg,
+      transparent 142deg
+    ),
+    conic-gradient(
+      from 0deg at calc(100% - var(--rr-flood-inset) - 20px) calc(var(--rr-flood-top) + 24px),
+      transparent 0 218deg,
+      rgb(255 241 168 / 0.07) 218deg 242deg,
+      transparent 242deg
+    ),
+    linear-gradient(var(--rr-color-night) 0 45%, var(--rr-color-panel) 45% 75%, var(--rr-color-bg) 75%);
+  background-position:
+    left var(--rr-flood-inset) top var(--rr-flood-top),
+    right var(--rr-flood-inset) top var(--rr-flood-top),
+    0 0,
+    0 0,
+    0 0;
+  background-size:
+    40px 120px,
+    40px 120px,
+    auto,
+    auto,
+    auto;
+  background-repeat: no-repeat;
+}
+
+/* Phones: the towers stand half off the edges so they stay clear of the title. */
+@media (max-width: 767px) {
+  .rr-backdrop--floodlit {
+    --rr-flood-inset: -16px;
+    --rr-flood-top: 24px;
+  }
+}
+
+/* Mothership in orbit (tier 7): space blue with white and teal star pixels in two layers. */
+.rr-backdrop--space {
+  background-color: var(--rr-color-space);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' shape-rendering='crispEdges'%3E%3Cg fill='%23f4f2ff'%3E%3Crect x='6' y='10' width='2' height='2'/%3E%3Crect x='52' y='4' width='2' height='2'/%3E%3Crect x='80' y='30' width='2' height='2'/%3E%3Crect x='30' y='58' width='2' height='2'/%3E%3Crect x='70' y='76' width='2' height='2'/%3E%3C/g%3E%3Crect x='20' y='36' width='2' height='2' fill='%236ef2c2'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' shape-rendering='crispEdges'%3E%3Cg fill='%236ef2c2'%3E%3Crect x='40' y='20' width='2' height='2'/%3E%3Crect x='120' y='100' width='2' height='2'/%3E%3C/g%3E%3Cg fill='%23f4f2ff'%3E%3Crect x='100' y='40' width='4' height='4'/%3E%3Crect x='14' y='130' width='4' height='4'/%3E%3C/g%3E%3C/svg%3E");
+  background-size:
+    96px 96px,
+    160px 160px;
+}
+
+/* ---- CRT scanlines ----------------------------------------------------------------------- */
+
+/*
+ * Fixed overlay, one per page: <div class="rr-crt" aria-hidden="true"></div> as the last child
+ * of body. Ink lines at a low alpha keep every text pair above AA. Off under reduced motion.
+ */
+.rr-crt {
+  position: fixed;
+  inset: 0;
+  z-index: var(--rr-z-crt);
+  pointer-events: none;
+  background: repeating-linear-gradient(rgb(11 11 20 / 0.14) 0 1px, transparent 1px 3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rr-crt {
+    display: none;
+  }
+}
+
+/* ---- HUD --------------------------------------------------------------------------------- */
+
+/* Pinned top bar: 1UP and score, progress meter, earned badges. */
+.rr-hud {
+  position: sticky;
+  top: 0;
+  z-index: var(--rr-z-hud);
+  height: var(--rr-hud-height);
+  background: var(--rr-color-bg);
+  border-bottom: var(--rr-px-2) solid var(--rr-color-panel-raised);
+}
+
+.rr-hud__inner {
+  display: grid;
+  grid-template-columns: auto minmax(64px, 1fr) auto;
+  align-items: center;
+  gap: var(--rr-space-3);
+  height: 100%;
+}
+
+.rr-hud__score {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rr-space-2);
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.rr-hud__label {
+  color: var(--rr-color-player);
+}
+
+.rr-hud__value {
+  color: var(--rr-color-text);
+}
+
+.rr-hud__badges {
+  display: flex;
+  align-items: center;
+  gap: var(--rr-space-1);
+}
+
+@media (min-width: 768px) {
+  .rr-hud__inner {
+    gap: var(--rr-space-6);
+  }
+
+  .rr-hud__badges {
+    gap: var(--rr-space-2);
+  }
+}
+
+/*
+ * Segmented meter. Set the fill with style="--rr-meter-value: 0.4" (0 to 1) on .rr-meter and
+ * give it role="progressbar" with aria-valuenow.
+ */
+.rr-meter {
+  --rr-meter-value: 0;
+  position: relative;
+  height: 16px;
+  background: var(--rr-color-panel);
+  border: var(--rr-border-rim);
+}
+
+.rr-meter__fill {
+  position: absolute;
+  inset: var(--rr-px);
+  width: calc((100% - 2 * var(--rr-px)) * var(--rr-meter-value));
+  background: repeating-linear-gradient(90deg, var(--rr-color-success) 0 6px, transparent 6px 8px);
+  transition: width var(--rr-dur-base) var(--rr-ease-pixel);
+}
+
+@media (forced-colors: active) {
+  .rr-meter__fill {
+    background: Highlight;
+  }
+}
+
+/* ---- Badges and toast -------------------------------------------------------------------- */
+
+/* 24 px badge slot. Earned shows the art inside; locked is an empty rim. */
+.rr-badge {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  background: var(--rr-color-panel);
+  border: var(--rr-px) solid var(--rr-color-rim);
+}
+
+.rr-badge > img {
+  width: 16px;
+  height: 16px;
+}
+
+.rr-badge--earned {
+  background: var(--rr-color-cta);
+  border-color: var(--rr-color-cta-side);
+  box-shadow: inset var(--rr-px) var(--rr-px) 0 0 var(--rr-color-cta-light);
+}
+
+.rr-badge--lg {
+  width: 48px;
+  height: 48px;
+}
+
+.rr-badge--lg > img {
+  width: 32px;
+  height: 32px;
+}
+
+/*
+ * Toasts stack under the HUD at the top right (full width on phones). Announce them from a
+ * separate aria-live="polite" region; the stack itself is presentational.
+ */
+.rr-toast-stack {
+  position: fixed;
+  top: calc(var(--rr-hud-height) + var(--rr-space-2));
+  right: var(--rr-gutter);
+  left: var(--rr-gutter);
+  z-index: var(--rr-z-toast);
+  display: grid;
+  justify-items: end;
+  gap: var(--rr-space-2);
+  pointer-events: none;
+}
+
+.rr-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--rr-space-3);
+  max-width: 100%;
+  padding: var(--rr-space-2) var(--rr-space-4) var(--rr-space-2) var(--rr-space-2);
+  background: var(--rr-color-panel);
+  border: var(--rr-px) solid var(--rr-color-cta);
+  box-shadow: var(--rr-shadow-drop);
+  animation: rr-pop var(--rr-dur-base) var(--rr-ease-pixel) both;
+}
+
+.rr-toast__title {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: var(--rr-leading-display);
+  color: var(--rr-color-cta);
+}
+
+.rr-toast__text {
+  font-size: var(--rr-text-small);
+  line-height: var(--rr-leading-tight);
+  color: var(--rr-color-text-soft);
+}
+
+.rr-toast.is-leaving {
+  animation: rr-pop var(--rr-dur-fast) var(--rr-ease-pixel) reverse both;
+}
+
+/* Overshoots like a sprite pop: 4 frames, no easing. */
+@keyframes rr-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.5);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0) scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- Cartridge card (mechanics) ---------------------------------------------------------- */
+
+/*
+ * One event as a game cartridge: grey shell, a coloured label with the event art, printed text
+ * below and grip ridges at the bottom. Pick the label colour with a modifier.
+ */
+.rr-cart {
+  --rr-cart-accent: var(--rr-color-event-100m);
+  --rr-color-focus: var(--rr-color-outline);
+  position: relative;
+  display: grid;
+  gap: var(--rr-space-4);
+  padding: var(--rr-space-4) var(--rr-space-4) var(--rr-space-10);
+  background: var(--rr-color-shell);
+  color: var(--rr-color-text-on-light);
+  box-shadow:
+    inset var(--rr-px-2) var(--rr-px-2) 0 0 var(--rr-color-text-soft),
+    inset calc(-1 * var(--rr-px-2)) calc(-1 * var(--rr-px-2)) 0 0 var(--rr-color-shell-shade);
+  /* Shell with stepped top corners and a wider bottom edge, like a cartridge. */
+  clip-path: polygon(
+    0 8px,
+    4px 8px,
+    4px 4px,
+    8px 4px,
+    8px 0,
+    calc(100% - 8px) 0,
+    calc(100% - 8px) 4px,
+    calc(100% - 4px) 4px,
+    calc(100% - 4px) 8px,
+    100% 8px,
+    100% 100%,
+    0 100%
+  );
+}
+
+/* Grip ridges along the bottom edge. */
+.rr-cart::after {
+  content: '';
+  position: absolute;
+  right: var(--rr-space-6);
+  bottom: var(--rr-space-3);
+  left: var(--rr-space-6);
+  height: var(--rr-space-4);
+  background: repeating-linear-gradient(
+    90deg,
+    var(--rr-color-shell-shade) 0 var(--rr-px-2),
+    transparent var(--rr-px-2) 12px
+  );
+}
+
+.rr-cart--100m {
+  --rr-cart-accent: var(--rr-color-event-100m);
+}
+
+.rr-cart--hurdles {
+  --rr-cart-accent: var(--rr-color-event-hurdles);
+}
+
+.rr-cart--400m {
+  --rr-cart-accent: var(--rr-color-event-400m);
+}
+
+.rr-cart__label {
+  display: grid;
+  gap: var(--rr-space-2);
+  padding: var(--rr-space-2);
+  background: var(--rr-cart-accent);
+  border: var(--rr-border);
+  box-shadow: inset 0 calc(-1 * var(--rr-px-2)) 0 0 rgb(11 11 20 / 0.25);
+}
+
+.rr-cart__art {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  object-fit: cover;
+  background: var(--rr-sky, var(--rr-sky-4));
+  border: var(--rr-border);
+}
+
+.rr-cart__title {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: var(--rr-leading-display);
+  color: var(--rr-color-text-on-light);
+}
+
+.rr-cart__text {
+  font-size: var(--rr-text-small);
+  line-height: var(--rr-leading-body);
+}
+
+/* Sky-light links fail on the shell (1.5:1), so links on a cartridge are ink. */
+.rr-cart a {
+  color: var(--rr-color-text-on-light);
+}
+
+/* Key prompt chips, such as the keys or taps an event uses. */
+.rr-key {
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 var(--rr-space-2);
+  background: var(--rr-color-text);
+  color: var(--rr-color-text-on-light);
+  border: var(--rr-border);
+  box-shadow: inset 0 calc(-1 * var(--rr-px-2)) 0 0 var(--rr-color-text-muted);
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: 1;
+}
+
+.rr-cart-grid {
+  display: grid;
+  gap: var(--rr-space-8);
+}
+
+@media (min-width: 768px) {
+  .rr-cart-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--rr-space-6);
+  }
+}
+
+/* ---- Stadium tier skies (rival portraits, ladder frames) -------------------------------- */
+
+.rr-tier-1 {
+  --rr-sky: var(--rr-sky-1);
+}
+.rr-tier-2 {
+  --rr-sky: var(--rr-sky-2);
+}
+.rr-tier-3 {
+  --rr-sky: var(--rr-sky-3);
+}
+.rr-tier-4 {
+  --rr-sky: var(--rr-sky-4);
+}
+.rr-tier-5 {
+  --rr-sky: var(--rr-sky-5);
+}
+.rr-tier-6 {
+  --rr-sky: var(--rr-sky-6);
+}
+.rr-tier-7 {
+  --rr-sky: var(--rr-sky-7);
+}
+
+/* ---- Rival select card ------------------------------------------------------------------- */
+
+/*
+ * Character select tile: portrait on its stadium sky, name plate below. Hover, focus and
+ * aria-pressed="true" frame it in yellow with a P1 cursor tag. Works on a <button> or an <li>.
+ */
+.rr-rival {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  width: 100%;
+  min-height: var(--rr-tap-min);
+  padding: 0;
+  background: var(--rr-color-panel);
+  border: var(--rr-px-2) solid var(--rr-color-rim);
+  color: var(--rr-color-text);
+  text-align: left;
+}
+
+/* Markup: .rr-rival__art > img.rr-rival__portrait.rr-sprite. The art box carries the sky. */
+.rr-rival__art {
+  aspect-ratio: 1;
+  background: var(--rr-sky, var(--rr-sky-4));
+  border-bottom: var(--rr-border);
+}
+
+.rr-rival__portrait {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom;
+}
+
+.rr-rival__plate {
+  display: grid;
+  align-content: start;
+  gap: var(--rr-space-1);
+  padding: var(--rr-space-2) var(--rr-space-3) var(--rr-space-3);
+}
+
+/* 12 px below 1024 px so a 9-letter name (VALENTINA) fits a tile without breaking. */
+.rr-rival__name {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-12);
+  line-height: var(--rr-leading-display);
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 1024px) {
+  .rr-rival__name {
+    font-size: var(--rr-text-16);
+  }
+}
+
+.rr-rival__meta {
+  font-size: var(--rr-text-small);
+  line-height: var(--rr-leading-tight);
+  color: var(--rr-color-text-muted);
+}
+
+button.rr-rival:hover,
+.rr-rival[aria-pressed='true'],
+.rr-rival.is-selected {
+  border-color: var(--rr-color-cta);
+}
+
+/* P1 cursor tag on the selected tile. */
+.rr-rival[aria-pressed='true']::before,
+.rr-rival.is-selected::before {
+  content: 'P1';
+  position: absolute;
+  top: calc(-1 * var(--rr-px-2));
+  left: calc(-1 * var(--rr-px-2));
+  z-index: var(--rr-z-raised);
+  padding: var(--rr-space-1) var(--rr-space-2);
+  background: var(--rr-color-cta);
+  color: var(--rr-color-text-on-light);
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-8);
+  line-height: 1;
+}
+
+/*
+ * Locked rival: the portrait is a flat silhouette and the name reads ???. The art job should
+ * render the silhouette in index 1; the filter is a fallback for a full-colour portrait.
+ */
+.rr-rival--locked {
+  border-style: dashed;
+  cursor: default;
+}
+
+.rr-rival--locked .rr-rival__art {
+  background: var(--rr-color-panel-raised);
+}
+
+.rr-rival--locked .rr-rival__portrait {
+  filter: brightness(0);
+}
+
+.rr-rival--locked .rr-rival__portrait.is-silhouette {
+  filter: none;
+}
+
+.rr-rival--locked .rr-rival__name {
+  color: var(--rr-color-text-muted);
+  letter-spacing: 0.25em;
+}
+
+.rr-rival-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rr-space-4) var(--rr-space-3);
+}
+
+@media (min-width: 768px) {
+  .rr-rival-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--rr-space-6);
+  }
+}
+
+/* ---- Ladder (story map) ----------------------------------------------------------------- */
+
+/*
+ * Vertical meet ladder. Write the nodes in race order (first meet first) inside an <ol>: the
+ * list draws them bottom to top so the map climbs, as in the game (design 6.7).
+ */
+.rr-ladder {
+  --rr-ladder-frame: 64px;
+  position: relative;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--rr-space-6);
+  /* Room for the current-node arrow. */
+  padding-left: var(--rr-space-4);
+}
+
+/* The rope joining the nodes, behind the frames. */
+.rr-ladder::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--rr-ladder-frame) / 2);
+  bottom: calc(var(--rr-ladder-frame) / 2);
+  left: calc(var(--rr-space-4) + var(--rr-ladder-frame) / 2 - var(--rr-px));
+  width: var(--rr-px-2);
+  background: repeating-linear-gradient(
+    var(--rr-color-rim-light) 0 var(--rr-px-2),
+    var(--rr-color-rim) var(--rr-px-2) 8px
+  );
+}
+
+.rr-ladder__node {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--rr-ladder-frame) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--rr-space-4);
+}
+
+.rr-ladder__frame {
+  position: relative;
+  width: var(--rr-ladder-frame);
+  height: var(--rr-ladder-frame);
+  padding: var(--rr-px);
+  background: var(--rr-sky, var(--rr-sky-4));
+  border: var(--rr-px-2) solid var(--rr-color-rim-light);
+  box-shadow: 0 0 0 var(--rr-px) var(--rr-color-outline);
+}
+
+.rr-ladder__portrait {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom;
+}
+
+.rr-ladder__name {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: var(--rr-leading-display);
+}
+
+.rr-ladder__meta {
+  font-size: var(--rr-text-small);
+  line-height: var(--rr-leading-tight);
+  color: var(--rr-color-text-muted);
+}
+
+/* Beaten: gold frame and a trophy pip at the corner. */
+.rr-ladder__node--beaten .rr-ladder__frame {
+  border-color: var(--rr-color-cta);
+}
+
+.rr-ladder__node--beaten .rr-ladder__frame::after {
+  content: '';
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 16px;
+  height: 16px;
+  background: var(--rr-color-cta);
+  border: var(--rr-border);
+  box-shadow: inset var(--rr-px) var(--rr-px) 0 0 var(--rr-color-cta-light);
+}
+
+/* Current: teal frame and a blinking arrow pointing at it. */
+.rr-ladder__node--current .rr-ladder__frame {
+  border-color: var(--rr-color-focus);
+}
+
+.rr-ladder__node--current .rr-ladder__name {
+  color: var(--rr-color-focus);
+}
+
+.rr-ladder__node--current::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--rr-ladder-frame) / 2 - 8px);
+  left: calc(-1 * var(--rr-space-3));
+  width: 8px;
+  height: 16px;
+  background: var(--rr-color-focus);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  animation: rr-blink var(--rr-dur-blink) steps(1, end) infinite;
+}
+
+/* Locked: dark frame with the ??? silhouette. */
+.rr-ladder__node--locked .rr-ladder__frame {
+  background: var(--rr-color-panel-raised);
+  border-style: dashed;
+  border-color: var(--rr-color-rim);
+}
+
+.rr-ladder__node--locked .rr-ladder__portrait {
+  filter: brightness(0);
+}
+
+.rr-ladder__node--locked .rr-ladder__portrait.is-silhouette {
+  filter: none;
+}
+
+.rr-ladder__node--locked .rr-ladder__name {
+  color: var(--rr-color-text-muted);
+  letter-spacing: 0.25em;
+}
+
+@media (min-width: 768px) {
+  .rr-ladder {
+    --rr-ladder-frame: 80px;
+  }
+}
+
+/* ---- Records table ------------------------------------------------------------------------ */
+
+/* Arcade high-score table: rank, name, time, in the game font. */
+.rr-scores {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: var(--rr-leading-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.rr-scores caption {
+  margin-bottom: var(--rr-space-4);
+  color: var(--rr-color-cta);
+  text-align: left;
+}
+
+.rr-scores th,
+.rr-scores td {
+  padding: var(--rr-space-2) var(--rr-space-2);
+  text-align: left;
+}
+
+.rr-scores thead th {
+  color: var(--rr-color-text-muted);
+  font-weight: 400;
+  border-bottom: var(--rr-px) solid var(--rr-color-rim);
+}
+
+.rr-scores tbody tr:nth-child(even) {
+  background: var(--rr-color-panel);
+}
+
+.rr-scores tbody tr:first-child {
+  color: var(--rr-color-cta);
+}
+
+.rr-scores td:last-child,
+.rr-scores th:last-child {
+  text-align: right;
+}
+
+/* ---- Final CTA countdown ------------------------------------------------------------------ */
+
+/* CONTINUE? and its number: the number ticks once a second, so it is not a flash. */
+.rr-countdown {
+  display: grid;
+  justify-items: center;
+  gap: var(--rr-space-4);
+  text-align: center;
+}
+
+.rr-countdown__number {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-64);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--rr-color-player);
+  text-shadow: var(--rr-px-2) var(--rr-px-2) 0 var(--rr-color-player-deep);
+}
+
+/* ---- Reduced motion ---------------------------------------------------------------------- */
+
+/* Blinks and the coin flash become static, fully visible states. */
+@media (prefers-reduced-motion: reduce) {
+  .rr-blink,
+  .rr-caret,
+  .rr-btn--coin,
+  .rr-btn--coin .rr-btn__sub,
+  .rr-ladder__node--current::before,
+  .rr-toast,
+  .rr-toast.is-leaving {
+    animation: none;
+  }
+}

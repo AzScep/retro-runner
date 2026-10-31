@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Landing art preview</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        background: #1d1b2e;
+        color: #f4f2ff;
+        font:
+          13px/1.4 ui-monospace,
+          monospace;
+      }
+      h2 {
+        margin: 24px 0 8px;
+        font-size: 14px;
+        color: #ffd23f;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: flex-end;
+      }
+      figure {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+      }
+      figcaption {
+        color: #9b98b3;
+        font-size: 11px;
+      }
+      img,
+      canvas {
+        image-rendering: pixelated;
+        display: block;
+      }
+      .panel {
+        background: #2e2a45;
+        padding: 4px;
+      }
+      #timings {
+        color: #6ef2c2;
+        white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <p>Landing art (src/landing/art). Every image is rendered at runtime from the game's pixel maps.</p>
+    <div id="timings"></div>
+    <div id="root"></div>
+    <script type="module" src="./preview.ts"></script>
+  </body>
+</html>
