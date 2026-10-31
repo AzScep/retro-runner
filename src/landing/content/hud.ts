@@ -6,9 +6,9 @@ const list: readonly Badge[] = [
     id: 'ranDash',
     name: 'OFF THE BLOCKS',
     lockedName: 'OFF THE BLOCKS',
-    how: 'RUN THE 60M DASH.',
+    how: 'RUN THE 100M DASH.',
     earned: 'YOU RAN THE DASH.',
-    points: 100,
+    points: 500,
   },
   {
     id: 'beatPip',
@@ -16,7 +16,7 @@ const list: readonly Badge[] = [
     lockedName: 'SPORTS DAY HERO',
     how: 'BEAT PIP IN THE DASH.',
     earned: 'PIP IS WAVING TO MUM ANYWAY.',
-    points: 300,
+    points: 2000,
   },
   {
     id: 'falseStart',
@@ -24,7 +24,7 @@ const list: readonly Badge[] = [
     lockedName: 'JUMPED THE GUN',
     how: 'FALSE START IN THE DASH.',
     earned: 'TOO KEEN. THE STARTER SAW THAT.',
-    points: 50,
+    points: 250,
   },
   {
     id: 'allCarts',
@@ -32,7 +32,7 @@ const list: readonly Badge[] = [
     lockedName: 'CART COLLECTOR',
     how: 'OPEN ALL 3 EVENT CARTRIDGES.',
     earned: 'SPRINT, HURDLES, LAP. ALL LOADED.',
-    points: 150,
+    points: 1000,
   },
   {
     id: 'allRivals',
@@ -40,7 +40,7 @@ const list: readonly Badge[] = [
     lockedName: 'SCOUTING REPORT',
     how: 'VIEW EVERY RIVAL CARD.',
     earned: 'YOU KNOW THEIR HABITS NOW.',
-    points: 200,
+    points: 1500,
   },
   {
     id: 'secret',
@@ -48,7 +48,7 @@ const list: readonly Badge[] = [
     lockedName: '???',
     how: 'SOMETHING ON THIS PAGE IS HIDING.',
     earned: 'THE TOP OF THE LADDER IS NOT THE TOP.',
-    points: 500,
+    points: 3000,
   },
   {
     id: 'reachedEnd',
@@ -56,15 +56,16 @@ const list: readonly Badge[] = [
     lockedName: 'STAYED FOR CREDITS',
     how: 'REACH THE END OF THE PAGE.',
     earned: 'NOW PRESS PLAY.',
-    points: 100,
+    points: 750,
   },
 ];
 
 export const HUD: HudCopy = {
   player: `1UP ${PLAYER.name}`,
   score: 'SCORE',
+  progressLabel: 'PROGRESS',
   badges: 'BADGES',
-  toastTitle: 'BADGE GET!',
+  toastTitle: '> ACHIEVEMENT UNLOCKED:',
   progress: (have, total) => `${have}/${total}`,
   allEarned: 'ALL BADGES! YOU ARE READY. PRESS PLAY.',
   list,

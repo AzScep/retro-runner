@@ -12,10 +12,12 @@ export const HERO: HeroCopy = {
   subline: '16-BIT TRACK AND FIELD. MASH LEFT + RIGHT TO RUN.',
   playLabel: 'PLAY NOW',
   platforms: 'KEYBOARD OR TOUCH. NO DOWNLOAD.',
+  skipLink: 'SKIP THE DASH',
 };
 
 export const DASH: DashCopy = {
-  title: `60M DASH VS ${pip.name}`,
+  program: 'RACE.EXE',
+  title: `100M DASH VS ${pip.name}`,
   rivalLine: `${pip.name}: ${pipFlavour.toUpperCase()}`,
   howTo: {
     keyboard: [
@@ -26,6 +28,10 @@ export const DASH: DashCopy = {
     touch: [tip100?.touch ?? 'TAP LEFT, RIGHT, LEFT...', 'LEFT SIDE, RIGHT SIDE, REPEAT.', 'WAIT FOR GO!'],
   },
   startPrompt: { keyboard: 'PRESS ENTER TO RACE', touch: 'TAP TO RACE' },
+  paused: { title: 'PAUSED', keyboard: 'PRESS ENTER TO RESUME', touch: 'TAP TO RESUME' },
+  pads: { left: 'LEFT', right: 'RIGHT' },
+  output: { complete: 'RACE.EXE COMPLETE', halted: 'RACE.EXE HALTED' },
+  noTime: 'DNF',
   starter: { marks: 'ON YOUR MARKS', set: 'SET' },
   countdown: ['3', '2', '1', 'GO!'],
   mash: 'MASH!',
@@ -41,12 +47,13 @@ export const DASH: DashCopy = {
     cta: 'TOO CLOSE. PLAY FOR REAL',
   },
   lose: {
-    title: `${pip.name} WINS!`,
+    title: (winner) => `${winner} WINS!`,
     line: (you, pipTime) => `${pip.name} ${pipTime}   YOU ${you}`,
     cta: 'GET REVENGE IN THE GAME',
   },
   falseStart: { title: 'FALSE START!', line: 'ONE MORE AND YOU ARE OUT' },
   disqualified: { title: 'DISQUALIFIED', line: '2 FALSE STARTS. WAIT FOR GO!', cta: 'TRY AGAIN' },
   retryLabel: 'RUN AGAIN',
-  retryHint: { keyboard: ['PRESS R TO RETRY'], touch: ['TAP TO RETRY'] },
+  // Touch has the RUN AGAIN button only: a tap on the race must never restart it by accident.
+  retryHint: { keyboard: ['PRESS R TO RETRY'], touch: [] },
 };

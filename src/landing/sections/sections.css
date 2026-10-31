@@ -1,0 +1,668 @@
+/*
+ * Section layouts of the /welcome/ page (WIREFRAME.md). Components and tokens come from
+ * styles/; this file only places them. Phone first, then 768 px and 1024 px.
+ */
+
+.section__intro {
+  margin-bottom: var(--rr-space-8);
+}
+
+.section__cta {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--rr-space-12);
+  padding-bottom: var(--rr-space-2);
+}
+
+/* ---- 1. Hero ----------------------------------------------------------------------------- */
+
+.hero__grid {
+  display: grid;
+  grid-template-areas: 'copy' 'dash' 'cta';
+  gap: var(--rr-space-8);
+}
+
+.hero__copy {
+  grid-area: copy;
+  display: grid;
+  gap: var(--rr-space-4);
+  padding-top: var(--rr-space-8);
+}
+
+.hero__title {
+  padding-bottom: var(--rr-space-2);
+}
+
+.hero__tagline {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: var(--rr-leading-display);
+  color: var(--rr-color-text);
+}
+
+.hero__subline {
+  color: var(--rr-color-text-soft);
+}
+
+.hero__dash {
+  grid-area: dash;
+  min-width: 0;
+}
+
+/* The dash host keeps a 16:9 floor from the start; the dash fills its width when it mounts. */
+.hero__host {
+  aspect-ratio: 16 / 9;
+}
+
+.hero__cta {
+  grid-area: cta;
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: var(--rr-space-4);
+  padding-bottom: var(--rr-space-2);
+}
+
+@media (max-width: 767px) {
+  .hero__cta {
+    justify-items: stretch;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hero__grid {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-areas: 'copy dash' 'cta dash';
+    grid-template-rows: auto 1fr;
+    column-gap: var(--rr-space-12);
+    row-gap: var(--rr-space-8);
+  }
+}
+
+/* ---- 2. Story ---------------------------------------------------------------------------- */
+
+.story__intro {
+  display: grid;
+  gap: var(--rr-space-1);
+  margin-bottom: var(--rr-space-8);
+  color: var(--rr-color-text-soft);
+}
+
+.story__grid {
+  display: grid;
+  gap: var(--rr-space-8);
+  align-items: start;
+}
+
+/* Each node is one button: frame and text on the ladder's grid. */
+.story__pick {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: var(--rr-ladder-frame) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--rr-space-4);
+  min-height: var(--rr-tap-min);
+  padding: 0;
+  background: none;
+  border: 0;
+  text-align: left;
+}
+
+.story__text {
+  display: grid;
+  gap: var(--rr-space-1);
+}
+
+.story__pick:hover .rr-ladder__name,
+.story__pick[aria-pressed='true'] .rr-ladder__name {
+  color: var(--rr-color-cta);
+}
+
+.story__pick[aria-pressed='true'] .rr-ladder__frame {
+  box-shadow:
+    0 0 0 var(--rr-px) var(--rr-color-outline),
+    0 0 0 6px var(--rr-color-cta);
+}
+
+/* Portraits at whole multiples of their 16 px art: 3x in the 64 px frame, 4x in the 80 px one. */
+.story .rr-ladder__portrait {
+  width: 48px;
+  height: 48px;
+  margin: auto auto 0;
+}
+
+/* The silhouette's index 3 rim needs index 2 or darker behind it. */
+.story .rr-ladder__node--locked .rr-ladder__frame {
+  background: var(--rr-color-panel);
+}
+
+.story__node {
+  transition:
+    opacity var(--rr-dur-base) var(--rr-ease-pixel),
+    transform var(--rr-dur-base) var(--rr-ease-pixel);
+}
+
+.story__node.is-pending {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.story__card {
+  display: grid;
+  gap: var(--rr-space-3);
+}
+
+.story__scene {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  margin-bottom: var(--rr-space-2);
+  background: var(--rr-color-bg);
+  border: var(--rr-border);
+  overflow: hidden;
+}
+
+@media (min-width: 1024px) {
+  .story__scene {
+    aspect-ratio: 2 / 1;
+  }
+}
+
+.story__scene img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: bottom;
+}
+
+/* NO SIGNAL: static of ink and panel scanlines, never the hidden stadium. */
+.story__scene--locked {
+  background: repeating-linear-gradient(var(--rr-color-panel) 0 2px, var(--rr-color-bg) 2px 4px);
+  color: var(--rr-color-text-muted);
+}
+
+.story__card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--rr-space-3);
+}
+
+.story__badge {
+  width: 32px;
+  height: 32px;
+}
+
+.story__tier {
+  color: var(--rr-color-text-muted);
+}
+
+.story__rivals {
+  color: var(--rr-color-player);
+}
+
+.story__lines {
+  display: grid;
+  gap: var(--rr-space-1);
+}
+
+.story__outro {
+  margin-top: var(--rr-space-2);
+}
+
+.story__cta {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--rr-space-4);
+  padding-bottom: var(--rr-space-2);
+}
+
+@media (min-width: 768px) {
+  .story .rr-ladder__portrait {
+    width: 64px;
+    height: 64px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .story__grid {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: var(--rr-space-12);
+  }
+
+  .story__card {
+    position: sticky;
+    top: calc(var(--rr-hud-height) + var(--rr-space-6));
+  }
+
+  .story__cta {
+    justify-content: start;
+  }
+}
+
+/* ---- 3. Mechanics ------------------------------------------------------------------------ */
+
+/* The art box holds the loop on a tartan strip; canvases sit on it at their native 2x size. */
+.mech__art {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    linear-gradient(transparent calc(100% - 12px), var(--rr-color-tartan) calc(100% - 12px)),
+    var(--rr-sky, var(--rr-sky-4));
+}
+
+.mech__art canvas {
+  flex: none;
+  margin-bottom: 6px;
+}
+
+.rr-cart__title {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--rr-space-2);
+}
+
+.mech__hook {
+  font-weight: 600;
+}
+
+.mech__toggle {
+  justify-self: start;
+  margin-bottom: var(--rr-space-2);
+}
+
+.mech__body {
+  display: grid;
+  gap: var(--rr-space-4);
+}
+
+.mech__body[hidden] {
+  display: none;
+}
+
+/* Side by side, the cartridges share rows so labels, hooks and buttons line up. */
+@media (min-width: 768px) {
+  .mechanics .rr-cart-grid {
+    grid-template-rows: repeat(4, auto);
+  }
+
+  .mechanics .rr-cart {
+    grid-row: span 4;
+    grid-template-rows: subgrid;
+    align-content: start;
+  }
+}
+
+.mech__facts {
+  display: grid;
+  gap: var(--rr-space-2);
+}
+
+.mech__facts li {
+  padding-left: var(--rr-space-4);
+  text-indent: calc(-1 * var(--rr-space-4));
+}
+
+.mech__facts li::before {
+  content: '> ';
+}
+
+.mech__stats {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--rr-space-2) var(--rr-space-3);
+}
+
+.mech__stats dt {
+  font-size: var(--rr-text-12);
+}
+
+.mech__stats dd {
+  margin: 0;
+}
+
+.mech__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rr-space-2);
+}
+
+.mech__keys .rr-key {
+  font-size: var(--rr-text-12);
+}
+
+/* The unlock sticker: an ink label slapped on the shell. */
+.mech__sticker {
+  justify-self: start;
+  padding: var(--rr-space-2) var(--rr-space-3);
+  background: var(--rr-color-cta);
+  border: var(--rr-border);
+  font-size: var(--rr-text-12);
+  transform: rotate(-2deg);
+}
+
+/* ---- 4. Rival select --------------------------------------------------------------------- */
+
+.rivals__panel {
+  display: grid;
+  gap: var(--rr-space-4);
+  margin-bottom: var(--rr-space-8);
+}
+
+.rivals__vs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--rr-space-3);
+}
+
+.rivals__side {
+  display: grid;
+  justify-items: center;
+  gap: var(--rr-space-2);
+  text-align: center;
+}
+
+/* Sprite stages, sized to the 48 px frames at 2x (3x from 768 px), so nothing shifts. */
+.rivals__stage {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  max-width: 160px;
+  height: 104px;
+  background:
+    linear-gradient(transparent calc(100% - 8px), var(--rr-color-tartan) calc(100% - 8px)),
+    var(--rr-sky, var(--rr-sky-4));
+  border: var(--rr-border);
+  overflow: hidden;
+}
+
+.rivals__stage canvas {
+  flex: none;
+  margin-bottom: 4px;
+}
+
+/* The ??? stage: index 2 behind the silhouette so its rim reads. */
+.rivals__stage--locked {
+  align-items: center;
+  background: var(--rr-color-panel);
+  border-style: dashed;
+  border-color: var(--rr-color-rim-light);
+}
+
+.rivals__silhouette {
+  width: 96px;
+  height: 96px;
+}
+
+.rivals__vs-label {
+  align-self: center;
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-24);
+  color: var(--rr-color-player);
+  text-shadow: var(--rr-shadow-text);
+}
+
+.rivals__name {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-16);
+  line-height: var(--rr-leading-display);
+  overflow-wrap: anywhere;
+}
+
+.rivals__p1 {
+  font-size: var(--rr-text-12);
+  color: var(--rr-color-cta);
+}
+
+.rivals__who {
+  font-size: var(--rr-text-12);
+}
+
+.rivals__info {
+  display: grid;
+  gap: var(--rr-space-3);
+}
+
+.rivals__info .rr-label {
+  font-size: var(--rr-text-12);
+}
+
+.rivals__quirk {
+  color: var(--rr-color-text);
+}
+
+.rivals__times {
+  font-size: var(--rr-text-12);
+}
+
+.rivals__times tbody tr:first-child {
+  color: inherit;
+}
+
+.rivals__log {
+  min-height: 6em;
+  padding: var(--rr-space-3);
+  background: var(--rr-color-bg);
+  border: var(--rr-px) solid var(--rr-color-rim);
+}
+
+.rivals__log .rr-log__line {
+  color: var(--rr-color-warning);
+}
+
+.rivals__log .rr-log__line:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 0.6em;
+  height: 1em;
+  margin-left: 0.25em;
+  vertical-align: -0.125em;
+  background: currentColor;
+  animation: rr-blink var(--rr-dur-blink) steps(1, end) infinite;
+}
+
+.rivals__count {
+  justify-self: end;
+  color: var(--rr-color-success);
+}
+
+/* Grid portraits at whole multiples of the 48 px art: 3x, then 5x on desktop tiles. */
+.rivals .rr-rival__art {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.rivals .rr-rival__portrait {
+  flex: none;
+  width: 144px;
+  height: 144px;
+  max-width: none;
+}
+
+.rivals .rr-rival--locked .rr-rival__art {
+  align-items: center;
+  background: var(--rr-color-panel);
+}
+
+.rivals .rr-rival__meta {
+  font-size: var(--rr-text-12);
+}
+
+.rivals .rr-rival:focus-visible {
+  border-color: var(--rr-color-cta);
+}
+
+/* A poke at ??? glitches the tile for a moment. */
+.rr-rival.is-glitching {
+  animation: rr-glitch var(--rr-dur-slow) steps(1, end);
+}
+
+@keyframes rr-glitch {
+  0%,
+  40%,
+  80% {
+    transform: translateX(-4px);
+  }
+  20%,
+  60% {
+    transform: translateX(4px);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .rivals__stage {
+    max-width: 208px;
+    height: 152px;
+  }
+
+  .rivals__silhouette {
+    width: 144px;
+    height: 144px;
+  }
+
+  .rivals__name {
+    font-size: var(--rr-text-24);
+  }
+
+  .rivals__panel {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--rr-space-8);
+  }
+
+  .rivals__count {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1024px) {
+  .rivals .rr-rival__portrait {
+    width: 240px;
+    height: 240px;
+  }
+}
+
+/* ---- 5. Modes and records ---------------------------------------------------------------- */
+
+.modes__grid {
+  display: grid;
+  gap: var(--rr-space-8);
+  align-items: start;
+}
+
+.modes__list {
+  display: grid;
+  gap: var(--rr-space-4);
+}
+
+.modes__item {
+  display: grid;
+  gap: var(--rr-space-1);
+  padding-bottom: var(--rr-space-4);
+  border-bottom: var(--rr-px) dashed var(--rr-color-rim);
+}
+
+.modes__item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.modes__title {
+  font-size: var(--rr-text-16);
+  color: var(--rr-color-cta);
+}
+
+.modes .rr-scores {
+  font-size: var(--rr-text-12);
+}
+
+.modes__you {
+  color: var(--rr-color-player);
+}
+
+@media (min-width: 768px) {
+  .modes .rr-scores {
+    font-size: var(--rr-text-16);
+  }
+}
+
+@media (min-width: 1024px) {
+  .modes__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+/* ---- 6. Final CTA ------------------------------------------------------------------------ */
+
+.finale__title {
+  font-size: var(--rr-text-32);
+}
+
+/* The count and GAME OVER share one slot, so reaching 0 moves nothing. */
+.finale__slot {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+}
+
+.finale__slot > * {
+  grid-area: 1 / 1;
+}
+
+.finale__over {
+  display: grid;
+  justify-items: center;
+  gap: var(--rr-space-2);
+}
+
+.finale__game-over {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-24);
+  color: var(--rr-color-warning);
+}
+
+.finale__lines {
+  display: grid;
+  justify-items: center;
+  gap: var(--rr-space-1);
+  margin-bottom: var(--rr-space-6);
+  color: var(--rr-color-text-soft);
+}
+
+.rr-countdown__number.is-over {
+  visibility: hidden;
+}
+
+.finale .rr-btn {
+  margin-bottom: var(--rr-space-2);
+}
+
+@media (min-width: 1024px) {
+  .finale__title {
+    font-size: var(--rr-text-48);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story__node.is-pending {
+    opacity: 1;
+    transform: none;
+  }
+
+  .rr-rival.is-glitching,
+  .rivals__log .rr-log__line:last-child::after {
+    animation: none;
+  }
+}

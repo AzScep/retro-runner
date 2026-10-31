@@ -495,7 +495,8 @@
   display: flex;
   align-items: center;
   gap: var(--rr-space-3);
-  max-width: 100%;
+  /* One width for every toast, so a stack of them lines up. */
+  width: min(100%, 448px);
   padding: var(--rr-space-2) var(--rr-space-4) var(--rr-space-2) var(--rr-space-2);
   background: var(--rr-color-panel);
   border: var(--rr-px) solid var(--rr-color-cta);

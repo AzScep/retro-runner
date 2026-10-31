@@ -1,0 +1,38 @@
+/*
+ * Sound toggle (src/landing/audio/toggle.ts): a compact .rr-btn.rr-btn--secondary that fits the
+ * 60 px HUD. One row, icon then label; on phones the label is visually hidden and the 48 px square
+ * icon button remains. On, the cap stays sunk (.is-pressed) and the speaker lights up yellow.
+ */
+.rr-sound {
+  flex-direction: row;
+  gap: var(--rr-space-2);
+  padding: var(--rr-space-1) var(--rr-space-3);
+  font-size: var(--rr-text-12);
+}
+
+.rr-sound__icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  fill: currentColor;
+  shape-rendering: crispEdges;
+}
+
+.rr-sound.is-pressed .rr-sound__icon {
+  fill: var(--rr-color-cta);
+}
+
+@media (max-width: 479px) {
+  .rr-sound {
+    padding-inline: var(--rr-space-1);
+  }
+
+  .rr-sound__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

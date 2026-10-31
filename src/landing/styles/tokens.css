@@ -105,7 +105,7 @@
   --rr-gutter: 16px;
   --rr-max-width: 1152px;
   --rr-tap-min: 48px; /* above the 44 px minimum tap target */
-  --rr-hud-height: 56px;
+  --rr-hud-height: 60px;
 
   /*
    * Pixel geometry. One art pixel on the page is 2 CSS px. Outlines are hard and 1-2 art

@@ -2,12 +2,14 @@ import type { ModesCopy } from './types.ts';
 
 // README "Why play" and design 0, 4, 16, 17, 29, 32.
 export const MODES: ModesCopy = {
-  heading: { eyebrow: 'OPTIONS', title: 'MODES + RECORDS' },
+  heading: { eyebrow: 'OPTIONS.EXE', title: 'MODES + RECORDS' },
+  window: 'OPTIONS.CFG',
   features: [
     {
       title: 'GAUNTLET',
       line: 'EVERY MEET BACK TO BACK. LOSE ONCE, IT ENDS.',
       note: 'WIN THE NEON CUP FIRST',
+      locked: true,
     },
     { title: '1/100 TIMING', line: 'EVERY RACE TIMED TO THE HUNDREDTH.' },
     { title: 'PERSONAL BESTS', line: 'PBS, PLACINGS AND HISTORY SAVED IN YOUR BROWSER.' },
@@ -20,4 +22,10 @@ export const MODES: ModesCopy = {
       note: 'IPHONE: ADD TO HOME SCREEN FOR FULL SCREEN',
     },
   ],
+  records: {
+    window: 'HISCORE.DAT',
+    caption: '100M HI-SCORES',
+    head: ['RANK', 'NAME', 'TIME'],
+    playerTime: '--.--',
+  },
 };

@@ -8,3 +8,4 @@ export { RIVALS } from './rivals.ts';
 export { MODES } from './modes.ts';
 export { CONTINUE } from './cta.ts';
 export { HUD } from './hud.ts';
+export { TERMINAL } from './terminal.ts';

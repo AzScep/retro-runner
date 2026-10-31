@@ -42,7 +42,7 @@ Tokens live in `tokens.css`, components in `retro.css`, and `preview.html` shows
 - Add `.is-leaving` to a toast to play its exit, then remove it.
 - The HUD has no PLAY button: it would compete with each section's CTA.
 
-## 1. Hero: the 60 m dash
+## 1. Hero: the 100 m dash
 
 ```
 360                           1280
@@ -50,9 +50,9 @@ Tokens live in `tokens.css`, components in `retro.css`, and `preview.html` shows
 | [tower]            [tower] |  | [tower]                                          [tower]  |
 | RETRO                      |  |  RETRO RUNNER                 +------------------------+ |
 | RUNNER                     |  |  One-line pitch               |                        | |
-| One-line pitch             |  |  [ PLAY / INSERT COIN ]       |   60 m dash canvas     | |
+| One-line pitch             |  |  [ PLAY / INSERT COIN ]       |   100 m dash canvas     | |
 | +------------------------+ |  |  Tap or mash A D to try       |                        | |
-| |   60 m dash canvas     | |  |                               +------------------------+ |
+| |   100 m dash canvas     | |  |                               +------------------------+ |
 | +------------------------+ |  +-----------------------------------------------------------+
 | [ LEFT PAD ] [ RIGHT PAD ] |
 | [ PLAY / INSERT COIN ]     |

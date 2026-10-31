@@ -29,6 +29,8 @@ export interface HeroCopy {
   readonly playLabel: string;
   /** Short platform line under the CTA. */
   readonly platforms: string;
+  /** The skip link past the hero dash, for keyboard users. */
+  readonly skipLink: string;
 }
 
 export interface DashResult {
@@ -38,11 +40,26 @@ export interface DashResult {
   readonly cta: string;
 }
 
+/** A loss: the winner may be Pip or one of the four field runners (their names come from the race). */
+export interface DashLoss extends Omit<DashResult, 'title'> {
+  readonly title: (winner: string) => string;
+}
+
 export interface DashCopy {
+  /** Program name in the dash's title bar, DOS style. */
+  readonly program: string;
   readonly title: string;
   readonly rivalLine: string;
   readonly howTo: ModalityLines;
   readonly startPrompt: { readonly keyboard: string; readonly touch: string };
+  /** Shown over a race paused off screen or in a hidden tab. */
+  readonly paused: { readonly title: string; readonly keyboard: string; readonly touch: string };
+  /** The run pads over the race on touch. */
+  readonly pads: { readonly left: string; readonly right: string };
+  /** First line of the result card: the race ran to the line, or ended in a DQ. */
+  readonly output: { readonly complete: string; readonly halted: string };
+  /** Time column of a runner without a time (a DNF). */
+  readonly noTime: string;
   /** Starter bubbles: at "3" and "2", then at "1". */
   readonly starter: { readonly marks: string; readonly set: string };
   readonly countdown: readonly [string, string, string, string];
@@ -52,7 +69,7 @@ export interface DashCopy {
   readonly win: DashResult;
   /** A win by 50 ms or less (design 39.1.10). */
   readonly photoFinish: DashResult;
-  readonly lose: DashResult;
+  readonly lose: DashLoss;
   readonly falseStart: { readonly title: string; readonly line: string };
   readonly disqualified: { readonly title: string; readonly line: string; readonly cta: string };
   readonly retryLabel: string;
@@ -106,6 +123,11 @@ export interface MechanicsCopy {
   readonly heading: SectionHeading;
   readonly intro: string;
   readonly cartridges: readonly EventCartridge[];
+  /** The cartridge's open and close button labels. */
+  readonly load: string;
+  readonly eject: string;
+  /** Labels of the open cartridge's stats. */
+  readonly labels: { readonly controls: string; readonly length: string };
 }
 
 export interface RivalAppearance {
@@ -158,6 +180,8 @@ export interface RivalsCopy {
     readonly target: string;
     readonly events: string;
     readonly vs: string;
+    /** Rivals viewed so far, e.g. 'SCOUTED 3/7'. */
+    readonly scouted: string;
   };
 }
 
@@ -166,11 +190,22 @@ export interface FeatureLine {
   readonly line: string;
   /** Optional small print, e.g. an unlock condition. */
   readonly note?: string;
+  /** Tagged [LOCKED] until earned in the game, like the Gauntlet. */
+  readonly locked?: boolean;
 }
 
 export interface ModesCopy {
   readonly heading: SectionHeading;
+  /** Title bar of the window that lists the features. */
+  readonly window: string;
   readonly features: readonly FeatureLine[];
+  /** Arcade hi-score table of the 100 m rivals' target times, with Rio's empty row last. */
+  readonly records: {
+    readonly window: string;
+    readonly caption: string;
+    readonly head: readonly [string, string, string];
+    readonly playerTime: string;
+  };
 }
 
 export interface ContinueCopy {
@@ -203,6 +238,7 @@ export interface Badge {
 export interface HudCopy {
   readonly player: string;
   readonly score: string;
+  readonly progressLabel: string;
   readonly badges: string;
   readonly toastTitle: string;
   /** e.g. '3/7' */
@@ -215,4 +251,13 @@ export interface AudioCopy {
   readonly on: string;
   readonly off: string;
   readonly label: string;
+}
+
+/** DOS-style frame of the page: the boot log, the prompt before section commands and status tags. */
+export interface TerminalCopy {
+  /** Shown before each section's eyebrow command, e.g. 'C:\\RUNNER>'. */
+  readonly prompt: string;
+  /** POST log typed over the hero on a first visit; decorative. */
+  readonly boot: readonly string[];
+  readonly tags: { readonly ok: string; readonly locked: string; readonly new: string };
 }

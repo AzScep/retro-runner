@@ -1,0 +1,317 @@
+/*
+ * The DOS and arcade frame of the landing page: C:\RUNNER> prompts, typed lines, bracketed status
+ * tags, the BIOS boot log, the status-line HUD and log-style toasts. A frame around the game art,
+ * never a modern developer terminal. Same tokens as retro.css; prompts are phosphor green.
+ */
+
+/* ---- Prompt and typed lines --------------------------------------------------------------- */
+
+/* A C:\RUNNER> command line, such as a section eyebrow. */
+.rr-prompt {
+  max-width: none;
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-12);
+  line-height: var(--rr-leading-display);
+  color: var(--rr-color-success);
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 768px) {
+  .rr-prompt {
+    font-size: var(--rr-text-16);
+  }
+}
+
+/* typedLine(): the untyped rest keeps its space, so typing never moves the layout. */
+.rr-type {
+  position: relative;
+}
+
+.rr-type__rest {
+  visibility: hidden;
+}
+
+.rr-type .rr-caret {
+  width: 0.6em;
+}
+
+/* ---- Status tags ------------------------------------------------------------------------- */
+
+/* [OK], [LOCKED], [NEW]: game-font tags after a name. */
+.rr-tag {
+  display: inline-block;
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-12);
+  line-height: var(--rr-leading-display);
+  letter-spacing: 0;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.rr-tag--ok {
+  color: var(--rr-color-success);
+}
+
+.rr-tag--locked {
+  color: var(--rr-color-text-muted);
+}
+
+.rr-tag--new {
+  color: var(--rr-color-cta);
+  animation: rr-blink var(--rr-dur-blink) steps(1, end) infinite;
+}
+
+/* Tags on light fills (cartridge labels) are ink. */
+.rr-cart .rr-tag {
+  color: var(--rr-color-text-on-light);
+}
+
+/* ---- BIOS boot log ------------------------------------------------------------------------ */
+
+/* Covers its section (position: relative) for about 1.5 s on a first visit. Decorative. */
+.rr-boot {
+  position: absolute;
+  inset: 0;
+  z-index: var(--rr-z-raised);
+  padding-block: var(--rr-space-8);
+  background: var(--rr-color-bg);
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-12);
+  line-height: 2;
+  color: var(--rr-color-text-soft);
+}
+
+.rr-boot__line {
+  max-width: none;
+  min-height: 2em;
+  overflow-wrap: anywhere;
+}
+
+.rr-boot__line:first-child {
+  color: var(--rr-color-cta);
+}
+
+.rr-boot__line:last-child {
+  color: var(--rr-color-success);
+}
+
+@media (min-width: 768px) {
+  .rr-boot {
+    padding-block: var(--rr-space-16);
+    font-size: var(--rr-text-16);
+  }
+}
+
+/* ---- Status-line HUD ---------------------------------------------------------------------- */
+
+/* 1UP 004200 | PROGRESS ######.. | BADGES 3/7 | sound, like a DOS status bar. */
+.rr-status .rr-hud__inner {
+  grid-template-columns: auto minmax(24px, 1fr) auto auto;
+  gap: 0;
+}
+
+.rr-status__cell {
+  display: flex;
+  align-items: center;
+  gap: var(--rr-space-2);
+  min-width: 0;
+  height: 100%;
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-12);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rr-status__cell + .rr-status__cell::before {
+  content: '|';
+  flex: none;
+  padding-inline: var(--rr-space-1);
+  color: var(--rr-color-rim-light);
+}
+
+.rr-status .rr-hud__score {
+  font-size: var(--rr-text-12);
+}
+
+.rr-status__label {
+  color: var(--rr-color-text-muted);
+}
+
+.rr-status__count {
+  color: var(--rr-color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Wide-only parts: the player name, the PROGRESS word and count, the badge slots. */
+.rr-status__wide {
+  display: none;
+}
+
+/* The meter as block cells: lit cells over dim ones. */
+.rr-status .rr-meter {
+  flex: 1;
+  min-width: 24px;
+  height: 12px;
+  background: repeating-linear-gradient(90deg, var(--rr-color-rim) 0 6px, transparent 6px 8px);
+  border: 0;
+}
+
+.rr-status .rr-meter__fill {
+  inset: 0;
+  width: calc(100% * var(--rr-meter-value));
+}
+
+/* BADGES 3/7 opens the badge list. A text button on the status line, 48 px tall. */
+.rr-status__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--rr-space-2);
+  min-width: var(--rr-tap-min);
+  min-height: var(--rr-tap-min);
+  padding: 0 var(--rr-space-1);
+  background: none;
+  border: 0;
+  font-family: var(--rr-font-display);
+  font-size: inherit;
+  line-height: 1;
+  color: inherit;
+}
+
+.rr-status__toggle:hover .rr-status__count,
+.rr-status__toggle[aria-expanded='true'] .rr-status__count {
+  color: var(--rr-color-cta);
+}
+
+.rr-status__toggle:focus-visible {
+  outline-offset: calc(-1 * var(--rr-focus-width));
+}
+
+.rr-status .rr-hud__badges {
+  gap: var(--rr-space-1);
+}
+
+.rr-status .rr-badge {
+  width: 16px;
+  height: 16px;
+}
+
+@media (min-width: 768px) {
+  .rr-status__cell,
+  .rr-status .rr-hud__score {
+    font-size: var(--rr-text-16);
+  }
+
+  .rr-status__cell + .rr-status__cell::before {
+    padding-inline: var(--rr-space-2);
+  }
+
+  .rr-status__wide {
+    display: inline;
+  }
+
+  .rr-status .rr-meter {
+    height: 16px;
+  }
+}
+
+/* Slots replace the BADGES word where there is room for all seven. */
+.rr-status__slots {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .rr-status .rr-status__slots {
+    display: flex;
+  }
+
+  .rr-status .rr-status__word {
+    display: none;
+  }
+}
+
+/* The badge list under the status line. */
+.rr-badge-list[hidden] {
+  display: none;
+}
+
+.rr-badge-list {
+  position: absolute;
+  top: 100%;
+  right: var(--rr-gutter);
+  width: min(400px, calc(100% - 2 * var(--rr-gutter)));
+  max-height: calc(100dvh - var(--rr-hud-height) - var(--rr-space-4));
+  overflow-y: auto;
+  display: grid;
+  gap: var(--rr-space-4);
+  padding: var(--rr-space-4);
+}
+
+.rr-badge-list__rows {
+  display: grid;
+  gap: var(--rr-space-3);
+}
+
+.rr-badge-list__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--rr-space-1) var(--rr-space-2);
+  align-items: baseline;
+}
+
+.rr-badge-list__name,
+.rr-badge-list__points {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-12);
+  line-height: var(--rr-leading-display);
+}
+
+.rr-badge-list__row.is-earned .rr-badge-list__name {
+  color: var(--rr-color-cta);
+}
+
+.rr-badge-list__points {
+  color: var(--rr-color-text-muted);
+}
+
+.rr-badge-list__how {
+  grid-column: 1 / -1;
+  font-size: var(--rr-text-small);
+  line-height: var(--rr-leading-tight);
+  color: var(--rr-color-text-soft);
+}
+
+.rr-badge-list__done {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-12);
+  line-height: var(--rr-leading-display);
+  color: var(--rr-color-success);
+}
+
+/* ---- Log output (toasts, the ??? replies) ------------------------------------------------- */
+
+.rr-log {
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-12);
+  line-height: var(--rr-leading-display);
+}
+
+.rr-log .rr-toast__title {
+  font-size: var(--rr-text-12);
+  color: var(--rr-color-success);
+}
+
+.rr-log__line {
+  max-width: none;
+  color: var(--rr-color-cta);
+  overflow-wrap: anywhere;
+}
+
+.rr-toast.rr-log {
+  border-color: var(--rr-color-success);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rr-tag--new {
+    animation: none;
+  }
+}

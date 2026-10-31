@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Landing sound preview</title>
+  </head>
+  <body>
+    <main class="rr-container" style="display: grid; gap: 24px; padding-block: 24px">
+      <p>Landing sound (src/landing/audio). Turn sound on, then fire each cue. M toggles too.</p>
+      <div id="toggle"></div>
+      <div id="cues" style="display: flex; flex-wrap: wrap; gap: 16px"></div>
+      <p>
+        <label>A text field (M types here): <input type="text" /></label>
+      </p>
+    </main>
+    <script type="module" src="./preview.ts"></script>
+  </body>
+</html>

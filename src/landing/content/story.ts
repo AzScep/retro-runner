@@ -30,7 +30,7 @@ const beats: readonly StoryBeat[] = SHOWN_TIERS.map((tier) => ({
 }));
 
 export const STORY: StoryCopy = {
-  heading: { eyebrow: 'STAGE SELECT', title: `${PLAYER.name}'S CLIMB` },
+  heading: { eyebrow: 'STAGES.EXE', title: `${PLAYER.name}'S CLIMB` },
   intro: [
     `THIS IS ${PLAYER.name}. RED SINGLET. YELLOW HEADBAND.`,
     'SIX RUNNERS A RACE. ONLY 1ST MOVES YOU UP.',

@@ -49,7 +49,10 @@ const cartridges: readonly EventCartridge[] = [
 ];
 
 export const MECHANICS: MechanicsCopy = {
-  heading: { eyebrow: 'SELECT EVENT', title: '3 EVENTS. 3 SKILLS.' },
+  heading: { eyebrow: 'EVENTS.EXE', title: '3 EVENTS. 3 SKILLS.' },
   intro: 'SAME MASH. A NEW TRICK EVERY EVENT.',
   cartridges,
+  load: 'LOAD',
+  eject: 'EJECT',
+  labels: { controls: 'KEYS', length: 'RACE' },
 };

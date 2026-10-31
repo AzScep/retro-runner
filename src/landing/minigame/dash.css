@@ -1,0 +1,326 @@
+/*
+ * The hero dash (owner: J4). Tokens from styles/tokens.css. The race canvas is the game's view; the
+ * HUD over it scales with --rr-dash-px (CSS px per art px, set by view.ts), and the bar and console
+ * frame it as a DOS program: a title bar, starter calls as log lines, the result as program output.
+ */
+.rr-dash {
+  --rr-dash-px: 2;
+  width: 100%;
+  font-family: var(--rr-font-display);
+  font-size: var(--rr-text-12);
+  line-height: var(--rr-leading-display);
+  color: var(--rr-color-text);
+}
+
+/* The text steps up with the stage's width, not the host's. */
+.rr-dash__frame {
+  container-type: inline-size;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+/* ---- Title bar --------------------------------------------------------------------------- */
+
+.rr-dash__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--rr-space-1) var(--rr-space-3);
+  margin-bottom: var(--rr-space-2);
+  font-size: var(--rr-text-8);
+  line-height: 2;
+}
+
+.rr-dash__program {
+  color: var(--rr-color-cta);
+}
+
+.rr-dash__title {
+  color: var(--rr-color-text-soft);
+}
+
+/* ---- Race stage -------------------------------------------------------------------------- */
+
+.rr-dash__stage {
+  position: relative;
+  overflow: hidden;
+  background: var(--rr-color-bg);
+  box-shadow: 0 0 0 var(--rr-px) var(--rr-color-rim-light);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.rr-dash__stage:focus {
+  outline: none;
+}
+
+/* While a race is live the stage is the run pads: no scrolling, zooming or callouts from it. */
+.rr-dash__stage.is-live {
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+
+.rr-dash__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.rr-dash__hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-size: calc(8px * var(--rr-dash-px));
+  line-height: 1;
+  text-shadow:
+    calc(1px * var(--rr-dash-px)) calc(1px * var(--rr-dash-px)) 0 var(--rr-color-outline),
+    0 calc(1px * var(--rr-dash-px)) 0 var(--rr-color-outline);
+}
+
+.rr-dash__time,
+.rr-dash__place {
+  position: absolute;
+  top: calc(6px * var(--rr-dash-px));
+  min-width: 1px;
+  font-size: max(var(--rr-text-12), calc(10px * var(--rr-dash-px)));
+}
+
+.rr-dash__time {
+  left: calc(6px * var(--rr-dash-px));
+}
+
+.rr-dash__place {
+  right: calc(6px * var(--rr-dash-px));
+}
+
+/* Live place colours (design 27.1): gold, silver, bronze, then white. */
+.rr-dash__place[data-place='1'] {
+  color: var(--rr-color-cta);
+}
+.rr-dash__place[data-place='2'] {
+  color: var(--rr-color-text-soft);
+}
+.rr-dash__place[data-place='3'] {
+  color: var(--rr-color-cta-mid);
+}
+
+/* Countdown digit at the game's 4x, banners (FALSE START!) at 1.5x. */
+.rr-dash__big {
+  position: absolute;
+  top: 26%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: calc(32px * var(--rr-dash-px));
+  color: var(--rr-color-cta);
+}
+
+.rr-dash__big[data-size='word'] {
+  font-size: calc(12px * var(--rr-dash-px));
+  color: var(--rr-color-warning);
+}
+
+.rr-dash__prompt {
+  position: absolute;
+  bottom: 28%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: calc(12px * var(--rr-dash-px));
+  color: var(--rr-color-cta);
+}
+
+.rr-dash__prompt[data-prompt='alternate'] {
+  color: var(--rr-color-player);
+}
+
+/*
+ * Touch run pads: each half of the stage is a pad. Their labels sit in the foreground strip under
+ * the near lane (art rows 165-180), so they never cover a runner.
+ */
+.rr-dash__pads {
+  position: absolute;
+  inset: auto 0 0;
+  display: none;
+  gap: calc(2px * var(--rr-dash-px));
+  height: calc(15px * var(--rr-dash-px));
+  padding: calc(1px * var(--rr-dash-px));
+  pointer-events: none;
+}
+
+.rr-dash[data-modality='touch'][data-mode='live'] .rr-dash__pads {
+  display: flex;
+}
+
+.rr-dash__pad {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  border: var(--rr-px) dashed var(--rr-color-rim-light);
+  background: rgb(11 11 20 / 35%);
+  color: var(--rr-color-text-soft);
+  font-size: var(--rr-text-8);
+}
+
+/* Start and resume prompt over the stage. Never clip-path: it is focusable. */
+.rr-dash__go {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--rr-space-3);
+  width: 100%;
+  padding: var(--rr-space-4);
+  border: 0;
+  background: rgb(11 11 20 / 55%);
+  color: var(--rr-color-cta);
+  font: inherit;
+  font-size: var(--rr-text-12);
+  line-height: var(--rr-leading-display);
+  text-shadow: var(--rr-shadow-text);
+  cursor: pointer;
+}
+
+.rr-dash__go[hidden] {
+  display: none;
+}
+
+.rr-dash__go:focus-visible {
+  outline-offset: calc(-1 * var(--rr-focus-width));
+}
+
+.rr-dash__go:hover .rr-dash__go-line {
+  color: var(--rr-color-cta-light);
+}
+
+.rr-dash__go-title {
+  color: var(--rr-color-text);
+  font-size: var(--rr-text-16);
+}
+
+.rr-dash__cmd::before {
+  content: '> ' / '';
+}
+
+/* ---- Console: log lines, then the result --------------------------------------------------- */
+
+.rr-dash__console {
+  margin-top: var(--rr-space-4);
+  padding: var(--rr-space-3);
+  background: var(--rr-color-bg);
+  /* Outside the box, like the stage's rim, so both edges line up. */
+  box-shadow: 0 0 0 var(--rr-px) var(--rr-color-rim-light);
+}
+
+.rr-dash__log {
+  min-height: calc(4 * 1.5em);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rr-dash__log[hidden],
+.rr-dash__card[hidden] {
+  display: none;
+}
+
+.rr-dash__line {
+  overflow-wrap: anywhere;
+}
+
+.rr-dash__line::before {
+  content: '> ' / '';
+  color: var(--rr-color-text-muted);
+}
+
+.rr-dash__line--note {
+  color: var(--rr-color-text-muted);
+}
+
+.rr-dash__line--alert {
+  color: var(--rr-color-warning);
+}
+
+.rr-dash__card {
+  display: grid;
+  gap: var(--rr-space-2);
+}
+
+.rr-dash__card:focus {
+  outline: none;
+}
+
+.rr-dash__card p {
+  margin: 0;
+}
+
+.rr-dash__out {
+  color: var(--rr-color-success);
+}
+
+.rr-dash__card[data-kind='dq'] .rr-dash__out {
+  color: var(--rr-color-warning);
+}
+
+.rr-dash__result {
+  font-size: var(--rr-text-16);
+  color: var(--rr-color-cta);
+}
+
+.rr-dash__table {
+  justify-self: start;
+  border-collapse: collapse;
+  color: var(--rr-color-text-soft);
+}
+
+.rr-dash__table td {
+  padding: 0 var(--rr-space-4) 0 0;
+}
+
+.rr-dash__table .rr-dash__num {
+  padding-right: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rr-dash__table tr.is-you {
+  color: var(--rr-color-player);
+}
+
+.rr-dash__note {
+  color: var(--rr-color-text-soft);
+}
+
+.rr-dash__cta::before {
+  content: '> ' / '';
+}
+
+.rr-dash__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rr-space-3);
+  /* Room for the buttons' 6 px side. */
+  padding: var(--rr-space-2) 0 var(--rr-space-2);
+}
+
+.rr-dash__hint {
+  color: var(--rr-color-text-muted);
+  font-size: var(--rr-text-8);
+}
+
+@container (min-width: 560px) {
+  .rr-dash__bar {
+    font-size: var(--rr-text-12);
+  }
+
+  .rr-dash__go {
+    font-size: var(--rr-text-16);
+  }
+
+  .rr-dash__console {
+    padding: var(--rr-space-4);
+  }
+}

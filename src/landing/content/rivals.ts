@@ -34,7 +34,7 @@ function card(id: OpponentId): RivalCard {
 }
 
 export const RIVALS: RivalsCopy = {
-  heading: { eyebrow: 'VS', title: 'SELECT YOUR RIVAL' },
+  heading: { eyebrow: 'RIVALS.EXE', title: 'SELECT YOUR RIVAL' },
   prompt: {
     keyboard: ['ARROWS: CHOOSE   ENTER: VIEW'],
     touch: ['TAP A RIVAL'],
@@ -46,7 +46,12 @@ export const RIVALS: RivalsCopy = {
     who: 'UNKNOWN',
     quirk: 'NOT ON ANY LADDER. YET.',
     eventsLine: '???',
-    pokeLines: ['ACCESS DENIED.', 'FINISH 1ST AT THE NEON CUP.', 'THEN WE TALK.'],
+    pokeLines: [
+      'ERROR 403: ACCESS DENIED.',
+      'ERROR 0x7E: FILE CORRUPTED.',
+      'FINISH 1ST AT THE NEON CUP.',
+      'THEN WE TALK.',
+    ],
   },
-  labels: { tier: 'TIER', target: 'TO BEAT', events: 'EVENTS', vs: 'VS' },
+  labels: { tier: 'TIER', target: 'TO BEAT', events: 'EVENTS', vs: 'VS', scouted: 'SCOUTED' },
 };
