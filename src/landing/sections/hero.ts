@@ -23,13 +23,14 @@ export function mountHero(game: Game): HTMLElement {
   const cta = el(
     'div',
     { class: 'hero__cta' },
-    playButton(HERO.playLabel, { sub: HERO.kicker, coin: true }),
+    playButton(HERO.playLabel, { sub: HERO.playSub, coin: true }),
     el('p', { class: 'rr-small rr-muted', text: HERO.platforms }),
   );
   const section = el(
     'section',
     { class: 'rr-section rr-backdrop--floodlit hero', attrs: { id: 'top', 'aria-labelledby': 'top-title' } },
-    el('div', { class: 'rr-container hero__grid' }, copy, dash, cta),
+    // PLAY comes before the dash in the DOM, so phones show it above the fold and Tab reaches it first.
+    el('div', { class: 'rr-container hero__grid' }, copy, cta, dash),
   );
   mountDash(host, (e) => game.dash(e));
   mountBoot(section);

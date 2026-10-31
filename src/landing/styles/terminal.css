@@ -209,6 +209,11 @@
     display: inline;
   }
 
+  /* The PROGRESS word and count only fit beside the BADGES slots from 1024 px. */
+  .rr-status__progress .rr-status__wide {
+    display: none;
+  }
+
   .rr-status .rr-meter {
     height: 16px;
   }
@@ -227,6 +232,21 @@
   .rr-status .rr-status__word {
     display: none;
   }
+
+  .rr-status__progress .rr-status__wide {
+    display: inline;
+  }
+}
+
+.rr-status .rr-status__icon {
+  width: 12px;
+  height: 12px;
+}
+
+@media (min-width: 768px) {
+  .rr-status .rr-status__icon {
+    display: none;
+  }
 }
 
 /* The badge list under the status line. */
@@ -237,7 +257,7 @@
 .rr-badge-list {
   position: absolute;
   top: 100%;
-  right: var(--rr-gutter);
+  right: max(var(--rr-gutter), (100% - var(--rr-max-width)) / 2);
   width: min(400px, calc(100% - 2 * var(--rr-gutter)));
   max-height: calc(100dvh - var(--rr-hud-height) - var(--rr-space-4));
   overflow-y: auto;
@@ -295,7 +315,8 @@
   line-height: var(--rr-leading-display);
 }
 
-.rr-log .rr-toast__title {
+.rr-log .rr-toast__title,
+.rr-log .rr-toast__text {
   font-size: var(--rr-text-12);
   color: var(--rr-color-success);
 }

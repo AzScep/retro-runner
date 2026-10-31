@@ -11,6 +11,7 @@ export const HERO: HeroCopy = {
   tagline: 'YOUR HANDS SET THE PACE.',
   subline: '16-BIT TRACK AND FIELD. MASH LEFT + RIGHT TO RUN.',
   playLabel: 'PLAY NOW',
+  playSub: 'FREE PLAY',
   platforms: 'KEYBOARD OR TOUCH. NO DOWNLOAD.',
   skipLink: 'SKIP THE DASH',
 };

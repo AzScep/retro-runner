@@ -104,7 +104,7 @@ export function mountRivals(game: Game): HTMLElement {
             'tr',
             {},
             el('th', { text: RIVALS.labels.tier, attrs: { scope: 'col' } }),
-            el('th', { text: RIVALS.labels.events, attrs: { scope: 'col' } }),
+            el('th', { text: RIVALS.labels.event, attrs: { scope: 'col' } }),
             el('th', { text: RIVALS.labels.target, attrs: { scope: 'col' } }),
           ),
         ),
@@ -191,7 +191,8 @@ export function mountRivals(game: Game): HTMLElement {
       tag.textContent = TERMINAL.tags.ok;
       if (scouted.add(r.id)) game.earn('allRivals');
       drawCount();
-      if (matchMedia('(max-width: 767px)').matches) panel.scrollIntoView({ block: 'nearest' });
+      // The panel sits above the grid: bring it back into view when a lower card is picked.
+      panel.scrollIntoView({ block: 'nearest' });
     });
     onApproach(card, () => (img.src = portraitUrl(r.id as LandingRivalId, 48, false, 1)));
     return card;
@@ -202,7 +203,7 @@ export function mountRivals(game: Game): HTMLElement {
       'button',
       {
         class: 'rr-rival rr-rival--locked',
-        attrs: { type: 'button', 'aria-disabled': 'true', 'aria-controls': 'rival-detail' },
+        attrs: { type: 'button', 'aria-controls': 'rival-detail' },
       },
       el(
         'span',
@@ -225,7 +226,8 @@ export function mountRivals(game: Game): HTMLElement {
       card.classList.remove('is-glitching');
       void card.offsetWidth;
       card.classList.add('is-glitching');
-      if (matchMedia('(max-width: 767px)').matches) panel.scrollIntoView({ block: 'nearest' });
+      // The panel sits above the grid: bring it back into view when a lower card is picked.
+      panel.scrollIntoView({ block: 'nearest' });
     });
     return card;
   };

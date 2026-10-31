@@ -18,7 +18,7 @@
 
 .hero__grid {
   display: grid;
-  grid-template-areas: 'copy' 'dash' 'cta';
+  grid-template-areas: 'copy' 'cta' 'dash';
   gap: var(--rr-space-8);
 }
 
@@ -559,7 +559,6 @@
 .modes__grid {
   display: grid;
   gap: var(--rr-space-8);
-  align-items: start;
 }
 
 .modes__list {

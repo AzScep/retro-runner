@@ -62,6 +62,9 @@ export class DashView {
   #renderer: DashRenderer | null = null;
   #modality: Modality;
   #viewW = 320;
+  /** Host width and window height of the last fit; the observer refits only when one changes. */
+  #fitWidth = 0;
+  #fitHeight = 0;
   /** Enough of the stage on screen to race (keys, Enter, auto-pause). */
   #inView = false;
   /** Any of the stage on screen: worth drawing. */
@@ -346,7 +349,15 @@ export class DashView {
       { threshold: [0, IN_VIEW_RATIO, 1] },
     );
     io.observe(stage);
-    const ro = new ResizeObserver(() => this.#fit());
+    // #fit resizes the observed host, so it runs on the next frame, never inside the callback
+    // (WebKit reports "ResizeObserver loop completed with undelivered notifications"), and only
+    // when the width or window height changed, not for the height it set itself.
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(() => {
+        if (this.#destroyed) return;
+        if (this.#root.clientWidth !== this.#fitWidth || window.innerHeight !== this.#fitHeight) this.#fit();
+      });
+    });
     ro.observe(this.#root);
     this.#observers.push(io, ro);
     this.#fit();
@@ -394,6 +405,8 @@ export class DashView {
   #fit(): void {
     const width = this.#root.clientWidth;
     if (width <= 0) return;
+    this.#fitWidth = width;
+    this.#fitHeight = window.innerHeight;
     const f = fitStage(width, window.innerHeight * MAX_HEIGHT_SHARE, window.devicePixelRatio || 1);
     this.#viewW = f.viewW;
     this.#canvas.width = f.viewW;
@@ -438,6 +451,8 @@ export class DashView {
       this.#announce(card.title, card.line, card.cta);
     }
     this.#card.focus({ preventScroll: true });
+    // The card opens under the race; on a short screen it would land below the fold.
+    this.#card.scrollIntoView({ block: 'nearest', behavior: this.#reduced.matches ? 'auto' : 'smooth' });
   }
 
   #draw(now: number): void {

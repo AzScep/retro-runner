@@ -36,7 +36,7 @@ function card(id: OpponentId): RivalCard {
 export const RIVALS: RivalsCopy = {
   heading: { eyebrow: 'RIVALS.EXE', title: 'SELECT YOUR RIVAL' },
   prompt: {
-    keyboard: ['ARROWS: CHOOSE   ENTER: VIEW'],
+    keyboard: ['ARROWS: CHOOSE | ENTER: VIEW'],
     touch: ['TAP A RIVAL'],
   },
   player: { name: PLAYER.name, tag: 'PLAYER 1', look: 'RED SINGLET. YELLOW HEADBAND.' },
@@ -53,5 +53,5 @@ export const RIVALS: RivalsCopy = {
       'THEN WE TALK.',
     ],
   },
-  labels: { tier: 'TIER', target: 'TO BEAT', events: 'EVENTS', vs: 'VS', scouted: 'SCOUTED' },
+  labels: { tier: 'TIER', target: 'TO BEAT', events: 'EVENTS', event: 'EVENT', vs: 'VS', scouted: 'SCOUTED' },
 };

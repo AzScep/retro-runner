@@ -482,13 +482,18 @@
 .rr-toast-stack {
   position: fixed;
   top: calc(var(--rr-hud-height) + var(--rr-space-2));
-  right: var(--rr-gutter);
+  /* Right edge lines up with the page content on wide screens. */
+  right: max(var(--rr-gutter), (100% - var(--rr-max-width)) / 2);
   left: var(--rr-gutter);
   z-index: var(--rr-z-toast);
   display: grid;
   justify-items: end;
   gap: var(--rr-space-2);
   pointer-events: none;
+}
+
+.rr-toast-stack[hidden] {
+  display: none;
 }
 
 .rr-toast {
@@ -617,10 +622,19 @@
 }
 
 .rr-cart__title {
+  /* A long event name wraps on its own; the status tag stays on the first line at the right. */
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--rr-space-2);
   font-family: var(--rr-font-display);
   font-size: var(--rr-text-16);
   line-height: var(--rr-leading-display);
   color: var(--rr-color-text-on-light);
+}
+
+.rr-cart__title > :last-child {
+  flex: none;
 }
 
 .rr-cart__text {

@@ -192,6 +192,19 @@
   outline-offset: calc(-1 * var(--rr-focus-width));
 }
 
+/* An ink plate, so the prompt stays readable over the bright ad boards and runners. */
+.rr-dash__go-line {
+  padding: var(--rr-space-2) var(--rr-space-3);
+  background: var(--rr-color-bg);
+  box-shadow: 0 0 0 var(--rr-px) var(--rr-color-rim-light);
+}
+
+@media (min-width: 768px) {
+  .rr-dash__go {
+    font-size: var(--rr-text-16);
+  }
+}
+
 .rr-dash__go:hover .rr-dash__go-line {
   color: var(--rr-color-cta-light);
 }

@@ -27,6 +27,8 @@ export interface HeroCopy {
   readonly tagline: string;
   readonly subline: string;
   readonly playLabel: string;
+  /** Second line on the PLAY button. */
+  readonly playSub: string;
   /** Short platform line under the CTA. */
   readonly platforms: string;
   /** The skip link past the hero dash, for keyboard users. */
@@ -179,6 +181,8 @@ export interface RivalsCopy {
     readonly tier: string;
     readonly target: string;
     readonly events: string;
+    /** Column heading over one event per row. */
+    readonly event: string;
     readonly vs: string;
     /** Rivals viewed so far, e.g. 'SCOUTED 3/7'. */
     readonly scouted: string;

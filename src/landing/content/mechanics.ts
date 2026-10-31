@@ -54,5 +54,5 @@ export const MECHANICS: MechanicsCopy = {
   cartridges,
   load: 'LOAD',
   eject: 'EJECT',
-  labels: { controls: 'KEYS', length: 'RACE' },
+  labels: { controls: 'CONTROLS', length: 'RACE' },
 };

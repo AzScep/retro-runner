@@ -96,7 +96,10 @@ export function mountHud(sectionCount: number): HudMount {
   const badgeCount = node('span', 'rr-status__count');
   const word = node('span', 'rr-status__label rr-status__wide rr-status__word', HUD.badges);
   word.setAttribute('aria-hidden', 'true');
-  toggle.append(word, slots, badgeCount);
+  // Phones have room for neither the word nor the slots: one badge glyph labels the count.
+  const icon = node('span', 'rr-badge rr-badge--earned rr-status__icon');
+  icon.setAttribute('aria-hidden', 'true');
+  toggle.append(icon, word, slots, badgeCount);
   badges.append(toggle);
 
   const sound = node('div', 'rr-status__cell rr-hud__sound');
@@ -116,6 +119,8 @@ export function mountHud(sectionCount: number): HudMount {
 
   const setOpen = (open: boolean, refocus = false) => {
     list.hidden = !open;
+    // Toasts sit where the list opens; the list already shows a new badge, so they wait.
+    stack.hidden = open;
     toggle.setAttribute('aria-expanded', String(open));
     if (!open && refocus) toggle.focus();
   };
